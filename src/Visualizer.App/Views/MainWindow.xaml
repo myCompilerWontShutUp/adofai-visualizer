@@ -1,0 +1,395 @@
+<Window x:Class="Visualizer.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:rendering="clr-namespace:Visualizer.App.Rendering"
+        xmlns:input="clr-namespace:Visualizer.App.Input"
+        xmlns:themes="clr-namespace:Visualizer.App.Themes"
+        xmlns:views="clr-namespace:Visualizer.App.Views"
+        Title="ADOFAI Practice Visualizer" Width="500" Height="800" MinWidth="400" MinHeight="640"
+        FontFamily="Segoe UI" FontSize="13" UseLayoutRounding="True">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <themes:Theme />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="VisibleWhen" />
+            <views:HiddenWhenFalse x:Key="VisibleOrHidden" />
+            <!-- "On" states share the pressed look of every button: accent-soft fill, accent border and text. -->
+            <Style x:Key="PowerButton" TargetType="ButtonBase" BasedOn="{StaticResource IconButton}">
+                <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsVisualizerOn}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="PauseButton" TargetType="ButtonBase" BasedOn="{StaticResource ToolButton}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding StateKind}" Value="Paused">
+                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="CompactButton" TargetType="ButtonBase" BasedOn="{StaticResource ToolButton}">
+                <Setter Property="MinHeight" Value="26" />
+                <Setter Property="Padding" Value="10,0" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+            <!-- Guide buttons show the pressed state like the power button. -->
+            <Style x:Key="CompactToggle" TargetType="ToggleButton" BasedOn="{StaticResource CompactButton}">
+                <Style.Triggers>
+                    <Trigger Property="IsChecked" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="StepButton" TargetType="ButtonBase" BasedOn="{StaticResource IconButton}">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+            <!-- Load and Start look like every other button and only lead the eye while their action is waiting; that is
+                 a blue outline, never a fill (user rule). -->
+            <Style x:Key="LoadAction" TargetType="ButtonBase" BasedOn="{StaticResource ToolButton}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding LoadPending}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="StartAction" TargetType="ButtonBase" BasedOn="{StaticResource ToolButton}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding StartPending}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryBrush}" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    <Grid x:Name="WindowBody">
+        <DockPanel Margin="12,10,12,10">
+            <Grid DockPanel.Dock="Top" Margin="2,2,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="SongTitle" Text="{Binding SongName}" FontSize="17" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" ToolTip="{Binding SongName}" Margin="0,0,20,0" />
+                <TextBlock x:Name="ActivationHint" Grid.Column="1" Text="{Binding ActivationHint}" FontSize="12" Margin="0,0,10,0"
+                           VerticalAlignment="Center" Foreground="{DynamicResource AccentBrush}"
+                           Visibility="{Binding ShowActivationHint, Converter={StaticResource VisibleWhen}}" />
+                <Border x:Name="StateBadge" Grid.Column="2" Style="{StaticResource StatePill}">
+                    <TextBlock Text="{Binding StateLabel}" FontSize="12" FontWeight="SemiBold" />
+                </Border>
+            </Grid>
+
+            <StackPanel x:Name="GuideButtons" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8"
+                        Visibility="{Binding ShowGuideButtons, Converter={StaticResource VisibleWhen}}">
+                <input:PlaybackToggleButton x:Name="HelpButton" Style="{StaticResource CompactToggle}" Content="{Binding Text[Help]}" Click="HelpClick" />
+                <input:PlaybackToggleButton x:Name="PreviewButton" Margin="6,0,0,0" Style="{StaticResource CompactToggle}" Content="{Binding Text[Preview]}" Click="PreviewClick" />
+                <input:PlaybackToggleButton x:Name="ExampleButton" Margin="6,0,0,0" Style="{StaticResource CompactToggle}" Content="{Binding Text[Example]}" Click="ExampleClick" />
+            </StackPanel>
+
+            <!-- Song and checkpoint rows fold together. One grid keeps the columns aligned:
+                 [◀ song ▶ | sync | load] over [◀ checkpoint ▶ | auto | section]. -->
+            <Expander x:Name="MapPanel" DockPanel.Dock="Top" IsExpanded="True" Margin="0,0,0,8" Foreground="{DynamicResource MutedTextBrush}">
+                <Expander.Header>
+                    <!-- The practice speed sits in the header: it costs the note area no height and stays reachable when the panel is
+                         folded. Buttons and the box take the mouse themselves, so clicking them never folds the panel. -->
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Text[MapSelection]}" FontSize="12" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Expander.Header>
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="34" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="34" />
+                        <ColumnDefinition Width="6" />
+                        <ColumnDefinition Width="70" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="8" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <!-- Arrows wrap around their lists and grey out when there is nothing else to go to. -->
+                    <input:PlaybackButton x:Name="PreviousSongButton" Style="{StaticResource StepButton}" Content="&#xE76B;" Click="PreviousSongClick"
+                                          ToolTip="{Binding Text[PreviousSong]}" IsEnabled="{Binding CanMoveSong}" />
+                    <ComboBox x:Name="SongPicker" Grid.Column="2" Style="{StaticResource SearchComboBox}" ItemsSource="{Binding LibraryView}" SelectedItem="{Binding SelectedMap}"
+                              Text="{Binding SongQuery, UpdateSourceTrigger=PropertyChanged}" TextSearch.TextPath="SongName"
+                              ToolTip="{Binding Text[SongSearch]}" KeyUp="SongPickerKeyUp" IsReadOnly="{Binding SongListReadOnly}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel MaxWidth="380" ToolTip="{Binding SongName}">
+                                    <TextBlock x:Name="Status" DockPanel.Dock="Right" Text="{Binding Status}" Margin="8,0,0,0" FontSize="11"
+                                               Foreground="{DynamicResource ErrorBrush}" VerticalAlignment="Center" />
+                                    <!-- new, recently or forced (MainViewModel.BadgeOf); forced is orange since its timing is not verified. -->
+                                    <TextBlock x:Name="Badge" DockPanel.Dock="Right" Text="{Binding Badge}" Margin="8,0,0,0" FontSize="11"
+                                               Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding SongName}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding Status}" Value="Supported">
+                                        <Setter TargetName="Status" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Badge}" Value="{x:Null}">
+                                        <Setter TargetName="Badge" Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsForced}" Value="True">
+                                        <Setter TargetName="Badge" Property="Foreground" Value="{DynamicResource FireBrush}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <input:PlaybackButton x:Name="NextSongButton" Grid.Column="4" Style="{StaticResource StepButton}" Content="&#xE76C;" Click="NextSongClick"
+                                          ToolTip="{Binding Text[NextSong]}" IsEnabled="{Binding CanMoveSong}" />
+                    <input:PlaybackButton x:Name="LoadButton" Grid.Column="6" Style="{StaticResource LoadAction}" Padding="4,0"
+                                          Content="{Binding Text[Load]}" Click="LoadSongClick" />
+
+                    <input:PlaybackButton x:Name="PreviousCheckpointButton" Grid.Row="2" Style="{StaticResource StepButton}" Content="&#xE76B;" Click="PreviousCheckpointClick"
+                                          ToolTip="{Binding PreviousCheckpointTip}" IsEnabled="{Binding CanMoveCheckpoint}" />
+                    <ComboBox x:Name="CheckpointPicker" Grid.Row="2" Grid.Column="2" ItemsSource="{Binding CheckpointOptions}"
+                              DisplayMemberPath="Label" SelectedValuePath="Number"
+                              SelectedValue="{Binding Checkpoint, Mode=TwoWay, ValidatesOnExceptions=True}" ToolTip="{Binding Text[CheckpointHelp]}" />
+                    <input:PlaybackButton x:Name="NextCheckpointButton" Grid.Row="2" Grid.Column="4" Style="{StaticResource StepButton}" Content="&#xE76C;" Click="NextCheckpointClick"
+                                          ToolTip="{Binding NextCheckpointTip}" IsEnabled="{Binding CanMoveCheckpoint}" />
+                    <input:PlaybackToggleButton x:Name="AutoCheckpointToggle" Grid.Row="2" Grid.Column="6" Style="{StaticResource PillToggle}"
+                                                IsChecked="{Binding AutoCheckpoint, Mode=TwoWay}" IsEnabled="{Binding CanToggleAutoCheckpoint}"
+                                                Content="{Binding Text[AutoCheckpoint]}" ToolTip="{Binding AutoCheckpointHint}"
+                                                ToolTipService.ShowOnDisabled="True" />
+                </Grid>
+            </Expander>
+
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <UniformGrid Rows="1">
+                        <input:PlaybackButton x:Name="StartButton" Style="{StaticResource StartAction}" Click="StartClick" Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE768;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="{Binding Text[Start]}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </input:PlaybackButton>
+                        <input:PlaybackButton x:Name="PauseButton" Style="{StaticResource PauseButton}" Click="PauseResumeClick" IsEnabled="{Binding CanPauseResume}" Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding PauseGlyph}" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="{Binding PauseLabel}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </input:PlaybackButton>
+                        <input:PlaybackButton x:Name="ResetButton" Style="{StaticResource ToolButton}" Click="ResetClick">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE72C;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="{Binding Text[Reset]}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </input:PlaybackButton>
+                    </UniformGrid>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="6,0,0,0">
+                        <input:PlaybackButton x:Name="PowerButton" Style="{StaticResource PowerButton}" Content="&#xE7E8;"
+                                              Click="ToggleClick" ToolTip="{Binding Text[Toggle]}" />
+                        <input:PlaybackButton x:Name="SettingsButton" Style="{StaticResource IconButton}" Content="&#xE713;" Margin="6,0,0,0"
+                                              Click="SettingsClick" ToolTip="{Binding Text[setting]}" AutomationProperties.Name="{Binding Text[setting]}" />
+                    </StackPanel>
+                </Grid>
+                <!-- One line by default; "Show details" wraps it instead of letting a long status stretch the window. -->
+                <TextBlock x:Name="MessageText" Text="{Binding MessageText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="12"
+                           ToolTip="{Binding MessageText}" Margin="2,8,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowFullMessage}" Value="True">
+                                    <Setter Property="TextTrimming" Value="None" />
+                                    <Setter Property="TextWrapping" Value="Wrap" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <!-- Both status buttons look and behave the same: one wraps the message, one opens the status. -->
+                <Grid Margin="0,2,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <!-- Each reads at its own width; a uniform grid made the shorter one stretch and the pair look unbalanced. -->
+                    <!-- The height stays as it was: the note area has to keep 500px (CheckpointLayoutTests). -->
+                    <StackPanel Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left">
+                        <input:PlaybackToggleButton x:Name="MessageDetailsToggle" Style="{StaticResource TextToggle}" MinHeight="24"
+                                                    Content="{Binding DetailsToggleLabel}" ToolTip="{Binding Text[DetailsShowHint]}"
+                                                    IsChecked="{Binding ShowFullMessage, Mode=TwoWay}" />
+                        <input:PlaybackToggleButton x:Name="StatusDetailsToggle" Style="{StaticResource TextToggle}" MinHeight="24" Margin="0"
+                                                    Content="{Binding StatusToggleLabel}" ToolTip="{Binding Text[DetailsStatusHint]}"
+                                                    IsChecked="{Binding ShowDetails, Mode=TwoWay}" />
+                    </StackPanel>
+                    <TextBlock x:Name="VersionLabel" Grid.Column="2" Text="{Binding VersionLabel}" FontSize="11" Foreground="{DynamicResource FaintTextBrush}"
+                               HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,2,0" IsHitTestVisible="False" />
+                    <ScrollViewer Grid.Row="1" Grid.ColumnSpan="3" MaxHeight="140" VerticalScrollBarVisibility="Auto"
+                                  Visibility="{Binding ShowDetails, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel Margin="4,4,4,0">
+                            <TextBlock Text="{Binding KeyHint}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding InputStatus}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding Message}" Foreground="{DynamicResource TextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding Details}" Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </StackPanel>
+
+            <Border CornerRadius="10" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Padding="1">
+                <Grid>
+                    <rendering:NoteField x:Name="Field" ClipToBounds="True" />
+                    <!-- The mini-game (free roam) has no notes, so the band says so and counts to the next one. -->
+                    <!-- The wash behind every one of these is what keeps the letters readable while notes run past them
+                         (user rule); it is the opposite of the text color, so it works on light lanes too. -->
+                    <Border x:Name="SectionNoticeCard" IsHitTestVisible="False" VerticalAlignment="Top"
+                            Margin="0,16,0,0" Padding="14,6" Background="{Binding OverlayBackBrush}"
+                            Visibility="{Binding ShowSectionNotice, Converter={StaticResource VisibleWhen}}">
+                        <TextBlock x:Name="SectionNotice" Text="{Binding SectionNotice}" FontSize="15" FontWeight="SemiBold"
+                                   TextAlignment="Center" TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
+                    </Border>
+                    <!-- Once the song is over and nothing has been touched for three seconds, it offers to play again
+                         (user rule). The first button keeps its place whether the second one is there or not, so the
+                         second one only goes invisible and still holds its row. -->
+                    <Border x:Name="SongEndCard" VerticalAlignment="Center" Padding="18,12"
+                            Background="{Binding OverlayBackBrush}"
+                            Visibility="{Binding ShowSongEndNotice, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock x:Name="SongEndTitle" Text="{Binding SongEndTitle}" FontSize="15" FontWeight="SemiBold"
+                                       TextAlignment="Center" Margin="0,0,0,10" Foreground="{Binding OverlayBrush}" />
+                            <input:PlaybackButton x:Name="RestartFromStartButton" MinWidth="200"
+                                                  Style="{StaticResource ToolButton}" Click="RestartFromStartClick"
+                                                  Content="{Binding Text[RestartFromStart]}" />
+                            <input:PlaybackButton x:Name="LastCheckpointButton" MinWidth="200" Margin="0,8,0,0"
+                                                  Style="{StaticResource ToolButton}" Click="LastCheckpointClick"
+                                                  Content="{Binding Text[GoToLastCheckpoint]}"
+                                                  Visibility="{Binding ShowLastCheckpointButton, Converter={StaticResource VisibleOrHidden}}" />
+                        </StackPanel>
+                    </Border>
+                    <!-- One band, not two (user rule): the song's details and the controls under them share a single wash
+                         and sit against each other. Each half still comes and goes on its own. -->
+                    <Border x:Name="OverlayBand" VerticalAlignment="Center" Background="{Binding OverlayBackBrush}"
+                            Visibility="{Binding ShowOverlayBand, Converter={StaticResource VisibleWhen}}">
+                      <StackPanel>
+                    <!-- Folds the details away so the tiles behind them can be seen (user rule). It lives on the band so it
+                         is still there once they are gone, and it is a button only: nothing about it is saved. -->
+                    <input:PlaybackButton x:Name="HideOverlayButton" HorizontalAlignment="Right" Margin="0,4,10,0" Height="20" MinHeight="20"
+                                          FontSize="10" Padding="8,0" Style="{StaticResource ToolButton}"
+                                          Content="{Binding HideOverlayLabel}" Click="HideOverlayClick"
+                                          Visibility="{Binding ShowHideOverlay, Converter={StaticResource VisibleWhen}}" />
+                    <!-- Song info while a loaded song is stopped. Text color contrasts with the lane colors (white or black). -->
+                    <Border x:Name="SongOverlayCard" IsHitTestVisible="False" Padding="20,14,20,10"
+                            Visibility="{Binding ShowSongOverlay, Converter={StaticResource VisibleWhen}}">
+                        <StackPanel x:Name="SongOverlay" HorizontalAlignment="Center" TextElement.Foreground="{Binding OverlayBrush}">
+                            <TextBlock Text="{Binding SongName}" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" />
+                            <TextBlock x:Name="OverlayInfo" Text="{Binding OverlayInfo}" FontSize="13" TextAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding OverlayProgress}" FontSize="13" TextAlignment="Center" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <!-- Pieces, not one string: the ones a control on the field has moved are underlined (user rule). -->
+                            <TextBlock x:Name="OverlayTiles" views:OverlayLine.Parts="{Binding OverlayTileParts}" FontSize="13"
+                                       TextAlignment="Center" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <!-- Speed, practice tile and slot sit on the field with the song's own details (user rule). They are here
+                         only while a song is loaded and waiting: once it plays, or while it is paused, the field is clear.
+                         One shape for all three (user rule): a small caption over a control of the same height. -->
+                    <Border x:Name="FieldControls" Padding="16,2,16,12"
+                            Visibility="{Binding ShowFieldControls, Converter={StaticResource VisibleWhen}}">
+                        <Grid HorizontalAlignment="Center" TextElement.Foreground="{Binding OverlayBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Text[Speed]}" FontSize="10" Opacity="0.75"
+                                       HorizontalAlignment="Center" Margin="0,0,0,4" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Text[Section]}" FontSize="10" Opacity="0.75"
+                                       HorizontalAlignment="Center" Margin="16,0,0,4" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding Text[Slot]}" FontSize="10" Opacity="0.75"
+                                       HorizontalAlignment="Center" Margin="16,0,0,4"
+                                       Visibility="{Binding ShowSlotPicker, Converter={StaticResource VisibleWhen}}" />
+                            <StackPanel Grid.Row="1" Grid.Column="0" Orientation="Horizontal">
+                                <input:PlaybackButton x:Name="SlowerButton" Style="{StaticResource StepButton}" Width="24" Height="24" MinHeight="24" MinWidth="24"
+                                                      FontSize="9" Content="&#xE76B;" Click="SlowerClick" ToolTip="{Binding Text[SpeedDown]}" />
+                                <TextBox x:Name="SpeedBox" Width="58" Height="24" MinHeight="24" FontSize="11" Margin="4,0" VerticalContentAlignment="Center"
+                                         Text="{Binding SpeedText, UpdateSourceTrigger=PropertyChanged}" KeyDown="SpeedBoxKeyDown"
+                                         LostKeyboardFocus="SpeedBoxLostFocus" TextAlignment="Center" MaxLength="6"
+                                         InputMethod.IsInputMethodEnabled="False" Padding="2,0" ToolTip="{Binding Text[SpeedHelp]}" />
+                                <input:PlaybackButton x:Name="FasterButton" Style="{StaticResource StepButton}" Width="24" Height="24" MinHeight="24" MinWidth="24"
+                                                      FontSize="9" Content="&#xE76C;" Click="FasterClick" ToolTip="{Binding Text[SpeedUp]}" />
+                            </StackPanel>
+                            <Grid x:Name="SectionField" Grid.Row="1" Grid.Column="1" Width="70" Height="24" Margin="16,0,0,0"
+                                  ToolTip="{Binding Text[SectionHelp]}">
+                                <!-- The tile number takes effect as it is typed; no Enter. -->
+                                <TextBox x:Name="SectionBox" Text="{Binding SectionText, UpdateSourceTrigger=PropertyChanged}" KeyDown="SectionBoxKeyDown"
+                                         TextAlignment="Center" MaxLength="6" MinHeight="24" FontSize="11" InputMethod.IsInputMethodEnabled="False" Padding="4,0" />
+                                <!-- Empty means the whole song, which is the same as tile 0: the box says so rather than sitting blank. -->
+                                <TextBlock Text="{Binding Text[SectionDefault]}" IsHitTestVisible="False" FontSize="11"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource FaintTextBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=SectionBox}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                            <ComboBox x:Name="SlotPicker" Grid.Row="1" Grid.Column="2" MinWidth="104" Height="24" MinHeight="24" FontSize="11" Margin="16,0,0,0"
+                                      Padding="8,0,26,0" ItemsSource="{Binding SlotOptions}" DisplayMemberPath="Label" SelectedValuePath="Number"
+                                      SelectedValue="{Binding SelectedSlot}" ToolTip="{Binding Text[SlotHelp]}"
+                                      Visibility="{Binding ShowSlotPicker, Converter={StaticResource VisibleWhen}}" />
+                        </Grid>
+                    </Border>
+                      </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </DockPanel>
+        <!-- While the settings preview plays, this is the only thing on the window that answers the mouse: nothing may be
+             loaded or changed until the settings come back (user rule). -->
+        <Border x:Name="PreviewBar" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                Margin="0,0,0,56" Padding="14,8" CornerRadius="8" Background="{DynamicResource PopupBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Panel.ZIndex="2">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="PreviewBarText" VerticalAlignment="Center" Margin="0,0,12,0" FontSize="12"
+                           Foreground="{DynamicResource MutedTextBrush}" />
+                <Button x:Name="PreviewBackButton" Style="{StaticResource PrimaryButton}" Padding="12,0" Click="PreviewBackClick" />
+            </StackPanel>
+        </Border>
+        <!-- The settings are part of this window (user rule): they slide in over the note field from the right, so no
+             other window is blocked while they are open. The panel itself is put in when it opens. -->
+        <Border x:Name="SettingsHost" HorizontalAlignment="Right" ClipToBounds="True" IsHitTestVisible="False">
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="SettingsSlide" X="10000" />
+            </Border.RenderTransform>
+        </Border>
+    </Grid>
+</Window>

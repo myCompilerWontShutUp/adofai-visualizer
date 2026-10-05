@@ -1,0 +1,95 @@
+using System.Globalization;
+using Visualizer.Core.Maps;
+
+namespace Visualizer.Application.Sync;
+
+/// <summary>
+/// How one tile the game passed lines up with the hit this app computed for it. <paramref name="OffsetMs"/> is the game's
+/// song position minus our hit time, so the same value for every tile means the two agree and only differ by where each
+/// counts zero.
+/// </summary>
+public sealed record TileOffset(int Floor, int HitIndex, double GameTimeMs, double HitTimeMs, double OffsetMs);
+
+/// <summary>What the comparison found. Offsets are milliseconds.</summary>
+public sealed record TileCheckReport(int Matched, int Unmatched, double MinOffsetMs, double MedianOffsetMs,
+    double MaxOffsetMs, double EarlyHalfMs, double LateHalfMs, TileOffset? Worst);
+
+/// <summary>
+/// Compares the tiles the game actually played with the hit times this app read from the map. This is the first check
+/// against the game itself: the automated tests and the independent calculator share the same reading of the game's rules,
+/// so agreeing with each other was never proof (docs/debug-logs/timing-mismatch.md).
+/// </summary>
+public static class GameTileCheck
+{
+    /// <summary>How far two schedules of the same map may differ and still count as the same, in milliseconds.</summary>
+    public const double Tolerance = 1;
+
+    /// <summary>
+    /// Lines the game's own time for every tile up with the hit this app read from the same map. Both sides are schedules,
+    /// not something the player did, so a map read the same way gives one offset for every tile.
+    /// </summary>
+    public static TileCheckReport Compare(IReadOnlyList<double> gameTimesByFloor, ParsedTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(gameTimesByFloor);
+        ArgumentNullException.ThrowIfNull(timeline);
+        if (timeline.HitFloors is not { } floors) return new TileCheckReport(0, timeline.HitTimesMs.Count, 0, 0, 0, 0, 0, null);
+
+        var matched = new List<TileOffset>(floors.Count);
+        var unmatched = 0;
+        for (var index = 0; index < floors.Count; index++)
+        {
+            var floor = floors[index];
+            // A tile the game does not have is one side reading the map differently; it is counted, not guessed at.
+            if ((uint)floor >= (uint)gameTimesByFloor.Count) { unmatched++; continue; }
+            var game = gameTimesByFloor[floor];
+            var hit = timeline.HitTimesMs[index];
+            matched.Add(new TileOffset(floor, index, game, hit, game - hit));
+        }
+        if (matched.Count == 0) return new TileCheckReport(0, unmatched, 0, 0, 0, 0, 0, null);
+
+        var offsets = matched.Select(tile => tile.OffsetMs).Order().ToArray();
+        var middle = Percentile(offsets, 0.5);
+        var half = matched.Count / 2;
+        return new TileCheckReport(matched.Count, unmatched, offsets[0], middle, offsets[^1],
+            Median(matched.Take(Math.Max(1, half))), Median(matched.Skip(half)),
+            matched.MaxBy(tile => Math.Abs(tile.OffsetMs - middle)));
+    }
+
+    private static double Median(IEnumerable<TileOffset> tiles)
+    {
+        var sorted = tiles.Select(tile => tile.OffsetMs).Order().ToArray();
+        return sorted.Length == 0 ? 0 : Percentile(sorted, 0.5);
+    }
+
+    private static double Percentile(double[] sorted, double part) =>
+        sorted[Math.Clamp((int)Math.Round(part * (sorted.Length - 1)), 0, sorted.Length - 1)];
+
+    /// <summary>The report as the console prints it (English, like the rest of the console).</summary>
+    public static IReadOnlyList<string> Lines(TileCheckReport report, string? warning = null)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
+        var lines = new List<string>();
+        if (warning != null) lines.Add("Careful  " + warning);
+        if (report.Matched == 0)
+        {
+            lines.Add($"None of the {report.Unmatched} hits in the loaded song is a tile the game has. Is it the same song?");
+            return lines;
+        }
+        var spread = report.MaxOffsetMs - report.MinOffsetMs;
+        lines.Add($"Tiles    {report.Matched} compared"
+                  + (report.Unmatched > 0 ? $" · {report.Unmatched} of our hits are not tiles the game has" : string.Empty));
+        lines.Add($"Offset   {Ms(report.MedianOffsetMs)} ms at the median · {Ms(report.MinOffsetMs)} to {Ms(report.MaxOffsetMs)} ms"
+                  + " (the game's tile time minus ours)");
+        lines.Add($"Spread   {Ms(spread)} ms");
+        lines.Add($"Drift    first half {Ms(report.EarlyHalfMs)} · second half {Ms(report.LateHalfMs)} ms");
+        if (report.Worst is { } worst)
+            lines.Add($"Worst    tile {worst.Floor} (hit {worst.HitIndex + 1}): game {Ms(worst.GameTimeMs)} ms,"
+                      + $" ours {Ms(worst.HitTimeMs)} ms, {Ms(worst.OffsetMs - report.MedianOffsetMs)} ms off the median");
+        // Both sides are schedules worked out from the same file, so agreeing means agreeing to the millisecond.
+        lines.Add(spread <= Tolerance && report.Unmatched == 0
+            ? "Every tile has the same offset: this app reads the map exactly as the game does."
+            : "The tiles do not all have the same offset: look at the worst one in docs/debug-logs/timing-mismatch.md.");
+        return lines;
+    }
+}

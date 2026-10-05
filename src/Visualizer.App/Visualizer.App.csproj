@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- The exe carries the icon, and every window without one of its own shows it. Icon/icon.png is the source art;
+         icon.ico holds 16 to 256 px cut from it. -->
+    <ApplicationIcon>Icon\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Visualizer.Application/Visualizer.Application.csproj" />
+    <ProjectReference Include="../Visualizer.Infrastructure/Visualizer.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Every file in Themes/Palettes is a theme; its file name is the theme id. -->
+    <EmbeddedResource Include="Themes\Palettes\*.json" LogicalName="Visualizer.Themes.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

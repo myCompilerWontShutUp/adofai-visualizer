@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Visualizer.Application/Visualizer.Application.csproj" />
+  </ItemGroup>
+</Project>

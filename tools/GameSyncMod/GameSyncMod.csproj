@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The read-only sync mod. It runs inside the game under Unity Mod Manager, so it targets the framework the game's Mono
+       loads, not net9.0 like the rest of the solution. It is deliberately NOT in Visualizer.sln: it needs the game folder,
+       which not every machine has, and build.ps1 must keep working without it. Build it with build-mod.ps1. -->
+  <PropertyGroup>
+    <!-- net48: Unity Mod Manager depends on 0Harmony built for 4.8, so a lower target cannot resolve the reference. -->
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>AdofaiVisualizerSync</AssemblyName>
+    <RootNamespace>AdofaiVisualizerSync</RootNamespace>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GameManagedDir)' == ''">
+    <GameManagedDir>C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed</GameManagedDir>
+  </PropertyGroup>
+
+  <!-- Private=false: the game already has these, and copying them into the mod folder would shadow the game's own copies.
+       Assembly-CSharp is deliberately NOT referenced: the game types are reached by reflection so that a game update which
+       moves a field turns the feature off instead of failing to load inside the game. -->
+  <ItemGroup>
+    <Reference Include="UnityModManager">
+      <HintPath>$(GameManagedDir)\UnityModManager\UnityModManager.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Unity Mod Manager lists the Version from this file, while the mod tells the visualizer its assembly version.
+       Writing it here keeps both from the one number in Directory.Build.props, so the game and the console never
+       disagree about which build is loaded. Ascii: the content is plain and a byte order mark would be noise. -->
+  <Target Name="WriteModInfo" AfterTargets="Build">
+    <PropertyGroup>
+      <ModInfoJson>{%0A  &quot;Id&quot;: &quot;AdofaiVisualizerSync&quot;,%0A  &quot;DisplayName&quot;: &quot;ADOFAI Visualizer Sync (read-only)&quot;,%0A  &quot;Author&quot;: &quot;personal&quot;,%0A  &quot;Version&quot;: &quot;$(Version)&quot;,%0A  &quot;AssemblyName&quot;: &quot;AdofaiVisualizerSync.dll&quot;,%0A  &quot;EntryMethod&quot;: &quot;AdofaiVisualizerSync.Main.Load&quot;%0A}</ModInfoJson>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(OutputPath)Info.json" Lines="$(ModInfoJson)" Overwrite="true"
+                      WriteOnlyWhenDifferent="true" Encoding="ascii" />
+  </Target>
+
+</Project>

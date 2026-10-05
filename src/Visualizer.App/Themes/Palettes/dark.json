@@ -1,0 +1,41 @@
+{
+  // The plain dark theme (formerly "Classic").
+  "names": { "korean": "다크", "english": "Dark" },
+  "order": 1,
+  "backdrop": "solid",
+  "primary": [ "#5EDAF2" ],
+  // Note field lanes: transparent and a faint white tint, alternating (the earlier default).
+  "laneBackgrounds": [ "#00FFFFFF", "#08FFFFFF" ],
+  "colors": {
+    "WindowBrush": "#0B0E14",
+    "SurfaceBrush": "#141923",
+    "SurfaceRaisedBrush": "#1A202D",
+    "SurfaceHoverBrush": "#202736",
+    "PopupBrush": "#1A202D",
+    "HighlightBrush": "#262E3D",
+    "LineBrush": "#262E3D",
+    "LineHoverBrush": "#3A4455",
+    "TextBrush": "#E6EBF2",
+    "MutedTextBrush": "#8792A5",
+    "FaintTextBrush": "#5C6678",
+    "AccentBrush": "#5EDAF2",
+    "AccentSoftBrush": "#15323B",
+    "OnAccentBrush": "#05161C",
+    "FireBrush": "#F2A65E",
+    "ChangedBrush": "#FFD166",
+    "FocusBrush": "#8792A5",
+    "HoverOverlayBrush": "#14FFFFFF",
+    "PressedOverlayBrush": "#26FFFFFF",
+    "PrimaryPressedOverlayBrush": "#33000000",
+    "ErrorBrush": "#FF8A8A",
+    "ThumbBrush": "#343D4E",
+    "OrbitBrush": "#343D4E",
+    "PillBrush": "#1C222E",
+    "PillWaitingBrush": "#15323B",
+    "PillWaitingTextBrush": "#5EDAF2",
+    "PillPlayingBrush": "#163626",
+    "PillPlayingTextBrush": "#6EE7A0",
+    "PillPausedBrush": "#3A3016",
+    "PillPausedTextBrush": "#F2C85E"
+  }
+}

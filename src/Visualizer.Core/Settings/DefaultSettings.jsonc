@@ -1,0 +1,130 @@
+{
+  // Initial settings: the values a new setting starts with and what "Reset settings" and blank fields return to.
+  // Edit a value here and rebuild (build.ps1); the file is embedded into the app at build time.
+  // Keys and formats are the same as setting → Advanced → Export JSON. Every setting must be listed exactly once,
+  // and the values must pass the setting checks (the tests fail otherwise).
+  // The .jsonc extension is what lets editors accept these comments.
+  "Language": "korean",
+  "Theme": "universe",
+  "MapRootDirectory": "C:\\Program Files (x86)\\Steam\\steamapps\\workshop\\content\\977950",
+  // Empty keeps the default store: ".local/app-data" inside the repository, or %LOCALAPPDATA%\AdofaiVisualizer outside it.
+  "DataRootDirectory": "",
+  // Song list. SongSortKey is one of Difficulty, Title, Artist, Author, NoteCount, Duration, Created, Modified, Synced, Manual.
+  "SongSearch": true,
+  // Which map folder the list shows: Base, Custom, Edited or All.
+  "SongGroup": "BaseCustom",
+  "SongSortKey": "Difficulty",
+  "SongSortHighFirst": true,
+  // Song list details, switched in the song list window. Any of: Artist Length Notes Difficulty Checkpoints Date Path.
+  "SongListFields": "Artist Length Notes Difficulty Checkpoints Date Path",
+  "ShowGuideButtons": true,
+  "ShowSongInfo": true,
+  "OnlyReactWhenAdofaiForeground": true,
+  // Applying a setting writes it to the store. Switched off, changes last only until the app closes.
+  "AutoSaveSettings": true,
+  // A note's tile count from the gap after it rather than before it. Off keeps the long-standing behaviour.
+  "NextIntervalTiles": false,
+  // Experimental (they apply only while ExperimentalFeatures is on).
+  "ChordAvoidBeforeLanes": false,
+  "RestartPatternOnRun": false,
+  "ResetKey": "Enter",
+  "StartTriggerKey": "J",
+  "VisualizerToggleKey": "F8",
+  // Optional: null leaves checkpoint stepping to the arrows on the main screen.
+  "PreviousCheckpointKey": "-",
+  "NextCheckpointKey": "+",
+  "SettingsHotkey": null,
+  "AdofaiProcessName": "A Dance of Fire and Ice",
+  "MaximumTileCount": 4,
+  "MinimumTileCount": 1,
+  // Lanes on screen: 0 follows the maximum tile count, otherwise 1, 2, 4, 6 or 8 (never below the maximum).
+  "DisplayLaneCount": 0,
+  "DynamicTiming": true,
+  "EightKeyBoundaryMs": 50,
+  "SixKeyBoundaryMs": 70,
+  "FourKeyBoundaryMs": 120,
+  "TwoKeyBoundaryMs": 500,
+  "SimultaneousWindowMs": 20,
+  // Two single notes this close are a trill and take two lanes; chords are grouped first, so the chord window wins.
+  "TrillWindowMs": 40,
+  "NoTrillCenterPair": true,
+  "TrillLanePreference": "1-2,3-4",
+  // On: fewer tiles start mid-cycle (after DownshiftNoteCount notes in a row) and never repeat the tile just played.
+  // Off: the app 0.1.2 rule, where every switch waits for the running cycle to end.
+  "ImmediateDownshift": true,
+  // Fewer tiles are used only after this many notes in a row ask for them; 1 switches down at once.
+  "DownshiftNoteCount": 3,
+  "StartDelayMs": 0,
+  "PlaybackSpeedPercent": 100,
+  // Off puts the practice speed back to 100% whenever a song is loaded; on keeps it.
+  "KeepSpeedOnLoad": false,
+  // Escape puts the next unpressed note on the judgment line, as the game resumes on the tile it stopped at.
+  "AlignNextNoteOnPause": true,
+  "NoteTravelTimeMs": 600,
+  // Display offset is corrected once from the first CalibrationNoteCount presses, never beyond the press window.
+  "CalibrationNoteCount": 1,
+  // Scales: note height, note width, and the long note bar width (which never exceeds the note width).
+  "NoteThickness": 1,
+  "NoteWidth": 1,
+  "HoldNoteWidth": 1,
+  "GlobalDisplayOffsetMs": 0,
+  "EightKeyPattern": "1 2 3 4 5 6 7 8",
+  "SixKeyPattern": "2 3 4 5 6 7",
+  "FourKeyPattern": "3 4 5 6",
+  "TwoKeyPattern": "4 5",
+  "ExtraLanes": false,
+  "SlowNotesPastJudgmentLine": false,
+  // Opens the experimental card; this version has no experiments in it.
+  "ExperimentalFeatures": false,
+  // The singles right after a chord keep its lanes free.
+  "ChordSectionLanes": false,
+  // "None", "1-2", "3-4" or "1-2,3-4" (the default): which pair a chord takes first. On four lanes the last one is the
+  // same as none; from six lanes up it keeps chords on lanes 1-2 and 3-4.
+  "ChordLanePreference": "1-2,3-4",
+  // The judgment bar: Off, MagicCircle (only while a magic circle runs) or Always.
+  "JudgmentBarMode": "MagicCircle",
+  // Lenient / Normal / Strict, named after the game's own difficulties and using its counted floors (91 / 65 / 40 ms).
+  "JudgmentBarDifficulty": "Normal",
+  "JudgmentAverageCount": 8,
+  "ShowJudgmentAverage": true,
+  // On keeps chords off the pair across the center (lanes 2-3) on four lanes.
+  "NoChordCenterPair": true,
+  "EnableTilePreference": false,
+  "TwoKeyOrder": "2 1",
+  "FourKeyOrder": "4 3 2 1",
+  "SixKeyOrder": "6 5 4 3 2 1",
+  "EightKeyOrder": "8 7 6 5 4 3 2 1",
+  "InitialTile": 5,
+  "AutoCheckpointAdvance": true,
+  // Loading a song switches the automatic checkpoints back on.
+  "AutoCheckpointOnLoad": true,
+  "LaneKeys": "A S D F J K L ;",
+  "JudgmentLineHeightDip": 72,
+  "KeyPressWindowMs": 150,
+  "ShowInputEffect": true,
+  "ShowMissEffect": true,
+  // A timing bar for magic circle sections: runs of at least MagicCircleNoteCount notes at the same interval,
+  // shown MagicCircleLeadMs before the run starts.
+  "MagicCircleJudgmentLine": true,
+  "MagicCircleNoteCount": 40,
+  "MagicCircleMaxIntervalMs": 200,
+  "MagicCircleFadeInMs": 500,
+  "MagicCircleLeadMs": 500,
+  "MagicCircleFadeOutMs": 500,
+  "MagicCircleFixedTiles": true,
+  "MagicCircleTileCount": 4,
+  // Design colors are written as "R, G, B".
+  "LaneEffectColor": "140, 210, 255",
+  "NoteColor": "94, 218, 242",
+  "ChordColor": "74, 222, 128",
+  "CheckpointColor": "255, 255, 255",
+  // Magenta and orange: apart from the cyan notes, green chords, white checkpoints, gold line and red miss.
+  "StartNoteColor": "255, 79, 216",
+  "EndNoteColor": "255, 150, 30",
+  "JudgmentLineColor": "255, 209, 102",
+  // How transparent a note looks after it is hit, in percent (0 keeps the full note color).
+  "PressedNoteTransparencyPercent": 80,
+  "MissEffectColor": "255, 72, 72",
+  // Empty: follow the theme's lane colors. Otherwise 8 colors for screen lanes 1..8.
+  "LaneBackgroundColors": ""
+}

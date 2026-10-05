@@ -1,0 +1,43 @@
+{
+  // Theme file. The file name is the theme id. "names" are shown per language id (English, then the id, when missing).
+  // To add a theme, copy this file, change the names and colors and rebuild. Missing colors fall back to this theme.
+  // "backdrop": "stars" uses the night-sky dialog background; "solid" uses WindowBrush. "primary" is one color or a two-color gradient.
+  "names": { "korean": "우주", "english": "Universe" },
+  "order": 0,
+  "backdrop": "stars",
+  "primary": [ "#7FD3FF", "#A38DFF" ],
+  // Note field lanes (#AARRGGBB over the dark field), repeated across the lanes so neighbours differ slightly. Almost dark, faintly blue.
+  "laneBackgrounds": [ "#0A3A6AFF", "#123A6AFF" ],
+  "colors": {
+    "WindowBrush": "#070918",
+    "SurfaceBrush": "#B8121538",
+    "SurfaceRaisedBrush": "#1A1D45",
+    "SurfaceHoverBrush": "#242866",
+    "PopupBrush": "#171A40",
+    "HighlightBrush": "#272B68",
+    "LineBrush": "#2E3372",
+    "LineHoverBrush": "#454B94",
+    "TextBrush": "#ECEBFF",
+    "MutedTextBrush": "#A3A7D6",
+    "FaintTextBrush": "#6E73A8",
+    "AccentBrush": "#7FD3FF",
+    "AccentSoftBrush": "#1B2E5E",
+    "OnAccentBrush": "#07102A",
+    "FireBrush": "#FF8F57",
+    "ChangedBrush": "#FFD166",
+    "FocusBrush": "#9A9FD0",
+    "HoverOverlayBrush": "#1AB8C4FF",
+    "PressedOverlayBrush": "#33B8C4FF",
+    "PrimaryPressedOverlayBrush": "#33000000",
+    "ErrorBrush": "#FF8C8C",
+    "ThumbBrush": "#3B4086",
+    "OrbitBrush": "#3B4086",
+    "PillBrush": "#1A1D45",
+    "PillWaitingBrush": "#1B2E5E",
+    "PillWaitingTextBrush": "#7FD3FF",
+    "PillPlayingBrush": "#16372F",
+    "PillPlayingTextBrush": "#6EE7A0",
+    "PillPausedBrush": "#3D2918",
+    "PillPausedTextBrush": "#FFB070"
+  }
+}

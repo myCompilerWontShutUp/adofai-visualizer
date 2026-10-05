@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- Every file in Localization/Languages is a language; its file name is the language id. -->
+    <EmbeddedResource Include="Localization\Languages\*.json" LogicalName="Visualizer.Languages.%(Filename)%(Extension)" />
+    <!-- The initial value of every setting (edit, then rebuild). .jsonc so editors accept its comments. -->
+    <EmbeddedResource Include="Settings\DefaultSettings.jsonc" LogicalName="Visualizer.Settings.DefaultSettings.jsonc" />
+  </ItemGroup>
+</Project>

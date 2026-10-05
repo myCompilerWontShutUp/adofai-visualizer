@@ -1,0 +1,41 @@
+{
+  // A light theme. The note field keeps its own (setting) colors.
+  "names": { "korean": "화이트", "english": "White" },
+  "order": 2,
+  "backdrop": "solid",
+  "primary": [ "#1F8FD6", "#6C63E0" ],
+  // Note field lanes: a lighter slate than the dark themes, alternating.
+  "laneBackgrounds": [ "#18C8D4E6", "#24C8D4E6" ],
+  "colors": {
+    "WindowBrush": "#F4F6FA",
+    "SurfaceBrush": "#FFFFFF",
+    "SurfaceRaisedBrush": "#EEF1F6",
+    "SurfaceHoverBrush": "#E3E8F0",
+    "PopupBrush": "#FFFFFF",
+    "HighlightBrush": "#DCE7F5",
+    "LineBrush": "#D2D9E4",
+    "LineHoverBrush": "#AEB8C8",
+    "TextBrush": "#1A2030",
+    "MutedTextBrush": "#556074",
+    "FaintTextBrush": "#8A93A6",
+    "AccentBrush": "#1F8FD6",
+    "AccentSoftBrush": "#DCEFFB",
+    "OnAccentBrush": "#FFFFFF",
+    "FireBrush": "#D9621F",
+    "ChangedBrush": "#D99A00",
+    "FocusBrush": "#7A8599",
+    "HoverOverlayBrush": "#0F000000",
+    "PressedOverlayBrush": "#1F000000",
+    "PrimaryPressedOverlayBrush": "#26000000",
+    "ErrorBrush": "#D23C3C",
+    "ThumbBrush": "#C3CBD8",
+    "OrbitBrush": "#C3CBD8",
+    "PillBrush": "#E6EAF1",
+    "PillWaitingBrush": "#DCEFFB",
+    "PillWaitingTextBrush": "#1B78B5",
+    "PillPlayingBrush": "#DDF5E6",
+    "PillPlayingTextBrush": "#1E8A4C",
+    "PillPausedBrush": "#FCEBD9",
+    "PillPausedTextBrush": "#B8621B"
+  }
+}

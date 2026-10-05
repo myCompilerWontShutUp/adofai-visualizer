@@ -1,0 +1,62 @@
+<UserControl x:Class="Visualizer.App.Views.SettingsPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:themes="clr-namespace:Visualizer.App.Themes"
+        FontFamily="Segoe UI" FontSize="11" UseLayoutRounding="True">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <themes:Theme />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <DockPanel Margin="20,16,12,16">
+        <!-- Right margin = card margin (12) + scroll bar (8), so the theme selector lines up with the section cards. -->
+        <DockPanel x:Name="HeaderBar" DockPanel.Dock="Top" Margin="2,0,20,14">
+            <!-- A list of the theme files; no stepping arrows. It starts here only so the names register: the panel moves
+                 it to the top of the Design card while the rows are built (user rule). -->
+            <Grid x:Name="ThemeSelector" DockPanel.Dock="Right" VerticalAlignment="Center">
+                <ComboBox x:Name="ThemePicker" MinWidth="120" SelectionChanged="ThemePickerChanged" />
+            </Grid>
+            <StackPanel Orientation="Horizontal">
+                <!-- Fire and ice planets on one orbit. -->
+                <Canvas Width="38" Height="24" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Ellipse Canvas.Left="4" Canvas.Top="3" Width="30" Height="18" Stroke="{DynamicResource OrbitBrush}" StrokeThickness="1" />
+                    <Ellipse Canvas.Left="0" Canvas.Top="7" Width="10" Height="10" Fill="{DynamicResource FireBrush}">
+                        <Ellipse.Effect>
+                            <DropShadowEffect Color="{DynamicResource FireColor}" BlurRadius="10" ShadowDepth="0" Opacity="0.8" />
+                        </Ellipse.Effect>
+                    </Ellipse>
+                    <Ellipse Canvas.Left="28" Canvas.Top="7" Width="10" Height="10" Fill="{DynamicResource AccentBrush}">
+                        <Ellipse.Effect>
+                            <DropShadowEffect Color="{DynamicResource AccentColor}" BlurRadius="10" ShadowDepth="0" Opacity="0.8" />
+                        </Ellipse.Effect>
+                    </Ellipse>
+                </Canvas>
+                <TextBlock x:Name="HeaderText" FontSize="17" FontWeight="SemiBold" Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+        </DockPanel>
+        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,20,0">
+            <TextBlock x:Name="Errors" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6" />
+            <!-- The note above its own line of buttons (user rule): they are one size and do not stretch across. -->
+            <TextBlock x:Name="SettingsNote" Foreground="{DynamicResource MutedTextBrush}" FontSize="10" Height="28"
+                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" Margin="0,0,0,6" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="PreviewRulesButton" Style="{StaticResource ToolButton}" MinWidth="104" Height="28" MinHeight="28" FontSize="11" Padding="10,0" />
+                <Button x:Name="ApplyButton" Click="ApplyClick" Style="{StaticResource ToolButton}" MinWidth="104" Height="28" MinHeight="28" FontSize="11" Padding="10,0" Margin="8,0,0,0" />
+                <Button x:Name="CancelButton" Style="{StaticResource ToolButton}" MinWidth="104" Height="28" MinHeight="28" FontSize="11" Padding="10,0" Margin="8,0,0,0" />
+            </StackPanel>
+        </StackPanel>
+        <!-- Finding a setting by name. The cards stay: only the rows that match are shown, and a card with none is hidden. -->
+        <Grid DockPanel.Dock="Top" Margin="2,0,20,10">
+            <TextBox x:Name="SearchBox" FontSize="11" MinHeight="28" Padding="8,0" VerticalContentAlignment="Center" />
+            <TextBlock x:Name="SearchHint" FontSize="11" Margin="10,0,0,0" IsHitTestVisible="False" VerticalAlignment="Center"
+                       Foreground="{DynamicResource FaintTextBrush}" />
+        </Grid>
+        <TextBlock x:Name="SearchNone" DockPanel.Dock="Top" FontSize="11" Margin="2,0,20,10" Visibility="Collapsed"
+                   Foreground="{DynamicResource MutedTextBrush}" />
+        <ScrollViewer VerticalScrollBarVisibility="Visible">
+            <StackPanel x:Name="Fields" Margin="0,0,12,0" />
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>
