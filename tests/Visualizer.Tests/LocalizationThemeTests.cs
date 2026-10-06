@@ -90,7 +90,11 @@ internal static class LocalizationThemeTests
             Assert(!ReleaseNotes.ToShow(english, null, AppInfo.Version, ranBefore: false).Any(), "A fresh copy has nothing to compare with");
             Assert(ReleaseNotes.ToShow(english, null, AppInfo.Version, ranBefore: true).SequenceEqual([AppInfo.Version]), "From before notes existed");
             Assert(!ReleaseNotes.ToShow(english, AppInfo.Version, AppInfo.Version, true).Any(), "Seen already");
-            Assert(ReleaseNotes.ToShow(english, "0.9.2", AppInfo.Version, true).SequenceEqual([AppInfo.Version]), "Every version since the one seen");
+            // Every version after the one seen, up to this one, newest first (1.0.0 and on from 0.9.2).
+            var since = all.Where(version => version > new Version(0, 9, 2) && version <= new Version(AppInfo.Version))
+                .Select(version => version.ToString(3)).ToArray();
+            Assert(since.Contains("1.0.0") && since[0] == AppInfo.Version, "Notes from 1.0.0 to this version: " + string.Join(" ", since));
+            Assert(ReleaseNotes.ToShow(english, "0.9.2", AppInfo.Version, true).SequenceEqual(since), "Every version since the one seen");
             // Back on an older version after a newer one: that version's own notes.
             Assert(ReleaseNotes.ToShow(english, "99.0.0", AppInfo.Version, true).SequenceEqual([AppInfo.Version]), "Gone back: that version's notes");
             Assert(!ReleaseNotes.ToShow(english, "0.9.2", AppInfo.Version + "x", true).Any(), "An unreadable version shows nothing");
@@ -279,6 +283,14 @@ internal static class LocalizationThemeTests
             Equal(model.OverlayTiles, "길이 0:02 · 남은 시간 0:02 · 타일 5개 · 마법진 0개"); // The bar is on by default.
             Assert(model.OverlayProgress == "처음부터 · 자동 진행 활성화", model.OverlayProgress);
             Assert(model.ShowFieldControls, "The speed, the tile and the slot are on the field while it waits");
+            // Folding takes the whole band away, controls and wash included, and leaves only the button, which says
+            // what it brings back (user rule).
+            Assert(model.ShowOverlayBand && model.ShowHideOverlay && model.HideOverlayLabel == "숨기기", "Unfolded");
+            model.SongOverlayHidden = true;
+            Assert(!model.ShowOverlayBand && !model.ShowSongOverlay && model.ShowHideOverlay, "Folded: only the button is left");
+            Equal(model.HideOverlayLabel, "보이기");
+            model.SongOverlayHidden = false;
+            Assert(model.ShowOverlayBand, "And back");
             Equal(((SolidColorBrush)model.OverlayBrush).Color, Colors.White);
             // Nothing on the line is underlined while every control is where the song itself put it (user rule).
             Assert(model.OverlayTileParts.All(part => !part.Changed), "Nothing changed it yet");
@@ -443,7 +455,9 @@ internal static class LocalizationThemeTests
             // The transparency of a hit note is pinned here so editing the initial settings does not move these pixel checks.
             var basis = new VisualizerSettings
             {
-                DynamicTiming = false, SimultaneousWindowMs = 0, PressedNoteTransparencyPercent = 60, NoteTravelTimeMs = 720
+                DynamicTiming = false, SimultaneousWindowMs = 0, PressedNoteTransparencyPercent = 60, NoteTravelTimeMs = 720,
+                // The first note wears the start color; pinned to the note color so the blue channel finds it.
+                NoteColor = "94, 218, 242", StartNoteColor = "94, 218, 242"
             };
             Equal(basis.JudgmentLineHeightDip, 72d); Equal(basis.NoteTravelTimeMs, 720d); Assert(!basis.SlowNotesPastJudgmentLine, "The slowdown defaults off");
 

@@ -13,6 +13,12 @@ public static class LinkerInstaller
     public const string FolderName = "AdofaiVisualizerSync";
     /// <summary>Everything the mod is: the assembly and the manifest Unity Mod Manager reads.</summary>
     public static IReadOnlyList<string> FileNames { get; } = ["AdofaiVisualizerSync.dll", "Info.json"];
+    /// <summary>
+    /// Where the built mod lives, in the repository and beside the app alike: build-mod.ps1 writes it there and it is
+    /// committed with the version, so a copy that cannot build the mod (no game assemblies, no .NET Framework tools) still
+    /// installs it.
+    /// </summary>
+    public static string PluginFolder { get; } = Path.Combine("plugins", "linker");
     private const string GameFolderName = "A Dance of Fire and Ice";
 
     public static string ManagedOf(string gameDirectory) => Path.Combine(gameDirectory, GameFolderName + "_Data", "Managed");
@@ -49,8 +55,8 @@ public static class LinkerInstaller
     }
 
     /// <summary>
-    /// The folder a built mod sits in: beside the app first, so a copy handed to another PC carries its own, then a
-    /// repository's build output. Null when neither has both files.
+    /// The folder a built mod sits in: the plugins folder beside the app first (the build puts it there), then the
+    /// repository's own, then whatever build-mod.ps1 last built. Null when none has both files.
     /// </summary>
     public static string? FindSource(string appDirectory, string? repositoryRoot)
     {
@@ -61,9 +67,11 @@ public static class LinkerInstaller
 
     private static IEnumerable<string> SourceCandidates(string appDirectory, string? repositoryRoot)
     {
+        yield return Path.Combine(appDirectory, PluginFolder);
         yield return Path.Combine(appDirectory, "linker");
         yield return appDirectory;
         if (repositoryRoot is null) yield break;
+        yield return Path.Combine(repositoryRoot, PluginFolder);
         // The mod is not in the solution, so its output is wherever build-mod.ps1 last put it.
         foreach (var configuration in new[] { "Release", "Debug" })
             yield return Path.Combine(repositoryRoot, "tools", "GameSyncMod", "bin", configuration);

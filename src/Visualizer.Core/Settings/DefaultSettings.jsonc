@@ -10,7 +10,6 @@
   // Empty keeps the default store: ".local/app-data" inside the repository, or %LOCALAPPDATA%\AdofaiVisualizer outside it.
   "DataRootDirectory": "",
   // Song list. SongSortKey is one of Difficulty, Title, Artist, Author, NoteCount, Duration, Created, Modified, Synced, Manual.
-  "SongSearch": true,
   // Which map folder the list shows: Base, Custom, Edited or All.
   "SongGroup": "BaseCustom",
   "SongSortKey": "Difficulty",
@@ -118,9 +117,9 @@
   "NoteColor": "94, 218, 242",
   "ChordColor": "74, 222, 128",
   "CheckpointColor": "255, 255, 255",
-  // Magenta and orange: apart from the cyan notes, green chords, white checkpoints, gold line and red miss.
-  "StartNoteColor": "255, 79, 216",
-  "EndNoteColor": "255, 150, 30",
+  // A deep yellow (user rule): fuller than the judgment line's pale gold, short of orange.
+  "StartNoteColor": "255, 208, 0",
+  "EndNoteColor": "255, 208, 0",
   "JudgmentLineColor": "255, 209, 102",
   // How transparent a note looks after it is hit, in percent (0 keeps the full note color).
   "PressedNoteTransparencyPercent": 80,

@@ -95,7 +95,7 @@ public partial class MainWindow
     /// <summary>The repository's files against the commit this copy is on, as update.ps1 -Scan reads them.</summary>
     private async Task<ScanArea> ScanSourceAsync(IProgress<double> progress)
     {
-        if (ScriptRun("update.ps1", "-Scan", "-Progress") is not { } start)
+        if (UpdateScript("-Scan", "-Progress") is not { } start)
             return new("source", [], "not a copy of the repository, so there is nothing to compare");
         var finished = new TaskCompletionSource<IReadOnlyList<string>>();
         _ = RunScriptAsync(start, progress, finished.SetResult);
@@ -121,7 +121,7 @@ public partial class MainWindow
         if (place.Installed != AppInfo.Version) problems.Add($"the linker is {(place.Installed.Length == 0 ? "of an unknown version" : place.Installed)}, but this app is {AppInfo.Version}");
         foreach (var name in LinkerInstaller.FileNames)
             if (!File.Exists(Path.Combine(place.Target, name))) problems.Add($"{name} is missing from {place.Target}");
-        if (place.Source is null) problems.Add("this version's linker is not built here, so the installed one cannot be compared");
+        if (place.Source is null) problems.Add("this version's linker is not beside the app, so the installed one cannot be compared");
         else
         {
             var dll = LinkerInstaller.FileNames[0];
@@ -239,19 +239,21 @@ public partial class MainWindow
                 problems.Add($"song-ids.json gives {shared.Count()} songs the same id {shared.Key}");
         });
         Check("the notes", () => new ReportBook(Storage).Notes());
+        Check("pins.json", () => new PinBook(Storage).Read());
         return new("data", problems, Storage.Root);
     }
 
-    /// <summary>install -reinstall linker: update.ps1 builds the linker from this version and writes it again; the app stays.</summary>
+    /// <summary>
+    /// install -reinstall linker: this version's linker, which ships beside the app, is written into the game again. Nothing
+    /// is built and the app stays open.
+    /// </summary>
     void ICmdHost.ReinstallLinker(IProgress<double> progress, Action<IReadOnlyList<string>> done)
     {
-        if (((ICmdHost)this).FindLinker() is not { GameDirectory: { } game }) { done(["The game folder was not found."]); return; }
-        if (ScriptRun("update.ps1", "-Reinstall", "linker", "-LinkerGame", game, "-Progress") is not { } start)
-        {
-            done(["This build is not running from the repository, so there is nothing to reinstall from."]);
-            return;
-        }
-        _ = RunScriptAsync(start, progress, done);
+        var place = ((ICmdHost)this).FindLinker();
+        if (place.GameDirectory is null) { done(["The game folder was not found."]); return; }
+        if (place.Source is null) { done(["This version's linker is not beside the app, so there is nothing to reinstall from."]); return; }
+        done([((ICmdHost)this).InstallLinker(place, progress)
+            ?? $"The linker{(place.SourceVersion is { Length: > 0 } version ? " " + version : "")} is written into {place.Target} again. Restart the game to load it."]);
     }
 
     /// <summary>
@@ -263,7 +265,7 @@ public partial class MainWindow
         var arguments = new List<string> { "-Reinstall", string.Join(",", parts), "-WaitForProcessId",
             Environment.ProcessId.ToString(CultureInfo.InvariantCulture), "-Restart" };
         if (parts.Contains("linker") && ((ICmdHost)this).FindLinker() is { GameDirectory: { } game }) arguments.AddRange(["-LinkerGame", game]);
-        if (ScriptRun("update.ps1", [.. arguments]) is not { } start)
+        if (UpdateScript([.. arguments]) is not { } start)
             return "This build is not running from the repository, so there is nothing to reinstall from.";
         start.RedirectStandardOutput = false;
         start.RedirectStandardError = false;

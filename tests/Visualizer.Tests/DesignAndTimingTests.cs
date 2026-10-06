@@ -208,10 +208,11 @@ internal static class DesignAndTimingTests
             var generator = new NoteGenerator();
             int[] Tiles(IEnumerable<VisualizerNote> notes) => notes.Select(note => note.Tile).ToArray();
             // 0 and 30ms: past the chord window, inside the trill window. The cursor would put them on 5 and 4, which is
-            // the pair across the center, so the second note moves to the other side of 5.
+            // the pair across the center, so the pattern skips a step and rolls 4-3 in its own direction (user rule: on a
+            // 6-5-4-3 pattern a trill reads 4-3 or 6-5, never 5-6). The next trill opens the next pair.
             var trill = generator.Generate(new[] { 0d, 30, 1000, 1030 }, settings);
             Assert(trill.All(note => !note.StartsChord), "A trill is two notes, not a chord");
-            Sequence(Tiles(trill), 5, 6, 3, 4);
+            Sequence(Tiles(trill), 4, 3, 6, 5);
             // The same notes with trills off keep the cycle's lanes.
             Sequence(Tiles(generator.Generate(new[] { 0d, 30, 1000, 1030 }, settings with { TrillWindowMs = 0 })), 5, 4, 3, 6);
             // Wider apart than the window: not a trill.
@@ -300,8 +301,8 @@ internal static class DesignAndTimingTests
             }
             var defaults = new VisualizerSettings();
             // User rule: visible, and apart from every other note color.
-            Equal(defaults.StartNoteColor, "255, 79, 216");
-            Equal(defaults.EndNoteColor, "255, 150, 30");
+            Equal(defaults.StartNoteColor, "255, 208, 0");
+            Equal(defaults.EndNoteColor, "255, 208, 0");
             Assert(new[] { defaults.NoteColor, defaults.ChordColor, defaults.CheckpointColor }.All(other =>
                 other != defaults.StartNoteColor && other != defaults.EndNoteColor), "The two colors are their own");
             Assert(defaults.HasSameNoteRulesAs(defaults with { StartNoteColor = "0, 0, 0", EndNoteColor = "0, 0, 0" }), "Colors never move notes");
@@ -400,7 +401,9 @@ internal static class DesignAndTimingTests
             }
             // Four lanes of 50px: tile 5 is the third (x 100..150). With a 36px gap the judgment line is at y 334.
             static int Blue(byte[] pixels, int x, int y) => pixels[(y * width + x) * 4];
-            var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 0, JudgmentLineHeightDip = 36 };
+            // The first note wears the start color; it is pinned to the note color so the blue channel finds it.
+            var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 0, JudgmentLineHeightDip = 36,
+                NoteColor = "94, 218, 242", StartNoteColor = "94, 218, 242" };
             var clock = new Clock();
             var full = new PlaybackSession(clock);
             full.LoadTimeline(new[] { 0d, 5000 }, settings);

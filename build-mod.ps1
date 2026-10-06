@@ -1,5 +1,8 @@
 # Builds the read-only game sync mod (tools/GameSyncMod). It is separate from build.ps1 because it needs the game's own
-# assemblies, which not every machine has, and because build.ps1 must keep working without the game installed.
+# assemblies and the .NET Framework 4.8 build tools, which not every machine has, and because build.ps1 must keep working
+# without the game installed.
+# A Release build is also written into plugins\linker, which is committed with the version: every other copy installs that
+# one with the console's install linker and never builds the mod itself. Run this whenever the version changes.
 # -Install copies the result into the game's Mods folder; that is the one write outside this project (AGENTS.md rule 2),
 # so it never happens unless asked for.
 param(
@@ -47,6 +50,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Build failed: exit code $LASTEXITCODE" }
         $output = Join-Path $projectRoot "tools/GameSyncMod/bin/$Configuration"
         Write-Host "Mod built in $output"
+        if ($Configuration -eq 'Release') {
+            # The copy the app ships with (Visualizer.App.csproj puts plugins beside the exe). Written byte for byte so the
+            # file times change and the next app build copies it again.
+            $plugin = Join-Path $projectRoot 'plugins\linker'
+            New-Item -ItemType Directory -Path $plugin -Force | Out-Null
+            foreach ($file in @('AdofaiVisualizerSync.dll', 'Info.json')) {
+                [IO.File]::WriteAllBytes((Join-Path $plugin $file), [IO.File]::ReadAllBytes((Join-Path $output $file)))
+            }
+            Write-Host "Written into $plugin; commit it with the version."
+        }
         if ($Install) {
             $target = Join-Path $GameDir 'Mods\AdofaiVisualizerSync'
             New-Item -ItemType Directory -Path $target -Force | Out-Null

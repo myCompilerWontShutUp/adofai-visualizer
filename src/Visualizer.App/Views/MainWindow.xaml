@@ -130,7 +130,7 @@
                                           ToolTip="{Binding Text[PreviousSong]}" IsEnabled="{Binding CanMoveSong}" />
                     <ComboBox x:Name="SongPicker" Grid.Column="2" Style="{StaticResource SearchComboBox}" ItemsSource="{Binding LibraryView}" SelectedItem="{Binding SelectedMap}"
                               Text="{Binding SongQuery, UpdateSourceTrigger=PropertyChanged}" TextSearch.TextPath="SongName"
-                              ToolTip="{Binding Text[SongSearch]}" KeyUp="SongPickerKeyUp" IsReadOnly="{Binding SongListReadOnly}">
+                              ToolTip="{Binding Text[SongSearch]}" KeyUp="SongPickerKeyUp">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
                                 <DockPanel MaxWidth="380" ToolTip="{Binding SongName}">
@@ -287,17 +287,16 @@
                                                   Visibility="{Binding ShowLastCheckpointButton, Converter={StaticResource VisibleOrHidden}}" />
                         </StackPanel>
                     </Border>
+                    <!-- The band and its fold button are layers of one cell, so folding can take the whole band away (details,
+                         controls and wash alike) and leave the button alone where it was (user rule). -->
+                    <Grid x:Name="OverlayArea" VerticalAlignment="Center">
                     <!-- One band, not two (user rule): the song's details and the controls under them share a single wash
                          and sit against each other. Each half still comes and goes on its own. -->
-                    <Border x:Name="OverlayBand" VerticalAlignment="Center" Background="{Binding OverlayBackBrush}"
+                    <Border x:Name="OverlayBand" Background="{Binding OverlayBackBrush}"
                             Visibility="{Binding ShowOverlayBand, Converter={StaticResource VisibleWhen}}">
                       <StackPanel>
-                    <!-- Folds the details away so the tiles behind them can be seen (user rule). It lives on the band so it
-                         is still there once they are gone, and it is a button only: nothing about it is saved. -->
-                    <input:PlaybackButton x:Name="HideOverlayButton" HorizontalAlignment="Right" Margin="0,4,10,0" Height="20" MinHeight="20"
-                                          FontSize="10" Padding="8,0" Style="{StaticResource ToolButton}"
-                                          Content="{Binding HideOverlayLabel}" Click="HideOverlayClick"
-                                          Visibility="{Binding ShowHideOverlay, Converter={StaticResource VisibleWhen}}" />
+                    <!-- The fold button's row, kept so the details sit where they always did; the button lies on top of it. -->
+                    <Border Height="24" />
                     <!-- Song info while a loaded song is stopped. Text color contrasts with the lane colors (white or black). -->
                     <Border x:Name="SongOverlayCard" IsHitTestVisible="False" Padding="20,14,20,10"
                             Visibility="{Binding ShowSongOverlay, Converter={StaticResource VisibleWhen}}">
@@ -370,6 +369,13 @@
                     </Border>
                       </StackPanel>
                     </Border>
+                    <!-- Folds everything on the band away so the tiles behind it can be seen (user rule); folded, it is the
+                         only thing left, with no wash behind it. A button only: nothing about it is saved. -->
+                    <input:PlaybackButton x:Name="HideOverlayButton" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,4,10,0"
+                                          Height="20" MinHeight="20" FontSize="10" Padding="8,0" Style="{StaticResource ToolButton}"
+                                          Content="{Binding HideOverlayLabel}" Click="HideOverlayClick"
+                                          Visibility="{Binding ShowHideOverlay, Converter={StaticResource VisibleWhen}}" />
+                    </Grid>
                 </Grid>
             </Border>
         </DockPanel>

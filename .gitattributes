@@ -1,0 +1,4 @@
+# Plugins are committed built (build-mod.ps1 writes them); their bytes must reach every copy unchanged.
+plugins/** binary
+# Batch files are read by cmd, which wants CRLF whatever a computer's git settings say.
+*.cmd text eol=crlf

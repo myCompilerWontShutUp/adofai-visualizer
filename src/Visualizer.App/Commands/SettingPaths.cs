@@ -32,7 +32,7 @@ public static class SettingPaths
     public static IReadOnlyList<(string Name, string About)> Sections { get; } =
     [
         ("general", "Language, theme and what the main screen shows."),
-        ("songs", "The song list: search, order and group."),
+        ("songs", "The song list: order and group."),
         ("keys", "Control keys and the eight lane keys."),
         ("tiles", "Key counts, the boundaries between them and the tile patterns."),
         ("timing", "Playback speed, chord window and chord rules, start delay and calibration."),
@@ -61,7 +61,6 @@ public static class SettingPaths
             new("general", "song-info", nameof(VisualizerSettings.ShowSongInfo), Toggle),
             new("general", "game-only", nameof(VisualizerSettings.OnlyReactWhenAdofaiForeground), Toggle),
             new("general", "autosave", nameof(VisualizerSettings.AutoSaveSettings), Toggle),
-            new("songs", "search", nameof(VisualizerSettings.SongSearch), Toggle),
             new("songs", "sort", nameof(VisualizerSettings.SongSortKey), Choice),
             new("songs", "high-first", nameof(VisualizerSettings.SongSortHighFirst), Toggle),
             new("songs", "group", nameof(VisualizerSettings.SongGroup), Choice),
@@ -107,7 +106,7 @@ public static class SettingPaths
             new("judgment", "bar", nameof(VisualizerSettings.JudgmentBarMode), Choice),
             new("judgment", "window", nameof(VisualizerSettings.JudgmentBarDifficulty), Choice),
             new("judgment", "average", nameof(VisualizerSettings.ShowJudgmentAverage), Toggle),
-            new("judgment", "average-notes", nameof(VisualizerSettings.JudgmentAverageCount), Whole),
+            new("judgment", "average-notes", nameof(VisualizerSettings.JudgmentAverageCount), Whole, "notes"),
             new("timing", "start-delay", nameof(VisualizerSettings.StartDelayMs), Number, "ms"),
             new("timing", "calibration", nameof(VisualizerSettings.CalibrationNoteCount), Whole, "notes"),
             new("magic", "notes", nameof(VisualizerSettings.MagicCircleNoteCount), Whole, "notes"),

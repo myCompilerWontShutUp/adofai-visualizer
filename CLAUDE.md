@@ -23,12 +23,13 @@ ADOFAI(얼불춤) 커스텀 맵을 Falling Note로 보여주는 개인용 Window
 ```
 
 ```powershell
-.\build-mod.ps1 -Configuration Release            # 게임 안에서 도는 읽기 전용 모드 (게임 폴더 필요)
+.\build-mod.ps1 -Configuration Release            # 게임 안에서 도는 읽기 전용 모드 (게임 폴더 필요), 결과를 plugins/linker에도 씀
 .\build-mod.ps1 -Configuration Release -Install   # 위를 빌드하고 <게임>\Mods\AdofaiVisualizerSync\에 넣음
 ```
 
 - 모드는 `Visualizer.sln`에 **없습니다**. 게임 어셈블리를 참조하므로 게임이 없는 PC에서도 `build.ps1`이 그대로 돌아야 하기 때문입니다. `-Install`은 게임 폴더에 쓰는 유일한 동작이라 사용자가 요청할 때만 씁니다.
-- SDK는 `global.json`에서 9.0.305로 고정, `NuGet.Config`는 소스를 비워 오프라인입니다.
+- **빌드된 모드는 `plugins/linker/`로 저장소에 함께 올라갑니다**(1.0.1). 버전을 올리면 이 PC에서 `build-mod.ps1 -Configuration Release`를 다시 돌립니다(`GameSyncTests`가 버전 대조). 앱 csproj가 `plugins/**`를 실행 파일 옆으로 복사하므로 다른 PC는 모드를 빌드하지 않습니다(그 PC에는 .NET Framework 4.8 참조 어셈블리가 없어 NU1100으로 실패했음). `.gitattributes`가 `plugins/**`를 바이너리로 둡니다.
+- SDK는 `global.json`에서 9.0.305 이상의 9.0(`rollForward: latestFeature`, 1.0.1 — winget이 까는 최신 9.0 SDK로도 빌드되게), `NuGet.Config`는 소스를 비워 오프라인입니다.
 - `Directory.Build.props`에서 `Nullable`·`ImplicitUsings`·**`TreatWarningsAsErrors`**·`Deterministic`을 켰습니다. 경고 하나도 빌드 실패입니다. 앱 버전 `<Version>`과 `<VersionDate>`도 여기 있습니다.
 - 실행 파일: `src/Visualizer.App/bin/{Debug|Release}/net9.0-windows/Visualizer.App.exe`. 캐시 루트를 찾으려면 프로젝트 안에서 실행해야 합니다.
 - 사용자가 앱을 실행 중이면 Release 출력 폴더가 잠깁니다. **앱을 종료하지 말고** Debug로 검증한 뒤 사용자에게 알립니다.
@@ -74,6 +75,7 @@ src/Visualizer.Infrastructure/  파일·Windows 어댑터
   Storage/WorkspaceSongPreferences.cs  <저장소>/songs.json (곡 리스트 선택)
   Storage/SongIdBook.cs                <저장소>/song-ids.json (콘솔용 8자 id)
   Storage/SongMarkBook.cs              <저장소>/song-marks.json (곡 목록의 new 표시, 마지막으로 불러온 곡)
+  Storage/PinBook.cs                   <저장소>/pins.json (콘솔 pin의 핀, 곡 묶음 CmdSong.Family 키별 타일 목록)
   Storage/ReportBook.cs                <저장소>/reports/*.txt (콘솔 report 메모. 모든 .txt가 메모, 기록은 written.mark·done.mark —
                                        같은 .txt였을 때 메모로 섞여 나왔음). 버전으로 지우지 않음, Write가 done을 지움(다시 적으면 열림),
                                        SetDone/DoneIn/ClearDone/Rename. 터미널 쪽 같은 일은 루트의 report.ps1
@@ -81,7 +83,8 @@ src/Visualizer.Infrastructure/  파일·Windows 어댑터
   Parsing/AdofaiJson.cs                문자열 안의 제어 문자·생략된 쉼표를 메모리에서만 보정 (게임은 GDMiniJSON으로 읽으므로)
   Input/                               WindowsRawInputMonitor(관찰 전용), WindowsForegroundObserver, MultimediaScheduling(MMCSS 등록)
   Sync/NamedPipeGameSyncServer.cs      게임 모드가 쓰는 명명 파이프를 읽기만 (JSON 한 줄 → GameSyncLink)
-  Sync/LinkerInstaller.cs              콘솔 install linker가 쓰는 곳: 게임 폴더·모드 파일 찾기, UMM 여부, 설치된 버전, 두 파일만 쓰기
+  Sync/LinkerInstaller.cs              콘솔 install linker가 쓰는 곳: 게임 폴더·모드 파일 찾기(PluginFolder = plugins\linker 먼저), UMM 여부,
+                                       설치된 버전, 두 파일만 쓰기. install -reinstall linker도 앱 안에서 이것으로 씀
 src/Visualizer.App/             WPF 조립 지점
   Icon/                         icon.png(사용자 제공 원본) → icon.ico(16~256px, csproj ApplicationIcon. 창은 exe 아이콘을 물려받음)
   Themes/                       Theme.xaml(공용 스타일), ThemeCatalog.cs(+ PrimaryBrush·ToggleOnBrush 계산) + Palettes/*.json, SpaceBackdrop
@@ -89,7 +92,7 @@ src/Visualizer.App/             WPF 조립 지점
                                 SettingsPanel(창이 아니라 UserControl, 메인 창의 SettingsHost 안에서 열림 · .Rows 행 만들기/.Form 읽기·쓰기/.Json 고급·JSON)
                                 + SettingsLayoutStore(카드 열림 상태)
                                 SongListWindow(곡 리스트 상세, 검색 `Matches`·곡 제거 `RemoveSong`/`AskRemove`/`RemoveRow`) · SongDetails(곡 정보 문구 한 곳) · NoteEditWindow + EditSlotDialog + EditKeysWindow(곡 수정, 창 하나만,
-                오른쪽에서 밀려 나오는 설정 패널 ShowPanel/GhostNotes)
+                시트 오른쪽에 늘 붙은 도구 패널 BuildPanel — 버튼은 Press와 같은 길, Focusable=false, Tools·ZoomText·ZoomBy·ResetZoom·GhostNotes)
                                 CmdWindow(입력 칸 없는 터미널 화면, 기록 위에 ReportEditor 층) · ReportEditor(report 메모: 모드·상태줄·: 명령,
                                 [Y/n]은 글자를 모아 Enter에서만 적용 — NORMAL의 안 쓰는 키는 false를 돌려줘야 텍스트 이벤트가 살아 `:`가 옴)
                                 HelpWindow · ConfirmDialog(risky = 주황 아웃라인)
@@ -108,11 +111,21 @@ tests/Visualizer.Tests/         실행형 하네스 (xUnit 없음)
 docs/                           규칙·근거 문서 (5절)
 tools/GameSyncMod/              게임 안에서 도는 읽기 전용 모드 (net48, UMM). Main(진입·OnUpdate) · GameReader(리플렉션으로 값·타일 시각) ·
                                 KeyViewerFocus(승인된 단 하나의 쓰기: 전경이 아닐 때 JipperResourcePack 키뷰어 GameObject만 끔) ·
-                                SyncWriter(별도 스레드 파이프 쓰기). 솔루션에 없고 `build-mod.ps1`로 빌드·설치.
+                                SyncWriter(별도 스레드 파이프 쓰기). 솔루션에 없고 `build-mod.ps1`로 빌드(Release는 plugins/linker에도)·설치.
                                 `Info.json`은 빌드가 만듭니다(csproj의 WriteModInfo) — 버전은 Directory.Build.props 하나에서
 update.ps1                      저장소 쪽 일을 하는 유일한 스크립트: -Check(state 줄) · 받기/-Force -Version(버전은 <Version>을 바꾼 커밋으로 찾음) ·
-                                -Reinstall source,app,linker · -Scan(git status) · -LinkerGame(링커 빌드·설치) · 빌드 · 다시 띄우기.
+                                -Reinstall source,app,linker · -Scan(git status) · -LinkerGame(plugins/linker 복사, 빌드 없음) · 빌드 · 다시 띄우기.
                                 콘솔 `update`·`version`·`scannow source`·`install -reinstall`이 그대로 실행
+plugins/linker/                 빌드된 링커(dll·Info.json, 커밋함). 앱 빌드가 exe 옆 plugins\linker\로 복사 → install linker가 씀
+Install.cmd                     더블클릭 설치(cmd·PowerShell 겸용 한 파일, ASCII·CRLF): git·.NET 9 SDK 없으면 winget(물음) → 폴더(기본
+                                %USERPROFILE%\AdofaiVisualizer, 이미 복사본 안이면 그대로) → git clone → build.ps1 Release → 시작 메뉴·바탕화면
+                                바로가기(물음). 빌드 로그는 .local\install-build.log
+Uninstall.cmd                   더블클릭 제거: 실행 줄 하나(폴더 밖으로 cd → uninstall.ps1 → pause → (goto) 2>nul로 배치를 먼저 끝냄 —
+                                안 그러면 사라진 파일을 cmd가 다시 찾아 "path not found"). 시작 메뉴의 Uninstall 바로가기가 이것
+uninstall.ps1                   사람이 실행하는 언인스톨러(앱은 실행 불가): plugins(<게임>\Mods\<Id> 통째로) ·
+                                data(%LOCALAPPDATA% 저장소 · 고른 폴더는 앱 이름만 · 옛 .local\app-data) · app(이 폴더 + 이 폴더를 가리키는
+                                바로가기, 자기 작업이 있으면 -Force). 하나씩 [y/N], -Plan은 보기만. 링크는 따라가지 않음(Remove-Tree).
+                                테스트는 dot-source해서 함수만, $root를 테스트 복사본으로 바꿔 시험
 .example/main.adofai            읽기 전용 예제 (Plum - R)
 .local/                         도구 홈·캐시·테스트 산출물·백업 (gitignore)
 ```
@@ -139,6 +152,8 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - **콘솔의 진행률 바**: `CmdSession.Job`·`Busy`·`JobText()`·`RunJob`이 한 벌입니다. `RunJob`은 프롬프트를 막대로 바꾸고 호스트에 `IProgress<double>`과 끝낼 때 쓸 콜백을 넘기며, `Submit`은 `Busy`면 입력을 버립니다(`CmdWindow.Render`가 막대를 그리고 키·텍스트 입력을 막습니다). 호스트는 `ICmdHost.SyncMaps`/`Resync`(→ `MainWindow.Run`이 끝나면 곡 수를 알림)와 `InstallLinker(place, progress)`입니다. 진행률은 `MainWindow.CopyAndScanAsync`의 `Step`이 복사 40% + 세 폴더 파싱 60%로 계산하고 같은 값을 메인 화면 퍼센트로도 씁니다.
 - **Ctrl+E**: `MainWindow.IsEditShortcut`. 메인 창 `PreviewKeyDown`(단, `Busy`면 넘김 — 터널링이라 창 처리기가 먼저 돌기 때문) → `EditLoadedSong()`, 설정판 `PreviewKeyDown` → `EditSong()`(설정을 먼저 닫음).
 - **곡 끝 알림**: `PlaybackSession.PastLastNoteMs`(재생 중이고 남은 노트가 없을 때 마지막 노트가 지난 지 얼마인지) + `MainViewModel._lastInputMs`(`NoteInput()`이 찍음: 앱이 보는 키·창 클릭·버튼)로 `RefreshPlaybackInfo`가 `ShowSongEndNotice`를 정합니다(1초, `SongEndQuietMs`). 안내가 떠 있을 때 초기화 키는 `MainViewModel.ResetFromKey(offered)`가 버튼과 같은 길로 보냅니다 — 창의 키 처리기가 `NoteInput()`으로 안내를 내리기 **전에** `offered`를 읽어 넘깁니다. 버튼은 `RestartFromBeginning`·`RestartAtLastCheckpoint` → `StartOver(체크포인트)`(같은 번호여도 다시 준비하고 구간을 지움). XAML은 `MainWindow.xaml`의 `SongEndCard`이고, 두 번째 버튼은 자리를 지켜야 해서 `Views/HiddenWhenFalse.cs`로 **숨김**만 합니다. 두 `Show…`는 `PlaybackProperties`에 있고 테스트는 `MainViewModel.PlaybackNames`로 그것을 확인합니다. 시간을 밀어야 하는 테스트는 `new MainViewModel(clock)`으로 자기 시계를 넘깁니다.
+- **곡 정보 숨기기**: `MainWindow.xaml`의 `OverlayArea`(한 칸 Grid)에 `OverlayBand`와 `HideOverlayButton`이 층으로 있고, `ShowOverlayBand`가 `!SongOverlayHidden`이면 띠 전체(곡 정보·조작·배경)가 사라지며 버튼만 남습니다(문구 `HideSongInfo` ↔ `ShowSongInfoAgain` "보이기").
+- **핀·go**: `CmdSession.Pin(line, copy, add)`(pin·unpin 한 곳), `TileProblem`(go·pin 공통 타일 검사), `PinWords`(Tab 후보), `ICmdHost.PinsOf`/`SetPins` → `MainWindow.Console.cs`의 `Pins`(읽기 실패하면 `_pinsUnreadable`로 쓰기를 막음) → `PinBook`. `CmdArgument.Tile`(go)·`Pin`(pin·unpin)이 Tab 위치를 가릅니다.
 - **Ctrl+T**: `CmdWindow.IsShortcut`. 메인·설정 창의 `PreviewKeyDown` → `MainWindow.ToggleConsole`(없으면 `ShowConsole`, 있으면 `CmdWindow.ToggleMinimized`), 콘솔 안에서는 `ScreenKeyDown` → `ToggleMinimized`. 콘솔은 메인 창이 뜬 방식(`ShowActivated`)대로 열립니다.
 - **일시정지 정렬**: `MainViewModel.AlignPausedNote`가 `NotePressJudge.FirstUnpressed`(누름 기준, 시각 아님)로 노트를 고르고 `PlaybackSession.MovePaused`로 멈춘 위치만 옮깁니다. `PauseFromKey`와 `PauseResume`의 멈추는 쪽에서 부르며, 설정은 `AlignNextNoteOnPause`입니다.
 - **노트 영역 위의 조작**(0.9.1, 0.9.2 개편): 배속(`SlowerButton`·`SpeedBox`·`FasterButton`)·구간(`SectionField`)·슬롯(`SlotPicker`)은 `MainWindow.xaml`의 `FieldControls`(반투명 `Border` 안의 2행 3열 `Grid`)에 있고, `MainViewModel.ShowFieldControls`(곡이 있고 `Waiting`)일 때만 보입니다. 슬롯은 `SlotOptions`/`SelectedSlot`/`ShowSlotPicker`이며 setter가 바로 `LoadCached`합니다. 수정 버튼은 설정의 실험적 카드(`SettingsPanel._editSongButton` → `EditSongRequested`)로 갔습니다. 배속은 `StepSpeed`/`ApplyTypedSpeed`/`ApplySpeed` → `ApplySettings`(기록·저장 포함)이고 `SpeedText`는 단위까지 붙여 돌려주므로(`100%`) `ApplyTypedSpeed`가 `%`를 떼고 읽습니다. 치는 동안 값이 되돌아가지 않도록 setter에서 알리지 않는 것은 그대로입니다.
@@ -161,7 +176,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - **마지막 곡**: `MainViewModel.LastSongId`는 `LoadAsked`에서 목록에 있는 곡만 기억하고 `SongMarksChanged`로 저장합니다. 시작할 때 `MainWindow.OnLoaded` → `OfferLastSong`이 `ConfirmDialog.Ask(..., details, detailsLabel)`로 묻고(상세 문구는 `SongDetails.Lines`, 곡 리스트 행과 같은 항목), 예면 `LoadChosen`입니다.
 - **곡 목록 표시**: `RebuildLibrary`가 사본마다 `MapCacheEntry.Badge`(표시 전용, 캐시에 쓰지 않음)를 `MainViewModel.BadgeOf`로 채웁니다(forced → recently → new). `new`는 `CopyAndScanAsync`가 동기화 전후 캐시 id를 비교해 `MarkNew`, `recently`는 `SaveEdit` → `ScanEditedAsync`가 저장한 경로로 `MarkRecentEdit`, 둘 다 `LoadAsked`에서 지웁니다. `new`만 `NewSongsChanged` → `SongMarkBook`으로 저장합니다. XAML은 `MainWindow.xaml`의 `SongPicker` 항목 템플릿(`IsForced`면 `FireBrush`)입니다.
 - **link auto·install linker**(0.9.2): 자동 따라가기는 `MainWindow.Console.cs`의 `_linkAuto`·`AutoFollowGame`이며 **프레임마다 부르는 `FollowGameSync` 맨 앞**에서 돌고, 실제 동작은 `ICmdHost.GameSyncFollow(true)`를 그대로 불러 규칙을 한 곳에 둡니다(`_autoTried`가 레벨·곡당 한 번만 시도하게 하고 `_autoNote`가 이유를 `link` 출력에 싣습니다). 시도 여부를 가르는 열쇠에는 노트 수가 아니라 **`PlaybackSession.Prepared`**(준비 횟수, 실패한 준비 포함)를 넣습니다 — 배속 때문에 거절당한 뒤 배속을 되돌리면 노트가 그대로라 다시 시도하지 않았습니다. 설치는 `CmdSession.Install` → `ICmdHost.FindLinker`/`InstallLinker` → `LinkerInstaller`이고, `LinkerPlace`(게임 폴더·모드 위치·그 버전·설치된 버전·쓸 폴더)를 먼저 만들어 **질문 문구에 쓸 폴더를 적습니다**.
-- **update**: `MainWindow.Console.cs`의 `ScriptRun("update.ps1", …)`이 만든 `powershell -NoProfile -ExecutionPolicy Bypass -File <저장소>\update.ps1`을 띄웁니다(`RunScriptAsync`가 `step <0..1>` 줄은 막대로, 나머지는 줄 그대로 돌려줌). `CmdSession.Update` → `ICmdHost.CheckUpdate(version)`(`-Check -Progress`)의 `state …` 줄을 `UpdateCheck.Read`가 읽고, 영어 문장은 `CmdSession`이 만듭니다(최신·대기·자기 수정·없는 버전·같은 버전). 받을 때는 `Confirm` → `ICmdHost.ApplyUpdate(force, version)`가 `update.ps1 -WaitForProcessId <pid> -Restart [-Force] [-Version v] [-LinkerGame 게임]`을 **출력을 읽지 않고** 띄운 뒤 앱을 닫습니다(실행 중에는 자기 Release 폴더가 잠겨 빌드 불가). 링커가 설치되어 있으면 `-LinkerGame`을 넘겨 스크립트가 `build-mod.ps1 -Install`까지 합니다. `version`도 같은 `CheckUpdate(null)`로 최신 여부를 적습니다. `install -reinstall`은 `ICmdHost.ReinstallLinker`(앱은 그대로)·`ReinstallAndRestart`(앱을 닫음)로 `-Reinstall`을, `scannow source`는 `-Scan`을 씁니다. 저장소 루트는 `WorkspaceMapCache.FindRepositoryRoot`로 찾고, 못 찾으면 그렇다고만 답합니다. **앱이 다른 프로그램을 띄우는 유일한 곳**이며 올리는 쪽은 앱에 없습니다(편집기·git으로 직접 올립니다, 사용자 결정).
+- **update**: `MainWindow.Console.cs`의 `UpdateScript(…)`(받는 이름 없이 언제나 `update.ps1` — 앱이 다른 스크립트를 띄울 길을 두지 않음)이 만든 `powershell -NoProfile -ExecutionPolicy Bypass -File <저장소>\update.ps1`을 띄웁니다(`RunScriptAsync`가 `step <0..1>` 줄은 막대로, 나머지는 줄 그대로 돌려줌). `CmdSession.Update` → `ICmdHost.CheckUpdate(version)`(`-Check -Progress`)의 `state …` 줄을 `UpdateCheck.Read`가 읽고, 영어 문장은 `CmdSession`이 만듭니다(최신·대기·자기 수정·없는 버전·같은 버전). 받을 때는 `Confirm` → `ICmdHost.ApplyUpdate(force, version)`가 `update.ps1 -WaitForProcessId <pid> -Restart [-Force] [-Version v] [-LinkerGame 게임]`을 **출력을 읽지 않고** 띄운 뒤 앱을 닫습니다(실행 중에는 자기 Release 폴더가 잠겨 빌드 불가). 링커가 설치되어 있으면 `-LinkerGame`을 넘겨 스크립트가 `plugins/linker`를 게임에 복사합니다(빌드 없음). `version`도 같은 `CheckUpdate(null)`로 최신 여부를 적습니다. `install -reinstall`의 `linker`는 `ICmdHost.ReinstallLinker`가 앱 안에서 `LinkerInstaller`로 다시 쓰고(앱은 그대로), `source`·`app`은 `ReinstallAndRestart`(앱을 닫음)로 `-Reinstall`을, `scannow source`는 `-Scan`을 씁니다. 저장소 루트는 `WorkspaceMapCache.FindRepositoryRoot`로 찾고, 못 찾으면 그렇다고만 답합니다. **앱이 다른 프로그램을 띄우는 유일한 곳**이며 올리는 쪽은 앱에 없습니다(편집기·git으로 직접 올립니다, 사용자 결정).
 - **시작·끝 노트 색**(1.0.0): `NoteField`의 `BrushOf(index, chord, pressed)` 한 곳이 시작(`notes[0]`의 시각) > 끝(`notes[^1]`의 시각) > 체크포인트 > 동타 > 일반 순으로 고르고, 팔레트는 `NoteFieldPalette`의 `Start`·`End`(+ 눌린 색)입니다. 시작 누름이 첫 동타 전체를 치는 것은 `MainViewModel.PressLane(tile, starting)` → `NotePressJudge.PressTogether`이며, `starting`은 창의 키 처리기가 "누르기 전 Waiting, 누른 뒤 Playing"으로 정합니다.
 - **note의 출처**(1.0.0): `ICmdHost.NowNotes`가 수정 창이 열려 있으면 `(_editorTimeline, editor.Session.ToLayout())`, 아니면 `(Playback.Timeline, Playback.Layout)`을, `ICmdHost.EditOf(song)`이 id로 고른 곡의 저장된 편집을 줍니다. `CmdSession.PrintNotes`가 규칙 노트를 만들고 `NoteEditLayout.Apply(..., anyTile: true)`로 편집을 덮습니다(화면에 없는 레인도 그대로 찍음).
 - **업데이트 소식**(1.0.0): `MainWindow.ShowUpdateNotes`가 `OnLoaded`에서 `OfferLastSong` **앞**에 `ReleaseNotes.ToShow(언어, last-version.txt, AppInfo.Version, RanBefore)`의 버전들을 `ConfirmDialog`(버튼 하나, `Topmost`)로 보여 주고, 먼저 `last-version.txt`를 씁니다.
@@ -175,6 +190,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - 모드 1·2·4·6·8, 경계 `<50ms` 8K, `<70ms` 6K, `<120ms` 4K, `<500ms` 2K, 그 이상 1K. 최대 타일 수(기본 4)로 상한, 최소 타일 수(기본 1)로 하한. **느린 쪽 모드와 경계값이 같으면 그 모드를 건너뜁니다**(`DynamicTimingSelector.Select`). 화면에 보일 레인 수는 `DisplayLaneCount`(0 = 최대 타일 수를 따름)이고 배치에는 영향이 없습니다(`GetShownTiles`·`GetDisplayTiles(쓰는 타일)`).
 - 패턴은 **타일 집합**이라 오름차순으로 저장·비교하고(`SortTiles`), 도는 순서는 `EnableTilePreference`(기본 OFF)가 꺼져 있으면 기본 순서(큰 번호부터)입니다. 1키 패턴 = `InitialTile`(`OneKeyPattern` 없음).
 - 동타는 중앙 기준 우선순위로 레인을 찾습니다(`SimultaneousNotePlanner.Assign`의 level): ① 중앙에서 바깥으로 두 칸씩 묶은 쌍 ② 한쪽 반 안의 인접 쌍 ③ 중앙을 가로지르는 쌍(레인 4개에서는 `NoChordCenterPair`를 끌 때만) ④ 여분 레인. 기본 동작은 **왼쪽 쌍 우선**이며 `ChordLanePreference`로 `1-2`/`3-4`/`1-2,3-4`(기본)를 지정합니다 — 선호 쌍은 `GetPreferredChordLanes()`로 오고 `Adjacent`가 레벨 1부터 허용합니다. **트릴은 동타 다음에 계산합니다**(`SimultaneousNotePlanner.SplitTrills`가 `Place`의 마지막에 돌며 둘째 노트만 한 쌍의 다른 레인으로 옮김, 설정은 `TrillWindowMs`·`NoTrillCenterPair`·`TrillLanePreference`). `ChordSectionLanes`는 동타 바로 뒤 단타가 그 동타의 레인을 피하게 합니다.
+- **한 손 흐름**(1.0.1, 사용자 규칙 — 세부는 `docs/note-rules.md`의 "같은 키 연속·동타 옆 단타·트릴 방향"): 커서는 패턴이 바뀌는 모든 자리에서 직전 타일로 시작하지 않고(`TilePatternCursor.FreshStart`), **트릴의 두 레인을 처음부터 정하며**(`OpenTrill`: 이웃 쌍 → 다음 칸 → 한 레인 뒤에서, 직전 트릴과 같은 쌍은 마지막, 이웃은 패턴 밖이어도 됨 — `_trillSecond`가 다음 호출에서 닫음), 트릴 뒤 단타를 그 쌍 옆에 놓고 거기서 패턴을 잇습니다(`BesideTrill` → `Place`). 트릴 묶음은 `SimultaneousNotePlanner.TrillStarts` 한 곳, 쌍 판정은 `IsTrillPair`입니다. 동타 구간은 `Place`가 블록마다 `Flow`(커서 타일·블록 앞 두 그룹까지의 트릴 역할 `RoleOf`·패턴 방향·블록 앞 두 타일 `Trailing`)를 넘겨 **앞 사건의 레인을 피하는 방식**을 먼저 시도하고(styles의 `Fresh`, 실패하면 예전 방식), 동타 없는 구간은 바로 앞과 겹치면 `Shift`로 패턴을 밀며, `SplitTrills`가 남은 트릴을 패턴 방향(`Direction`)으로 돌리고 바로 앞 트릴과 같은 쌍을 피합니다(뒤가 트릴이면 겹침 검사를 그 트릴에 맡김 — `ahead`). 곡 단위 확인은 `-ReadOnlyMapRoot`가 아니라 앱 저장소 사본을 읽는 임시 도구로 했습니다(handoff-history 1.0.1).
 - 화면에는 최대 키 패턴의 타일만 오름차순 레인으로 표시하고, 여분 레인 배치가 켜진 2·4·6키 화면은 양옆 레인을 더 그립니다(`GetDisplayTiles`). 동타는 `StartsChord`로만 그립니다.
 - 마법진(같은 간격 ±5ms가 이어지는 구간)은 `MagicCircleFinder`가 찾고, 고정 타일이 켜져 있으면 그 구간의 키 수를 `MagicCircleTiles`로 고정합니다(값은 최대·최소로 clamp, 설정 값 자체는 유지).
 - 실험적 기능은 `ExperimentalFeatures`가 켜져야 하위 항목이 적용되는 구조입니다. 지금 항목은 **동타 앞 단타 레인 분리**(`UseChordAvoidBefore`, `SimultaneousNotePlanner.Place`가 앞 단타를 옮김)와 **연타마다 패턴 다시 시작**(`UseRestartOnRun`, `TilePatternCursor.RestartCycle`)이며 둘 다 기본 꺼짐입니다. 키 수를 뒤 간격으로 정하는 `NextIntervalTiles`는 고급 설정입니다. `UseChordSectionLanes`·`UseChordCenterPair`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일을 읽기 위해 남아 있습니다.

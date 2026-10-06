@@ -147,9 +147,16 @@ offset = (앱의 재생 시각) - (받은 곡 위치)
 
 - 대상은 `<게임>\Mods\AdofaiVisualizerSync\` **하나만**이고, 쓰는 파일은 `AdofaiVisualizerSync.dll`·`Info.json` **둘만**입니다. 폴더째 복사하지 않아 다른 모드·게임 파일을 건드릴 여지가 없습니다.
 - **Unity Mod Manager가 없으면 아무것도 하지 않습니다**(모드를 불러줄 것이 없으므로). 게임 폴더 후보는 설정의 맵 폴더가 가리키는 스팀 라이브러리(`steamapps` 위로 올라가 `common\A Dance of Fire and Ice`)이고, 없으면 기본 설치 경로를 봅니다.
-- 모드 파일은 앱 옆의 `linker\`, 앱 폴더, 저장소의 `tools/GameSyncMod/bin/{Release,Debug}` 순으로 찾습니다. 새 PC로 앱만 가지고 가는 경우를 생각해 `linker\`를 가장 앞에 두었습니다.
+- 모드 파일은 앱 옆의 `plugins\linker\`, `linker\`, 앱 폴더, 저장소의 `plugins/linker`, `tools/GameSyncMod/bin/{Release,Debug}` 순으로 찾습니다.
+- **1.0.1부터 빌드된 모드가 저장소에 함께 올라갑니다**(`plugins/linker/`, 사용자 요청 "설치 외 다른 플러그인은 install을 통해서만"). 다른 PC에서 `build-mod.ps1`이 .NET Framework 4.8 참조 어셈블리가 없어 NU1100으로 실패했고, 그래서 `install linker`가 "the linker itself was not found"라고 답했습니다. 이제 앱 빌드가 `plugins/**`를 실행 파일 옆으로 복사하므로 받고 빌드만 하면 설치할 수 있고, `update`·`install -reinstall linker`도 빌드하지 않고 이 파일을 씁니다. 버전을 올리면 개발 PC에서 `build-mod.ps1 -Configuration Release`가 `plugins/linker`를 새로 씁니다(테스트가 버전을 대조).
 - 이미 같은 버전이 설치된 경우에는 쓰지 않고 그대로 둡니다. 다른 버전이면 바꿀지 묻습니다 — 예전 모드가 남아 있어 `link`가 "앱과 모드 버전이 다르다"고 짚어 주는 상황을 여기서 한 번에 고칠 수 있게 했습니다.
 - junction·symlink가 길에 있으면 거절합니다(승인된 폴더 밖으로 나갈 수 있어서).
+
+### 제거 (`uninstall.ps1`, 1.0.1)
+
+- 지우는 것은 `<게임>\Mods\AdofaiVisualizerSync\` **폴더 통째로**입니다. 설치는 두 파일만 쓰지만, Unity Mod Manager가 불러올 때 옆에 `AdofaiVisualizerSync.dll.<숫자>.cache`를 만들어 두므로(이 PC에서 확인) 두 파일만 지우면 흔적이 남습니다. 폴더의 `Info.json` Id가 다르면 남의 것으로 보고 지우지 않습니다.
+- UMM의 `Managed\UnityModManager\Params.xml`에도 `<Mod Id="AdofaiVisualizerSync" Enabled="true">` 줄이 있지만 **건드리지 않습니다**(다른 프로그램의 파일, 안전 규칙 2). `UnityModManager+Param::Save`가 `ModParams.Clear()` 뒤 `modEntries`(불러온 모드)로 다시 채우고, `UI::OnDestroy`·창 닫기에서 `SaveSettingsAndParams`가 이것을 부르므로(IL로 확인) 모드 폴더가 없으면 다음에 게임을 끌 때 그 줄이 저절로 빠집니다.
+- JipperResourcePack 키뷰어는 모드가 실행 중에만 켜고 끄며(저장하는 값 없음) 모드가 내려갈 때 다시 켜 두므로 남는 것이 없습니다. 게임이 실행 중이면 언인스톨러가 멈춥니다(모드가 불려 있고 파일이 잠겨 있음).
 
 ## 9. 아직 확인하지 못한 것
 

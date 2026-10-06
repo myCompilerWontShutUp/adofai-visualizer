@@ -198,8 +198,9 @@ internal static class Program
                 Sequence(notes.Select(n => n.Mode), 2, 2, 4, 4, 4, 4, 4, 4, 4, 4);
                 Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                 // Mid-cycle the faster pattern also starts on the note before the close run: the 2K cycle is not
-                // opened again just to be completed.
-                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 6, 5, 4, 3, 6);
+                // opened again just to be completed. The 30ms pairs are trills (6-5, 4-3), and the single after the 4-3
+                // trill sits beside it on 5 (user rule: after a roll on lanes 1-2 comes 3).
+                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 6, 5, 4, 3, 5);
                 // 4K -> 8K keeps the preceding-interval rule.
                 var eight = settings with { MaximumTileCount = 8, InitialTile = 6 };
                 Sequence(generator.Generate(new[] { 0d, 30, 40, 50, 60, 70 }, eight).Select(n => n.Mode), 4, 4, 4, 4, 8, 8);
@@ -266,13 +267,15 @@ internal static class Program
                 foreach (var cap in new[] { 2, 4, 8 })
                 {
                     var notes = generator.Generate(times, settings with { MaximumTileCount = cap });
-                    Sequence(notes.Select(n => n.Tile), 3, 3, 2, 3, 2, 3);
+                    // The 2K pattern opens on its second tile, because its first would repeat the 1K note (user rule: 3 3 2 3 2
+                    // asked for the same key twice in a row).
+                    Sequence(notes.Select(n => n.Tile), 3, 2, 3, 2, 3, 2);
                     Sequence(notes.Select(n => n.Mode), 1, 2, 2, 2, 2, 2);
                     Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                     Assert(notes.SequenceEqual(generator.Generate(times, settings with { MaximumTileCount = cap })), "Regeneration must be deterministic");
                 }
                 // An isolated close pair completes its cycle, then returns to 1K.
-                Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings).Select(n => n.Tile), 3, 3, 2, 3);
+                Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings).Select(n => n.Tile), 3, 2, 3, 3);
                 Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings).Select(n => n.Mode), 1, 2, 2, 1);
                 // Exact threshold and end of input must not trigger anticipation.
                 Sequence(generator.Generate(new[] { 0d, 600, 1100 }, settings).Select(n => n.Mode), 1, 1, 1);

@@ -338,16 +338,44 @@ public partial class MainWindow
     string? ICmdHost.StartAtTile(int tile)
     {
         if (_model.Playback.Timeline is not { } timeline) return "No song is loaded.";
-        // The same checks ParsedTimeline.GetStartIndexForTile makes, so the console can give the reason in English.
-        if (timeline.HitFloors is not { Count: > 0 } floors) return "The song has no tile numbers. Sync the maps and load it again.";
-        if (tile >= floors[^1]) return $"{_model.LoadedEntry?.SongName ?? "The loaded song"} has tiles 1 to {floors[^1] - 1}.";
-        var index = floors.ToList().BinarySearch(tile);
-        if (index < 0) return $"Tile {tile} is a midspin tile, so starting there is not verified.";
-        // Play begins at the hit after that tile; if that one only releases a long note, there is nothing to press first.
-        if (index + 1 < floors.Count && ParsedTimeline.Closes(timeline.KindOf(index + 1)))
-            return $"Tile {tile} is inside a long note, so starting there is not verified.";
+        if (CmdSession.TileProblem(timeline, tile, _model.LoadedEntry?.SongName ?? "The loaded song") is { } problem) return problem;
         if (!_model.StartAtTile(tile)) return "The notes could not be prepared from that tile; the main window says why.";
         return null;
+    }
+
+    /// <summary>Every family's pins, read from pins.json once; tests keep them in memory only.</summary>
+    private Dictionary<string, IReadOnlyList<int>>? _pins;
+    /// <summary>Why pins.json could not be read; nothing is written over it then, so no pin is lost to a bad read.</summary>
+    private string? _pinsUnreadable;
+
+    private Dictionary<string, IReadOnlyList<int>> Pins
+    {
+        get
+        {
+            if (_pins is not null) return _pins;
+            _pins = new(StringComparer.Ordinal);
+            if (!UseAppStore) return _pins;
+            try { foreach (var (family, tiles) in new PinBook(Storage).Read()) _pins[family] = tiles; }
+            catch (Exception error) when (IsExpectedError(error) || error is System.Text.Json.JsonException) { _pinsUnreadable = error.Message; }
+            return _pins;
+        }
+    }
+
+    IReadOnlyList<int> ICmdHost.PinsOf(string family) => Pins.TryGetValue(family, out var tiles) ? tiles : [];
+
+    string? ICmdHost.SetPins(string family, IReadOnlyList<int> tiles)
+    {
+        var pins = Pins;
+        if (_pinsUnreadable is { } why) return "pins.json cannot be read, so nothing was changed. " + why;
+        if (tiles.Count == 0) pins.Remove(family);
+        else pins[family] = tiles.Distinct().Order().ToArray();
+        if (!UseAppStore) return null;
+        try
+        {
+            new PinBook(Storage).Write(pins);
+            return null;
+        }
+        catch (Exception error) when (IsExpectedError(error)) { return "The pins could not be saved. " + error.Message; }
     }
 
     string? ICmdHost.SetHidden(string id, bool hidden)
@@ -405,11 +433,15 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>The script that does the work, or null when this build is not sitting in the repository.</summary>
-    private ProcessStartInfo? ScriptRun(string name, params string[] arguments)
+    /// <summary>
+    /// update.ps1 with these arguments, or null when this build is not sitting in the repository. It is the one program
+    /// the app ever starts (AGENTS.md rule 2), so no other script name can be passed in: uninstall.ps1 in particular is
+    /// run by hand in PowerShell only (user rule).
+    /// </summary>
+    private ProcessStartInfo? UpdateScript(params string[] arguments)
     {
         var repository = Repository;
-        var script = repository is null ? null : Path.Combine(repository, name);
+        var script = repository is null ? null : Path.Combine(repository, "update.ps1");
         if (script is null || !File.Exists(script)) return null;
         var start = new ProcessStartInfo("powershell.exe")
         {
@@ -427,7 +459,7 @@ public partial class MainWindow
     /// <summary>update and version: asks the repository what is there. -Check changes nothing, so this is safe at any time.</summary>
     void ICmdHost.CheckUpdate(string? version, IProgress<double> progress, Action<UpdateCheck> done)
     {
-        if (ScriptRun("update.ps1", ["-Check", "-Progress", .. version is null ? Array.Empty<string>() : ["-Version", version]]) is not { } start)
+        if (UpdateScript(["-Check", "-Progress", .. version is null ? Array.Empty<string>() : ["-Version", version]]) is not { } start)
         {
             done(UpdateCheck.Failed("This build is not running from the repository, so there is nothing to update."));
             return;
@@ -446,7 +478,7 @@ public partial class MainWindow
         if (version is not null) arguments.AddRange(["-Version", version]);
         // An installed linker follows the app (user rule): the script builds it from the new version and writes it again.
         if (((ICmdHost)this).FindLinker() is { Installed: not null, GameDirectory: { } game }) arguments.AddRange(["-LinkerGame", game]);
-        if (ScriptRun("update.ps1", [.. arguments]) is not { } start)
+        if (UpdateScript([.. arguments]) is not { } start)
             return "This build is not running from the repository, so there is nothing to update.";
         start.RedirectStandardOutput = false;
         start.RedirectStandardError = false;

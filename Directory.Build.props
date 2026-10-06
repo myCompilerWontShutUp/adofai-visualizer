@@ -6,7 +6,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
     <!-- App version shown in the main window. Raise the last number with every update (AGENTS.md). -->
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <!-- The date this version was applied, shown by the console's "version" command. Update it together with Version. -->
     <VersionDate>2026-10-06</VersionDate>
   </PropertyGroup>

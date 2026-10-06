@@ -59,7 +59,6 @@ public partial class SettingsPanel
             _judgmentMode.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentModes, settings.JudgmentBarMode.Trim()));
             _judgmentDifficulty.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentDifficulties, settings.JudgmentBarDifficulty.Trim()));
             _judgmentAverage.IsChecked = settings.ShowJudgmentAverage;
-            _songSearch.IsChecked = settings.SongSearch;
             // Not a row of its own: the song list window edits it, so the dialog only carries the value through Apply.
             SongListFields = string.Join(' ', settings.GetSongListFields());
             _songGroup.SelectedIndex = Enum.TryParse<SongGroupField>(settings.SongGroup, ignoreCase: true, out var group) ? (int)group : (int)SongGroupField.All;
@@ -409,7 +408,6 @@ public partial class SettingsPanel
             Theme = _theme,
             MapRootDirectory = Text(nameof(VisualizerSettings.MapRootDirectory)),
             DataRootDirectory = Text(nameof(VisualizerSettings.DataRootDirectory)).Trim(),
-            SongSearch = _songSearch.IsChecked == true,
             SongGroup = Enum.GetName((SongGroupField)Math.Clamp(_songGroup.SelectedIndex, 0, Enum.GetValues<SongGroupField>().Length - 1))!,
             SongSortKey = Enum.GetName((SongSortField)Math.Clamp(_songSortField.SelectedIndex, 0, Enum.GetValues<SongSortField>().Length - 1))!,
             SongSortHighFirst = _songSortDirection.SelectedIndex != 1,

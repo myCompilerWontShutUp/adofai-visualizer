@@ -384,7 +384,7 @@ internal static class NoteEditTests
                 RuleNotes = [new EditNote(0, 0, 0, 1, null, 0), new EditNote(1, 500, 500, 7, null, 0)]
             };
             var sheet = FindAll<NoteEditField>(window).Single();
-            Assert(sheet.ShowRuleNotes && !window.PanelOpen, "The layer starts on and the options start tucked away");
+            Assert(sheet.ShowRuleNotes, "The layer starts on");
             sheet.TopMs = 800;
             Capture(window, Path.Combine(artifactRoot, "note-edit-ghost.png"), 620, 900);
 
@@ -404,17 +404,45 @@ internal static class NoteEditTests
             Assert(!shown.SequenceEqual(Shot(window)), "The layer changes what is drawn");
             sheet.ShowRuleNotes = true;
 
-            // The panel slides out and back, and both it and the toggle are UI state kept for this run only.
-            // Captured without the slide: an unshown window has no frames for an animation to run on.
-            window.ShowPanel(true, animate: false);
-            Capture(window, Path.Combine(artifactRoot, "note-edit-options.png"), 620, 900);
-            Assert(window.PanelOpen, "The options slide out");
+            // The tools stand beside the sheet the whole time (user rule): no gear to open them, nothing sliding. The toggle
+            // is UI state kept for this run only.
+            Capture(window, Path.Combine(artifactRoot, "note-edit-options.png"), 900, 900);
+            Assert(FindAll<System.Windows.Controls.Primitives.ToggleButton>(window).All(toggle => toggle is CheckBox), "No gear button");
             window.GhostNotes = false;
             Assert(!sheet.ShowRuleNotes, "The toggle turns the layer off");
             var again = new NoteEditWindow(session, settings, "Plum - R", currentSlot: null, laneWidth: 70, layout: store);
-            Assert(again.PanelOpen && !again.GhostNotes, "The next editor opens the way the last one was left");
+            Assert(!again.GhostNotes, "The next editor opens the way the last one was left");
             var fresh = new NoteEditWindow(session, settings, "Plum - R", currentSlot: null, laneWidth: 70, layout: new MemorySettingsLayoutStore());
-            Assert(!fresh.PanelOpen && fresh.GhostNotes, "A first run has the layer on and the options away");
+            Assert(fresh.GhostNotes, "A first run has the layer on");
+
+            // Every key the editor takes has a button too (user rule), and a button does what its key does.
+            var tools = fresh.Tools;
+            foreach (var name in new[] { "EditSelectAll", "EditSelectNone", "EditNotePrevious", "EditNoteNext", "EditLaneLeft", "EditLaneRight",
+                "EditFlip", "EditMerge", "EditSplit", "EditAuto", "EditUndo", "EditRedo", "EditSaveOver", "EditConsole",
+                "EditZoomIn", "EditZoomOut", "EditZoomReset" })
+                Assert(tools.ContainsKey(name), "A button for " + name);
+            Assert(Enumerable.Range(1, 8).All(lane => tools.ContainsKey("EditToLane" + lane)), "A button for each lane");
+            Assert(tools.Values.All(button => !button.Focusable), "No button takes the keys away from the sheet");
+            Assert(!tools["EditSaveOver"].IsEnabled, "An original has no slot to save over");
+            void Click(string name) => tools[name].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Click("EditSelectAll");
+            Equal(fresh.Session.Selection.Count, 2);
+            Click("EditSelectNone");
+            Equal(fresh.Session.Selection.Count, 0);
+            fresh.Session.Select([1]);
+            Click("EditToLane5");
+            Equal(fresh.Session.Notes[1].Tile, 5);
+            Click("EditUndo");
+            Equal(fresh.Session.Notes[1].Tile, 2);
+
+            // The zoom reads in whole percent of where the sheet opened, and resets to it (user rule).
+            Equal(fresh.ZoomText, "100%");
+            Click("EditZoomIn");
+            Equal(fresh.ZoomText, "115%");
+            fresh.Wheel(120, ModifierKeys.Control, new Point(10, 300));
+            Equal(fresh.ZoomText, "132%");
+            Click("EditZoomReset");
+            Equal(fresh.ZoomText, "100%");
         }),
 
         ("The edit window draws the sheet, picks notes and saves into a slot", () =>

@@ -1,276 +1,344 @@
-# 명령어 콘솔 (앱 0.5.1, 1.0.0 갱신)
+# 명령어 콘솔 레퍼런스
 
-Ctrl+T로 여는 콘솔의 명령·옵션·키워드·설정 이름을 모은 문서입니다. 콘솔이 열려 있을 때 Ctrl+T는 콘솔만 최소화하고, 한 번 더 누르면 다시 보입니다(0.6.3; 메인·설정·콘솔 창에서 받고, 메인 창은 그대로). 코드의 원본은 `src/Visualizer.App/Commands/`
-(`CmdCatalog.cs` 명령 표·옵션·키워드·파서, `SettingPaths.cs` 설정 이름, `CmdSession.cs` 동작)이며, 콘솔이 출력하는 문구는
-앱 언어와 상관없이 모두 영어입니다(곡 제목은 데이터라 그대로).
+Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**를 지금 동작 그대로 적은 문서입니다. 명령 체계를 바꿀 때의 기준 문서이며, 이력은 적지 않습니다(이력은 `docs/handoff-history.md`).
 
-## 옵션과 키워드의 원칙 (앱 0.9.2, 사용자 규칙 — **새 명령은 이 절을 지켜야 합니다**)
+- **원본 코드**: `src/Visualizer.App/Commands/` — `CmdCatalog.cs`(명령 표·옵션·키워드·파서), `CmdSession.cs`(동작·질문·Tab 후보), `SettingPaths.cs`(설정 이름). 이 문서의 표는 그 코드에서 뽑았습니다. 코드와 다르면 코드가 맞고, 이 문서를 고칩니다.
+- **콘솔 문구는 언제나 영어**입니다(앱 언어와 무관). 곡 제목과 메모 본문은 데이터라 그대로 나옵니다.
+- **콘솔에 없는 것**: 지우기(언인스톨)는 콘솔에서 하지 않습니다. `uninstall`이나 `help uninstall`을 치면 "Uninstalling is not done from inside the visualizer: close it and run .\uninstall.ps1 in PowerShell, in its folder."만 답합니다(사용자 규칙). 저장소에 올리는 명령도 없습니다(편집기의 git으로 올림).
 
-**옵션 `-name`은 부사입니다.** 명령이 *하는 일은 그대로 두고* 결과의 표현·범위·절차만 바꿉니다. 전역 표에 올라가 **어느 명령에 붙어도 뜻이 같고**, 빼도 명령이 성립합니다.
+---
+
+## 1. 입력 규칙
+
+- **형식**: `명령 [옵션…] [키워드·인자…] [옵션…]`. 옵션은 키워드·인자의 **앞이든 뒤든** 올 수 있습니다. 다만 **자유 글자**(`set`의 값, `import`·`override`의 JSON, `load`·`retitle`의 제목, `prompt`의 제목) 뒤에 오는 `-…`는 글자의 일부로 읽으므로 옵션은 그 앞에 둡니다. `report`는 제목이 자유 글자지만 낱말 앞뒤의 옵션을 스스로 걸러 냅니다(`report write -copy 제목`).
+- **옵션**은 띄어쓰기로만 구분하고 순서는 상관없습니다. 도움말은 `[-id | -title] [-hidden | -shown] [-copy]`처럼 적고, **같은 `[ ]` 묶음의 옵션은 함께 쓸 수 없습니다.** 같은 옵션을 두 번 써도 오류입니다.
+- **값이 붙는 옵션**: `-slot:3`, `-speed:keep`, `-version:1.0.0`(`=`도 같음, `-sl3`·`-v1.0.0`처럼 붙여 써도 읽음). 이름만 치면 기본값입니다(`-speed` = `keep`).
+- **짧은 별칭**(`-c`, `-p`, `-og` …)은 계속 동작하지만, 도움말·Tab·오류 문구는 **긴 이름만** 씁니다.
+- **가변 인자**(`scannow`, `install`): 쉼표로 나누고 띄어쓰기는 자유입니다(`scannow maps, linker` = `scannow maps,linker`). 가변 인자 뒤에는 다른 인자가 올 수 없어 사용법 맨 끝에 `<area>, …`로 적습니다. 빈 자리(`maps,`)와 쉼표 없는 두 낱말(`maps linker`)은 오류이고, `all`·`*`는 혼자 씁니다.
+- **대소문자**는 구분하지 않습니다(곡 id 포함). 값 자리의 `-1`(마지막), `-12`처럼 하이픈 뒤가 글자가 아니면 옵션으로 보지 않습니다.
+- **인자 이름**: `<id>`는 8자 곡 id 또는 `now`(불러온 곡), `<cmd>`는 명령 이름, `<string>`은 곡 묶음 키워드, `<tile>`은 타일 번호(1 이상의 정수), `<range>`는 노트 범위입니다(4절 `note`).
+- **Tab 자동완성**: 치고 있는 단어를 완성하고, 다시 누르면 다음 후보, Shift+Tab은 이전 후보입니다. 후보는 **그 명령이 실제로 다루는 것**입니다 — 모든 명령은 첫 인자에 자기 키워드를, `-`를 치면 자리가 어디든(자유 글자 뒤 제외) 아직 쓰지 않은 옵션을 내놓습니다. 그 밖에: `load`는 제목의 어느 부분을 쳐도 원곡 제목 전체(`load hu` → `load Raimukun - C†hulhu`), `report`는 낱말과 메모 제목, `prompt`는 저장된 프롬프트, `set`·`get`·`property`는 `.` 전까지 구역·그 뒤 설정·`set` 값 자리에서는 고를 수 있는 값, **`go`와 `unpin`은 그 곡의 핀 타일**, `id`를 받는 자리는 곡 id입니다. 빈 줄에서는 `cmd`부터 나옵니다.
+- **기록과 질문**: ↑↓ 이전 명령, Esc 줄 비우기. `[Y/n]`은 질문 줄 끝에서 답하고(빈 답은 다시 물음), `-proceed`로 건너뛴 질문은 `[Y/n] Y (-proceed)`로 남습니다. 번호 목록은 `Pick 1-n:` 뒤에 번호로 답하며(`01` = `1`), 잘못 친 답은 한 번만 다시 묻고 두 번째에는 `Cancelled.`로 끝냅니다.
+
+## 2. 옵션과 키워드의 원칙 (사용자 규칙 — 새 명령은 이 절을 지켜야 합니다)
+
+**옵션 `-name`은 부사입니다.** 명령이 하는 일은 그대로 두고 결과의 표현·범위·절차만 바꿉니다. 전역 표에 올라가 **어느 명령에 붙어도 뜻이 같고**, 빼도 명령이 성립합니다.
 **키워드는 목적어·동사입니다.** 인자 자리에 오는 정해진 낱말로, 그 명령의 **대상**이나 **동작**을 고릅니다. 명령마다 뜻이 달라도 됩니다.
 
-어느 쪽인지는 네 가지로 가릅니다.
+가르는 질문 넷: ① 그 말이 없으면 무엇을 할지 정해지지 않는가 → 키워드(`link start`, `install linker`) ② 명령이 다루는 대상을 고르는가 → 키워드(`load origin`, `checkpoint last`) ③ 다른 명령에 붙여도 같은 뜻인가 → 옵션(`-copy`, `-proceed`) ④ 출력 모양·범위·질문 생략만 바꾸는가 → 옵션(`-title`, `-hidden`, `-json`).
 
-1. 그 말이 없으면 **무엇을 할지 정해지지 않는가** → 키워드 (`link start`, `install linker`, `report create`)
-2. 명령이 **다루는 대상**을 고르는가 → 키워드 (`load origin`, `checkpoint last`)
-3. **다른 명령에 붙여도 같은 뜻**인가 → 옵션 (`-copy`, `-proceed`)
-4. **출력 모양·범위·질문 생략**만 바꾸는가 → 옵션 (`-title`, `-hidden`, `-json`)
+**옵션의 규칙**
 
-### 옵션의 규칙
+1. **이름 하나에 뜻 하나**(전역). `-force`도 뜻은 하나입니다: 거절될 일을 묻고 나서 그대로 합니다(`load`는 지원하지 않는 곡, `report create`는 이미 있는 제목, `update`는 자기 수정이 있는 복사본·최신이 아닌 버전).
+2. **`-force`는 언제나 [Y/n]을 묻습니다.** `-proceed`가 대신 답할 수 없어 함께 쓰면 오류이고(`-force always asks first, so -proceed cannot answer for it.`), 둘을 다 가진 명령은 한 묶음 `[-force | -proceed]`에 둡니다.
+3. **이름은 낱말**(`-origin`, `-speed`). 두 글자 약어는 짧은 별칭으로만 남습니다.
+4. **하이픈으로 단어를 잇지 않습니다.** 두 낱말이 필요하면 `이름:값`(`-commands:only`).
+5. **값이 붙는 옵션은 기본값이 반드시 있습니다**(이름만 쳐도 뜻이 섬).
+6. **빼도 동작해야** 옵션입니다. 되돌릴 수 없는 일을 옵션으로 켜지 않습니다(`-proceed`는 새 동작이 아니라 질문을 건너뛰는 절차).
 
-1. **이름 하나에 뜻 하나** — 전역입니다. 명령마다 뜻이 달라지면 옵션 자격이 없습니다. 여러 명령이 쓰는 `-force`도 뜻은 하나입니다: **거절될 일을 묻고 나서 그대로 합니다**(`load`는 지원하지 않는 곡, `report create`는 이미 있는 제목, `update`는 자기 수정이 있는 복사본·최신이 아닌 버전).
-   - **`-force`는 언제나 [Y/n]을 묻습니다**(1.0.0, 사용자 규칙). `-proceed`가 대신 답할 수 없어 둘을 같이 쓰면 오류입니다(`-force always asks first, so -proceed cannot answer for it.`). 두 옵션을 다 가진 명령은 둘을 한 묶음(`[-force | -proceed]`)에 둡니다.
-2. **이름은 낱말로** 적습니다(`-origin`, `-speed`). 두 글자 약어는 예전 입력을 살리는 **짧은 별칭**으로만 남고(`-og`, `-sm`), **도움말·Tab·오류 문구·설명글은 낱말만** 씁니다.
-3. **하이픈으로 단어를 잇지 않습니다.** 두 낱말이 필요하면 **`이름:값`**으로 적습니다 — `-speed:keep`, `-commands:only`, `-slot:3`. `=`도 같은 뜻입니다.
-4. **값이 붙는 옵션은 기본값이 반드시 있습니다.** 이름만 쳐도 뜻이 서야 합니다 — `-speed`=`keep`, `-commands`=`with`, `-answers`=`skip`, `-count`=`others`, `-slot`=모든 수정본.
-5. **빼도 동작해야** 옵션입니다. 되돌릴 수 없는 일을 옵션으로 켜지 않습니다(유일한 예외 `-proceed`는 새 동작이 아니라 질문을 건너뛰는 절차입니다).
-6. **자리는 명령 뒤 어디든**입니다. 키워드·인자의 **앞이든 뒤든** 같게 읽습니다(`playlist -id base` = `playlist base -id`, `report -copy print 제목` = `report print -copy 제목`). 다만 **자유 글자**(`set`의 값, `import`·`override`의 JSON, `load`·`retitle`의 제목, `prompt`의 제목) 뒤에 오는 `-…`는 글자의 일부로 읽으므로 옵션은 그 앞에 둡니다. 같은 `[ ]` 묶음에서는 하나만 씁니다.
+**키워드의 규칙**
 
-### 키워드의 규칙
+1. 그 명령 안에서만 뜻이 섭니다. 같은 낱말이 명령마다 달라도 됩니다.
+2. 낱말 전체가 일치할 때만 키워드로 읽습니다(자유 글자 인자를 지키기 위해).
+3. 명령 이름과 같은 낱말을 쓰지 않습니다(`CmdCatalog.NameClash()`가 검사). 그래서 곡 이름을 바꾸는 명령은 `retitle`이고 `rename`은 `report`의 키워드입니다.
+4. **`list`는 나열해 보여 달라**(`help` `option` `keyword` `prompt` `report` `checkpoint`), **`all`은 전부를 대상으로**(`playlist` `id` `title`의 곡, `note`의 노트, `scannow`·`install`의 영역)입니다. `*`는 `all`만 대신합니다. 예외로 `pin all`은 그 곡의 핀을 나열합니다(7절의 통합 계획에 맞춘 것).
+5. 상태를 바꾸는 동작은 키워드입니다(`sync rebuild`, `link follow`, `checkpoint next`).
+6. **기본 키워드**: 인자 없이 쳤을 때의 뜻이 키워드 하나와 같으면 그 낱말이 기본 키워드이고, 표에 `*`를 붙여 적고(`"list*, last"`) 도움말은 `[list]`처럼 대괄호로 보여 줍니다(글로 쓰지 않음). 기본 키워드는 하나뿐입니다.
+7. **필수 키워드 명령**(`report <what>`, `install <what>`, `do <action>`)은 옵션만으로 실행되지 않고, 자기 키워드와 같은 일을 하는 옵션을 두지 않습니다. 키워드 없이 오면 받는 낱말을 알려 주고 멈춥니다.
+8. **가변 인자**는 1절의 규칙을 따릅니다.
 
-1. **그 명령 안에서만** 뜻이 섭니다. 같은 낱말이 명령마다 달라도 됩니다.
-2. **낱말 전체가 일치할 때만** 키워드로 읽습니다(자유 텍스트 인자를 지키기 위해).
-3. **명령 이름과 같은 낱말을 쓰지 않습니다**(`CmdCatalog.NameClash()`가 검사). 그래서 곡 이름을 바꾸는 명령은 `retitle`이고 `rename`은 `report`의 키워드입니다.
-4. **`list`와 `all`은 다릅니다.** `list`는 **나열해 보여 달라**는 뜻이고(출력이 목록: `help` `option` `keyword` `prompt` `report` `checkpoint`), `all`은 **전부를 대상으로**라는 뜻입니다(대상이 전부: `playlist` `id` `title`의 곡, `note`의 노트). **`*`는 `all`을 대신할 수 있지만**(`load *`) **`list`는 대신하지 않습니다.**
-5. **상태를 바꾸는 동작**은 키워드입니다(`sync rebuild`, `link follow`, `checkpoint next`).
-6. **기본 키워드**: 인자 없이 쳤을 때 하는 일이 키워드 하나와 같으면 그것이 그 명령의 기본 키워드입니다. 명령 표의 `Keywords`에 `*`를 붙여 적고(`"list*, last"`), **도움말은 그것을 글로 적지 않고 `[list]`처럼 대괄호로 보여 줍니다**(사용자 규칙: 말하지 않고 표시). 기본 키워드는 하나뿐이며 그 명령의 키워드여야 합니다.
-7. **필수 키워드**: 키워드가 있어야만 무엇을 할지 정해지는 명령(`report <what>`, `install <what>`, `do <action>`)은 **옵션만으로는 실행되지 않습니다** — `report -copy`는 아무것도 하지 않고 받는 낱말을 알려 줍니다. 그래서 그런 명령에는 **자기 키워드와 같은 일을 하는 옵션을 두지 않습니다.** 반대로 기본 키워드가 있는 명령(`help` → `[list]`, `playlist` → `[all]`, `scannow` → `[all]`)은 옵션만 쳐도 기본 키워드로 돌아갑니다. 인자가 키워드가 아닌 명령(`load <title>`, `note <range>`)은 여기에 해당하지 않습니다.
-8. **가변 인자**(1.0.0, 사용자 규칙): 여러 개를 한 번에 받는 인자는 **쉼표로 나눕니다** — 띄어 써도 되고 붙여 써도 됩니다(`scannow maps, linker` = `scannow maps,linker`). **가변 인자 뒤에는 다른 인자가 올 수 없어** 사용법의 맨 끝에 `<area>, …`로 적습니다(`scannow [<area>, …]`, `install <what>[, …]`). 빈 자리(`maps,`)와 쉼표 없는 두 낱말(`maps linker`)은 오류이고, `all`·`*`는 이미 전부라서 혼자 씁니다. 지금 가변 인자는 `scannow`·`install`뿐이며, 어울리는 후보는 `docs/future-plans.md`에 적어 두었습니다.
+**중복에 대한 정책**: 같은 일을 두 길로 하는 것(`-og`와 `-origin`, `copy -paste`와 `paste -copy`)은 위반이 아닙니다. 금지는 **같은 말이 명령에 따라 다른 뜻을 갖는 것**입니다.
 
-### 중복에 대한 정책
+**어기면 빌드가 실패합니다**: `CmdConsoleTests`의 "Options and keywords keep to their rules"가 위 규칙(이름이 낱말인지·하이픈·기본값·설명·별칭 겹침·표에 없는 옵션·키워드 설명·명령과 키워드의 낱말 겹침·기본 키워드·필수 키워드·설명글의 별칭·`-force`와 `-proceed` 묶음·가변 인자 위치)을 매 빌드에서 검사합니다.
 
-**같은 일을 두 길로 할 수 있는 것은 위반이 아닙니다**(`-og`와 `-origin`, `copy -paste`와 `paste -copy`). 금지는 반대쪽 하나 — **같은 말이 명령에 따라 다른 뜻을 갖는 것**입니다. 하나의 예외는 키워드의 규칙 7입니다: 필수 키워드 명령에서 키워드와 같은 일을 하는 옵션은 "옵션만으로 실행"을 열어 주므로 두지 않습니다.
+## 3. 명령 목록 (`cmd` 순서)
 
-### 어기면 테스트가 막습니다
+| 분류 | 사용법 | 옵션 | 키워드 (`[ ]` 기본) | 하는 일 |
+| --- | --- | --- | --- | --- |
+| 도움말 | `cmd` | -copy | | 모든 명령을 분류별 한 줄로 |
+| | `help [<cmd>]` | -copy | `[list]`, last | 명령 설명(인자 없으면 전부, `last`는 바로 앞 명령) |
+| | `option [<cmd>]` | -keywords, -copy | `[list]`, last | 옵션 표 또는 그 명령의 옵션 |
+| | `keyword [<cmd>]` | -options, -copy | `[list]`, last | 키워드 표 또는 그 명령의 키워드(키워드 낱말 하나를 주면 그 뜻) |
+| | `version` | -number, -copy | | 앱 버전·적용 날짜·빌드 시각·최신 여부 |
+| | `fps` | -restart, -copy | | 앱 자신의 프레임 진단 |
+| | `link [<what>]` | -copy | start, stop, tiles, follow, unfollow, again, auto, manual | 게임 링크 상태와 조작 |
+| | `install <what>[, …]` | -reinstall, -proceed | all, app, source, linker, maps, edits, data | 링커 설치, 이 버전 부분 재설치 |
+| | `scannow [<area>, …]` | -copy | `[all]`, app, source, linker, maps, edits, data | 무결성 검사(결과만) |
+| 곡 | `song` | -id \| -title, -copy | | 불러온 곡 정보 |
+| | `info <id>` | -title, -copy | now | 곡 정보 |
+| | `id [<string>]` | -title, -copy | base, custom, edited, main, `[now]`, family, origin, all | 곡 id |
+| | `title [<string>]` | -id, -copy | 위와 같음, 기본 `[now]` | 곡 제목 |
+| | `load <title>` | -id \| -origin \| -slot, -speed, -hidden, -force | origin, edited | 곡 불러오기 |
+| | `playlist [<string>]` | -id \| -title, -hidden \| -shown, -copy | 위 곡 낱말, 기본 `[all]` | 곡 목록 |
+| | `checkpoint [<number>]` | -copy | list, first, next, previous, last | 체크포인트로 시작 위치 옮기기 |
+| | `go <tile>` | | | 타일 번호로 시작 위치 옮기기(Tab = 핀) |
+| | `pin [<id>] <tile>` | -copy | `[now]`, all | 타일에 핀 꽂기·핀 목록 |
+| | `unpin [<id>] <tile>` | | `[now]` | 핀 빼기(Tab = 핀) |
+| | `hide <id>` | | now | 곡 숨기기 |
+| | `show <id>` | | now | 숨긴 곡 다시 보이기 |
+| 수정 | `edit [<id>]` | -proceed | `[now]` | 수정 창 열기 |
+| | `note [<id>] <range>` | -proceed, -json, -copy | `[now]`, all | 노트 레인 출력 |
+| | `override <json>` | -proceed | | 수정 창 레인을 JSON으로 교체 |
+| | `retitle <title>` | -proceed | | 불러온 곡의 표시 이름 |
+| 곡 파일 | `sync [rebuild]` | -proceed | rebuild | 맵 동기화·재구축 |
+| | `remove <id>` | -proceed | now | 수정본 제거(보관) |
+| | `restore` | -proceed | | 마지막으로 제거한 수정본 복구 |
+| | `delete <id>` | -proceed | now | 곡 완전 삭제 |
+| 설정 | `get <setting>` | | | 설정 값 |
+| | `set <setting> <value>` | | | 설정 바꾸기 |
+| | `speed [<percent>]` | -rate | | 배속(또는 노트 이동 시간) |
+| | `autosave [on \| off]` | | on, off | 설정 자동 저장 |
+| | `property [<section>[.<setting>]]` | -copy | | 구역·설정·값 목록 |
+| | `export` | -copy | | 설정 JSON |
+| | `import <json>` | -proceed | | 설정 JSON 적용 |
+| | `rollback` | -proceed | | 마지막 설정 변경 되돌리기 |
+| | `reset` | -proceed | | 설정 초기화 |
+| | `do <action>` | | clear-previous-checkpoint-key, clear-next-checkpoint-key, clear-settings-key, map-folder, data-folder, view-playlist-details | 설정판의 동작 |
+| 콘솔 | `copy [<count>]` | -commands, -answers, -count, -paste | | 화면 메시지 복사 |
+| | `paste [<count>]` | -commands, -answers, -count, -copy | | 화면 메시지 다시 찍기 |
+| | `prompt [<title>]` | -copy | `[list]` | 저장된 프롬프트 채우기 |
+| | `report <what> [<title>]` | -force \| -proceed, -copy | list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon | 다음 작업용 메모 |
+| | `update` | -force \| -proceed, -version | | 저장소에서 새 버전 받기 |
+| | `clear` | | | 화면 지우기 |
+| | `exit` | -keep | | 콘솔 닫기 |
+| | `date` | -copy | | 날짜·시각 |
+| | `whoami` | | | 누구인지 |
 
-`CmdConsoleTests`의 **"Options and keywords keep to their rules"** 묶음이 매 빌드에서 검사합니다: 옵션 이름이 낱말인지 · 이름에 하이픈이 없는지 · 값이 있는 옵션에 기본값이 있는지(그리고 그 기본값이 값 목록 안에 있는지) · 설명이 있는지 · 이름과 별칭이 겹치지 않는지 · 명령이 표에 없는 옵션을 쓰지 않는지 · 키워드가 `-`로 시작하지 않고 설명이 있는지 · 명령과 키워드가 같은 낱말이 아닌지 · **기본 키워드가 하나 이하이고 대괄호로 보이는지** · **필수 키워드 명령에 키워드와 같은 이름의 옵션이 없는지**(그리고 `report -copy`가 실제로 거절되는지) · **설명글이 짧은 별칭을 쓰지 않는지** · **`-force`와 `-proceed`가 한 묶음인지** · **가변 인자가 사용법의 맨 끝인지**. 새 옵션을 `CmdCatalog.Options`에 넣지 않거나 규칙을 어기면 **빌드가 실패합니다.**
+## 4. 명령별 상세
 
-## 입력 규칙
+각 항목의 첫 줄은 콘솔 `help`가 보여 주는 영어 설명을 줄인 것이고, 그 아래가 동작 규칙입니다.
 
-- 형식은 `명령 [옵션…] [키워드·인자…] [옵션…]`입니다. **옵션은 키워드·인자의 앞이든 뒤든** 올 수 있습니다. 자유 글자(`set` 값, `import`·`override` JSON, `load`·`retitle`·`prompt` 제목) 뒤의 `-…`만은 글자로 읽습니다. `report`는 제목이 자유 글자지만 낱말 앞뒤의 옵션을 스스로 걸러 냅니다(`report write -copy 제목`).
-- 옵션은 **띄어쓰기로만** 구분하고 순서는 상관없습니다(`playlist -hidden -id -copy base`). 도움말은 `[-id | -title] [-hidden | -shown] [-copy]`처럼 적으며, 같은 `[ ]` 안의 옵션은 함께 쓸 수 없습니다.
-- **가변 인자**는 쉼표로 나눕니다(띄어쓰기는 자유): `scannow maps, linker`, `install -reinstall app,linker`. 그 뒤에는 옵션만 올 수 있습니다.
-- **값이 붙는 옵션**은 `-slot:3` · `-speed:keep` · `-version:1.0.0`처럼 적고 `=`도 같습니다. `-sl3`처럼 `-v1.0.0`도 읽습니다. 이름만 치면 기본값입니다(`-speed`는 `keep`). 예전 표기 `-sl3`·`-sl01`도 그대로 읽습니다. 같은 옵션을 두 번 쓰거나(`-slot:2 -slot:3`) 한 묶음의 두 옵션을 함께 쓰면 오류이며, 오류 문구는 **도움말이 쓰는 긴 이름**으로 알려 줍니다.
-- 대소문자는 구분하지 않습니다(곡 id의 글자 포함). 값 자리의 `-12`, `-1`(마지막 노트), `-`(키 이름)처럼 하이픈 뒤가 글자로 시작하지 않는 것은 옵션으로 보지 않습니다.
-- **키워드**는 인자 자리에 오는 정해진 단어입니다(아래 표). `<id>`는 8자리 id 또는 `now`, `<cmd>`는 명령 이름·`list`(모든 명령)·`last`(바로 앞 명령), `<string>`은 곡 묶음 키워드입니다. **기본 키워드는 대괄호로 보입니다** — `keyword playlist`의 첫 줄은 `playlist keywords: base, custom, edited, main, now, family, origin, [all]`입니다.
-- **Tab 자동완성**: 치고 있는 단어를 완성하고, 다시 누르면 다음 후보, Shift+Tab은 이전 후보입니다. 후보는 **그 명령이 실제로 다루는 것**입니다 — `report`는 첫 칸에 **낱말**을, 그 뒤에는 있는 메모를 부르는 낱말(`write` `print` `done` `undone` `ask` `state` `erase` `rename`)일 때만 **메모 제목**을 내놓고, `prompt`는 `list`와 저장된 프롬프트, `retitle`은 자유 글자라 후보가 없습니다. **모든 명령이 자기 키워드를 첫 인자에 내놓고**(`link `→`start stop tiles…`, `autosave `→`on off`), **`-`를 치면 그 자리가 어디든**(자유 글자 뒤 제외) 아직 쓰지 않은 옵션을 내놓습니다. 빈 줄에서는 `cmd`부터 나옵니다. 설정 경로는 `.`을 칠 때까지 구역을, 그 뒤에는 그 구역의 설정을, `set` 값 자리에서는 고를 수 있는 값을 완성합니다. `load`는 제목의 **어느 부분**을 쳐도 원곡(기본·커스텀) 제목을 통째로 완성하고(`load hu` → `load Raimukun - C†hulhu`), `origin`·`edited`도 완성합니다. 수정본의 `1*제목` 형태는 완성하지 않습니다.
-- ↑↓ 이전 명령, Esc 줄 비우기. [Y/n]은 질문 줄 끝에서 답합니다(빈 답은 다시 물음). `-proceed`로 건너뛴 질문은 `[Y/n] Y (-proceed)`로 남습니다. `load`의 번호 목록은 `Pick 1-n:` 뒤에 번호로 답하며 `01`과 `1`은 같습니다. 잘못 친 답은 **한 번만** 다시 묻고 두 번째에는 `Cancelled.`로 끝냅니다.
+### 도움말
 
-## 명령 (`cmd` 출력 순서)
+- **`cmd`** — 모든 명령을 분류별로, 사용법(34칸)과 한 줄 요약으로 찍습니다.
+- **`help [<cmd>]`** — 명령의 사용법·긴 설명·옵션(뜻 포함)·키워드(뜻 포함, 기본은 대괄호). 인자가 없거나 `list`면 모든 명령, `last`는 바로 앞에 친 명령.
+- **`option [<cmd>]`** — 인자가 없거나 `list`면 옵션 표를 한 번(명령마다가 아님), 명령을 주면 그 명령의 옵션. `-keywords`면 키워드까지.
+- **`keyword [<cmd>]`** — 인자가 없거나 `list`면 키워드와 그것을 받는 명령의 표, 명령을 주면 그 명령의 키워드, **키워드 낱말 하나**를 주면 그 뜻과 받는 명령(명령마다 뜻이 다르면 줄마다). `-options`면 옵션까지.
+- **`version`** — 앱 버전, 적용 날짜, 빌드 시각(실행 파일의 시각), 그리고 저장소에 물어 **최신인지**. `-number`는 숫자만 찍고 묻지 않습니다.
+- **`fps`** — 앱이 자기 프레임만 재는 진단: 도착 간격과 합성기 간격, 앱이 한 프레임에 쓴 시간, GC 횟수, 렌더 티어, 원인을 짚는 마지막 줄(MMCSS·GC 지연 모드 상태 포함). `-restart`는 찍은 뒤 측정을 새로 시작합니다. 게임이나 시스템에서 읽는 값은 없습니다.
+- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 같은 곡에 들어가면 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`.
+- **`install <what>[, …]`** — `install linker`는 앱에 들어 있는 링커(앱 옆 `plugins\linker\`)를 게임의 `Mods\AdofaiVisualizerSync\`에 씁니다. Unity Mod Manager가 있는 게임 폴더에서만, **어느 폴더에 쓸지 적고 [Y/n]**을 묻고, 두 파일만 쓰며, 같은 버전이 있으면 그대로 둡니다(다른 버전이면 바꿀지 물음). **`-reinstall`**은 이 버전대로 다시 씁니다: `source`(저장소 파일을 이 버전으로 되돌림 — 바뀔 파일 목록을 먼저 보여 주고 **언제나 묻고 `-proceed` 불가**) · `app`(Release 다시 빌드) · `linker`(링커를 다시 씀, 빌드 없음, 앱은 그대로) · `maps`(= `sync rebuild`) · `all`·`*`(source·app·설치된 링커). `source`·`app`은 앱을 닫고 `update.ps1 -Reinstall`이 한 뒤 다시 엽니다. **`edits`·`data`는 사용자의 것이라 재설치하지 않고** 무엇을 쓰면 되는지만 알려 줍니다. 링커가 없는데 `-reinstall linker`면 `install linker`부터 하라고 합니다. 키워드 없이 오면 받는 낱말만 알려 줍니다.
+- **`scannow [<area>, …]`** — 영역마다 온전한지 검사해 **결과만** 찍고 아무것도 바꾸지 않습니다. `app` 이 빌드와 그 소스·언어·테마 파일 · `source` 저장소 파일 대 이 버전(`update.ps1 -Scan`, git status) · `linker` 설치된 링커 대 이 버전 · `maps` 맵 사본 대 곡 목록 · `edits` 모든 수정본(사본·레인·원본 해시) · `data` 설정과 곡 목록·id·표시·메모·핀 파일. 기본 `all`. 링커가 설치되지 않았으면, 콕 집었을 때는 `install linker`부터 하라고, 전체 검사에서는 한 줄로 알립니다. 문제가 있으면 맨 끝에 `install -reinstall …`을 권합니다.
 
-옵션 칸은 도움말이 적는 그대로입니다(짧은 별칭은 아래 옵션 표).
+### 곡
 
-| 묶음 | 명령 | 옵션 | 동작 |
-| --- | --- | --- | --- |
-| Help | `cmd` | [-copy] | 명령 목록 |
-| | `help [<cmd>]` | [-copy] | 명령 설명과 그 명령의 **옵션·키워드 목록**(따로 묻지 않아도 나옴). 기본 키워드 `[list]`는 모든 명령 |
-| | `option [<cmd>]` | [-keywords] [-copy] | `[list]`면 모든 옵션과 뜻, 명령을 적으면 그 명령의 옵션. `-keywords`는 키워드도 붙임(명령이 없으면 모든 키워드와 쓰는 명령) |
-| | `keyword [<cmd>]` | [-options] [-copy] | `[list]`면 모든 키워드와 쓰는 명령, 명령을 적으면 그 명령의 키워드와 뜻. `-options`는 옵션도 붙임. `option -keywords`와 내용이 같고 순서만 다름 |
-| | `version` | [-number] [-copy] | 앱 버전·적용 날짜·**이 빌드를 만든 시각**·**최신인지**(`Latest  yes, this is the latest version` / `Latest  no, 1.0.1 is waiting; update takes it`, 1.0.0, 사용자 요청). 최신 여부는 저장소에 물어야 해서 1~2초 진행 막대가 뜨고, 연결이 안 되면 확인하지 못했다고만 적습니다. `-number`는 숫자만 찍고 묻지 않습니다 |
-| | `fps` | [-restart] [-copy] | **그리기 상태 진단**: 프레임이 **도착한 간격**(min·중앙값·p95·최대)과 **합성기가 의도한 간격**(Composer), 둘의 지연 차이(Handoff), 앱이 한 프레임에 쓴 시간, 늦은 프레임 수와 **그중 합성기가 아예 주지 않은 수**, GC 횟수, 렌더 티어. 마지막 줄이 원인(그리기 / 합성기 건너뜀 / 늦은 전달 / GC·전원)을 짚음. 표본은 최근 약 2400프레임이고 GC 횟수는 측정 시작 이후 전체이며, 두 구간을 각각 적음. 마지막 줄에 **스케줄링 상태**(멀티미디어 클래스 등록 여부)와 **GC 지연 모드**도 적음. `-restart`는 출력 뒤 측정을 새로 시작 |
-| | `link [<what>]` | [-copy] | **게임 동기화 링크**(`docs/game-sync-plan.md`). 인자 없이 치면 상태: 도착 간격(min·중앙값·p95·최대), 지연의 흔들림(Delay), 곡 위치가 실제 시간 대비 얼마나 빠르게 가는지, 모드 버전, 게임의 상태·일시정지·타일·실제 배속·게임 보정값·레벨 경로, 상태 변화 기록. `start` 파이프 열기 · `stop` 닫기 · `again` 측정 새로 시작 · **`tiles`** 게임이 계산한 타일 시각과 불러온 곡의 hit 시각 대조(둘 다 일정표라 같게 읽었으면 차이가 모든 타일에서 같음, 허용 1ms) · **`follow`** 게임 곡 위치에 맞춰 재생 지점만 움직임(노트·판정 불변, 타일이 어긋나면 거절, 차이 60ms 초과면 즉시 이동·이하는 읽기마다 15%씩 당김) · `unfollow` 되돌리기 · **`auto`** 불러온 곡과 게임의 곡이 같으면 `follow`를 사람이 치지 않아도 스스로 한 번 시도(거절 이유는 `link`의 `Auto` 줄에 남김, 곡을 바꿔 주지는 않음) · `manual` 그만두기. 게임에 아무것도 보내지 않고 받은 값은 저장하지 않음 |
-| | `install <what>[, …]` | [-reinstall] [-proceed] | **게임 링커 설치**(0.9.2)와 **다시 설치**(1.0.0). `install linker`는 읽기 전용 링커 모드를 `<게임>\Mods\AdofaiVisualizerSync\`에 넣습니다 — **이 앱이 자기 폴더 밖에 쓰는 곳**(AGENTS.md 안전 규칙 2)이므로 어느 폴더에 쓸지 알리고 [Y/n]을 물으며, 모드의 두 파일만 쓰고 다른 모드는 건드리지 않습니다. Unity Mod Manager가 없으면 아무것도 하지 않고, 같은 버전이 이미 설치되었으면 그대로 둡니다. **`-reinstall`**은 `scannow`가 문제를 찾은 부분을 이 버전대로 다시 씁니다: `source`(저장소 파일을 이 버전으로 되돌림 — **바뀔 파일 목록을 먼저 보여 주고 항상 묻습니다**, `-proceed` 불가) · `app`(Release를 다시 빌드) · `linker`(이 버전으로 모드를 빌드해 다시 씀, 앱은 그대로) · `maps`(= `sync rebuild`) · `all`·`*`(이 버전 완전 재설치: source·app·설치된 링커). `source`·`app`이 들어가면 앱을 닫았다가 다시 엽니다. **`edits`·`data`는 사용자의 것이라 재설치하지 않고** 무엇을 쓰면 되는지만 알려 줍니다. 링커가 설치되지 않았으면 `install linker`부터 하라고 합니다. 모두 저장소의 `update.ps1 -Reinstall`이 합니다 |
-| | `scannow [<area>, …]` | [-copy] | **무결성 검사**(1.0.0, 사용자 요청). 고치지 않고 **결과만 출력**합니다. 기본 `[all]`이며 영역은 `app`(이 빌드의 버전·빌드 뒤에 바뀐 소스·언어와 테마 파일) · `source`(저장소 파일이 이 버전의 커밋과 같은지: changed·missing·extra) · `linker`(설치된 모드의 버전·파일·빌드본과 같은지) · `maps`(세 폴더의 맵 사본과 곡 목록: 목록에 없는 사본, 파일이 사라진 곡, 동기화 뒤 바뀐 파일, 옛 판독기로 읽은 곡, 맵 폴더) · `edits`(슬롯마다 원본 사본·edit.json·레인 범위·원본 해시) · `data`(settings.json·songs.json·song-ids.json의 겹친 id·song-marks.json·메모·저장 폴더). 영역마다 `ok` 또는 `n problems`와 문제 줄(20줄까지)을 찍고, 맨 끝에 **`Run install -reinstall maps, linker to put them right.`**처럼 고칠 명령을 권합니다. **링커가 설치되지 않았으면** 전체 검사에서는 `not installed` 한 줄이고, `scannow linker`로 콕 집으면 `install linker`부터 하라고 하고 멈춥니다 |
-| Songs | `song` | [-id \| -title] [-copy] | 현재 곡 정보(`info now`와 같음). `-id`·`-title`은 `id`·`title`과 같은 출력. 0.9.1에서 `now`에서 이름을 바꿨습니다(키워드 `now`와 겹쳐서) |
-| | `info <id>` | [-title] [-copy] | id·제목·작곡가·제작자·종류·길이·노트 수(`notes`, 실제로 누르는 노트만)·롱노트 수(`longnotes`)·자동 타일 수(`autonotes`, 0이어도 표시)·난이도·체크포인트(곡 시작은 세지 않음)·슬롯(원곡은 `origin`)·숨김·상태·경로 |
-| | `id [<string>]` | [-title] [-copy] | 곡 id, 기본 `[now]`. 수정본은 `2k3j9a0q (slot 2)`. `-title`은 제목도(`id 제목`) |
-| | `title [<string>]` | [-id] [-copy] | 곡 제목, 기본 `[now]`. 수정본은 `Plum - R (slot 2)`. `-id`는 id도(`제목 id`). `title -id`와 `id -title`은 순서만 다름 |
-| | `load <title>` | [-id \| -origin \| -slot[:\<n\>]] [-speed[:keep\|reset]] [-hidden] [-force] | 곡 불러오기(아래 절). `*`는 전체, `.`은 불러온 곡. 가려진 곡은 빠지며 `-hidden`으로 포함 |
-| | `playlist [<string>]` | [-id \| -title] [-hidden \| -shown] [-copy] | 곡 목록(`id 종류 제목`, 숨긴 곡은 `[hidden]`), 기본 `[all]`. **`playlist main`은 메인 화면 목록 그대로**(예전 `playlist`). `-id`·`-title`은 `id`·`title`과 같은 출력. 0.9.2에서 명령 `list`를 여기에 합쳤습니다 |
-| | `checkpoint [<number>]` | [-copy] | 불러온 곡을 그 체크포인트부터 준비(메인 화면 목록과 같은 번호). 키워드 `first` `next` `previous` `last`, 인자가 없으면 지금 서 있는 자리, **`list`**는 목록(쓰는 자리에 `>`). 곡이 없거나 체크포인트가 없는 맵이면 이유만 알립니다 |
-| | `locate <tile>` | 없음 | 불러온 곡을 그 타일부터 준비(구간 칸과 같은 규칙: 그 타일 이후 첫 노트부터). 자연수만 받고, 그 곡에 없는 타일·중간 회전 타일·롱노트 도중이면 거절합니다. 처음으로 돌아가려면 `checkpoint first` |
-| | `hide <id>` · `show <id>` | 없음 | 곡 숨기기·보이기(즉시 저장) |
-| Editing | `edit [<id>]` | [-proceed] | 그 곡의 수정 창(불러오지 않은 곡도 가능). 기본 `[now]`(불러온 곡) |
-| | `note [<id>] <range>` | [-proceed] [-json] [-copy] | 노트 목록 `n<번호> <레인> <다음까지 ms>`, 범위 `all` `*` `a..b` `a..` `..b` `n`, **`-1`은 마지막 노트**. `-json`은 `{ "notes": [{ "n", "tile", "ms", "chord" }] }`로 출력하며 `override`가 그대로 읽습니다. **곡을 고를 수 있고 기본은 `[now]`**(1.0.0, 사용자 요청): `now`는 화면에 있는 것 — **수정 창이 열려 있으면 수정 중인 레인을 저장 여부와 상관없이 그대로**, 아니면 불러온 곡을 재생되는 그대로(수정본은 그 레인) 냅니다. id를 주면 그 곡을 불러오지 않고 재생될 모양으로 냅니다. 수정본은 지금 화면에 없는 레인이어도 있는 그대로 찍습니다. **수정 창이 열려 있어도 동작합니다**(0.9.2까지는 거절) |
-| | `override <json>` | [-proceed] | **수정 창이 열려 있을 때만.** `note -json` 형태의 JSON으로 레인을 통째로 바꿈. 번호와 레인만 반영하고 `ms`는 대조용이며, 한 줄이라도 어긋나면 **아무것도 바꾸지 않고** 첫 문제를 알림 |
-| | `retitle <title>` | [-proceed] | 불러온 곡의 표시 이름을 바꿈. 바꾸기 전·후를 보여 주고 [Y/n]. 수정본은 `n*`가 강제로 붙고, 이름은 **원곡에 저장**되어 그 곡의 모든 수정본이 함께 바뀜. 예전 이름은 `rename`이었습니다(`report rename`과 겹쳐서 0.9.2에 바꿈) |
-| Song files | `sync [rebuild]` | [-proceed] | 맵 폴더를 커스텀 맵으로 들여오고 세 폴더를 다시 읽음(설정의 동기화 버튼과 같음). **묻지 않습니다.** 키워드 `rebuild`는 커스텀 맵을 **새로 만들어** 맵 폴더에 없는 곡을 목록에서 내리며, 이때만 [Y/n]을 묻습니다(0.9.2에서 옵션 `-re`를 키워드로 바꿨습니다). `sync -proceed`는 `sync`와 같습니다 |
-| | `remove <id>` | [-proceed] | **수정본만** 제거. `restore`로 복구 가능 |
-| | `restore` | [-proceed] | 마지막으로 제거한 수정본 한 곡만 복구(두 번째부터는 없음) |
-| | `delete <id>` | [-proceed] | 어떤 곡이든 영구 삭제. 커스텀 맵은 다음 동기화 때 다시 복사됨 |
-| Settings | `get <setting>` | 없음 | 설정 값(토글은 항상 `true`/`false`) |
-| | `set <setting> <value>` | 없음 | 바꾸고 즉시 적용·저장. 토글은 `true/false` 외에 `on/off`, `1/0`, `able/disable`(`enable`)도 받음 |
-| | `speed [<percent>]` | [-rate] | 배속. `set timing.speed`와 같고, 값 없이 치면 지금 배속. **`-rate`를 주면 배속이 아니라 노트 이동 시간**(`set display.travel`, ms라 작을수록 빠름)을 보거나 바꿉니다 |
-| | `autosave [on \| off]` | 없음 | 설정 자동 저장(`general.autosave`). 값 없이 치면 현재 상태 — **설정 바로가기 명령은 모두 값이 없으면 현재 값을 보여 줍니다** |
-| | `property [<section>[.<setting>]]` | [-copy] | 구역 목록 / 구역의 설정과 현재 값 / 설정이 받는 값 |
-| | `export` | [-copy] | 설정 JSON 출력(설정 내보내기와 같음, 두 폴더 경로 제외) |
-| | `import <json>` | [-proceed] | 붙여넣은 JSON에 적힌 설정만 바꿈. 바뀔 항목을 보여 주고 [Y/n] |
-| | `rollback` | [-proceed] | 마지막 설정 변경을 되돌림. 무엇이 무엇으로 돌아가는지 보여 주고 [Y/n] |
-| | `reset` | [-proceed] | 두 폴더 경로를 뺀 모든 설정을 기본값으로 |
-| | `do <action>` | 없음 | 설정 창의 동작(키워드 표). 필수 키워드입니다 |
-| Console | `copy [<count>]` | [-commands[:with\|only]] [-answers[:with\|skip]] [-count[:all\|others]] [-paste] | 화면의 **메시지**를 클립보드로(기본 1개). 숫자는 위로 몇 개까지, `*`는 전체, `-1`은 가장 처음 메시지, `a..b`는 구간입니다(`note`와 같은 표기). `-commands`는 친 명령도 `Visualizer>` 그대로 함께(`:only`면 친 명령만), `-answers`는 [Y/n] 답한 줄 빼기, `-count`는 세는 동안 `copy`와 `-copy`를 쓴 메시지 건너뛰기, `-paste`는 화면에도 다시 보여 줌. 범위를 넘으면 끝까지로 보고, 복사할 것이 없을 때만 알립니다 |
-| | `paste [<count>]` | [-commands[:with\|only]] [-answers[:with\|skip]] [-count[:all\|others]] [-copy] | 그 메시지를 **화면에 다시** 보여 줌(인자는 `copy`와 같음). `-copy`를 주면 복사도 함께. 프롬프트의 빈칸에서는 `/paste`로 그 출력을 값으로 넣습니다 |
-| | `prompt [<title>]` | [-copy] | 저장해 둔 **프롬프트**(기본 `[list]`는 제목 목록). 빈칸이 있으면 하나씩 묻고(아래 절) 마지막에 보여 준 뒤 복사합니다. `note-lanes`는 `note -json` 결과를 언어 모델에 고쳐 달라고 할 때 쓰는 프롬프트입니다. 아무 곳에도 보내지 않고 실행하지도 않습니다 |
-| | `report <what> [<title>]` | [-force] [-proceed] [-copy] | 에이전트에게 남기는 메모 **편집기**(아래 절). **낱말이 필수**입니다(0.9.2, 사용자 규칙) — `report`나 `report -copy`만 치면 받는 낱말을 알려 주고 아무것도 하지 않습니다. `create <title>` 새로 만들며 열기(이미 있으면 거절, `-force`면 [Y/n] 뒤 비운 채 열고 저장해야 바뀜) · `write <title>` 있는 메모 열기(없으면 거절) · `list [<word>]` 목록(그 글자가 든 것만) · `print` 열지 않고 찍기 · `done`/`undone` 반영 표시 · `ask <title> > <reason>` 못 풀었음과 이유 · `state` 서 있는 자리만 · `erase` 지우기([Y/n]) · `sweep` 반영된 메모 전부 지우기([Y/n]) · `rename <old> > <new>` 이름 바꾸기([Y/n]) · `colon` 편집기 `:` 명령. 제목이 낱말과 같으면 `report write "create"`처럼 따옴표 |
-| | `update` | [-force \| -proceed] [-version[:latest\|<version>]] | **최신 버전 받기**(1.0.0 개편, 사용자 요청). 먼저 저장소에 물어 **최신이면 `This copy is already the latest version (1.0.0).`로 끝내고**, 새 버전이 있으면 `Update to 1.0.1? The app closes and opens again on the new version.` [Y/n](`-proceed`로 건너뜀) 뒤 **앱을 닫고 그 버전을 빌드한 다음 다시 엽니다**. **링커가 설치되어 있으면 함께 갱신**합니다(질문에 적음). 이 복사본에 자기 수정이나 올리지 않은 커밋이 있으면 거절하고 `update -force`를 알려 줍니다. **`-force`**는 그런 것을 버리고 가며, **`-version:1.0.0`**(짧게 `-v:1.0.0`·`-v1.0.0`, `-version`만이면 `latest`)으로 **특정 버전으로 강제 이동**합니다 — 이때는 **위험은 사용자 책임**이라는 말과 대상 버전·재시작을 적고 **언제나 [Y/n]**을 묻습니다(`-proceed` 불가). 최신이 아닌 버전은 `-force` 없이는 거절하고, 저장소에 없는 버전은 `There is no version 1.0.7 on the repository.`라고만 답합니다(버전 목록은 보여 주지 않음, 사용자 규칙). 버전은 `Directory.Build.props`의 `<Version>`을 바꾼 커밋으로 찾으므로 태그가 필요 없고, 내려간 뒤 그냥 `update`하면 다시 최신으로 올라옵니다. 업데이트 뒤 첫 실행에는 **무엇이 바뀌었는지 보여 주는 창**이 마지막 곡 질문보다 먼저 뜹니다. 곡·설정·메모는 저장소 밖이라 건드리지 않습니다. 저장소의 `update.ps1`을 그대로 실행합니다 |
-| | `clear` | 없음 | 화면 지우기 |
-| | `exit` | [-keep] | 화면을 지우고 닫음. `-keep`은 화면 유지(X로 닫아도 유지) |
-| | `date` | [-copy] | 이 컴퓨터의 날짜와 시각 |
-| | `whoami` | 없음 | VISUALIZER 글자 그림 |
+- **`song`** — 불러온 곡 정보(`info now`와 같음). `-id`·`-title`은 그것만.
+- **`info <id>`** — id·제목·아티스트·제작자·종류·길이·노트 수(누르는 노트)·롱노트·자동 노트·난이도·체크포인트 수·슬롯(원곡은 origin)·숨김·경로.
+- **`id [<string>]`·`title [<string>]`** — 곡 묶음의 id·제목. 수정본은 슬롯을 붙입니다. 기본 `now`. `id -title`·`title -id`는 둘 다.
+- **곡 묶음 낱말**: `base` 기본 맵 · `custom` 커스텀 · `edited` 수정본 · `main` 메인 화면 목록(그 순서) · `now` 불러온 곡 · `family` 불러온 곡의 원곡과 모든 수정본 · `origin` 불러온 곡의 원곡 · `all` 모든 곡.
+- **`load <title>`** — 5절.
+- **`playlist [<string>]`** — 곡 묶음의 `id · 종류 · 제목`. 기본 `all`. `-hidden`은 숨긴 곡만, `-shown`은 보이는 곡만, `-id`·`-title`은 그것만.
+- **`checkpoint [<number>]`** — 불러온 곡의 시작 위치를 체크포인트로 옮깁니다(메인 화면 목록에서 고른 것과 같음: 정지 상태로 다시 준비, 구간 칸은 비움, 게임 따라가기는 끝남). 번호는 **메인 화면이 붙이는 번호 그대로**(곡 처음은 번호가 아니라 "the beginning"). `first` 곡 처음 · `last` 마지막 · `next`·`previous` 한 칸씩, **양 끝에서 순환**. 인자 없으면 지금 자리(`… starts at checkpoint 2 (tile 120), of 6.`), `list`는 목록(쓰는 자리에 `>`). 곡이 없거나 체크포인트가 없는 맵이면 이유만.
+- **`go <tile>`** — 불러온 곡을 그 타일부터 준비합니다(구간 칸과 같은 규칙: 그 타일 이후 첫 노트부터, 배치는 곡 처음부터 만든 것을 잘라 씀). 1 이상의 정수만 받고, 그 곡에 없는 타일·중간 회전 타일·롱노트 도중이면 거절합니다(파서의 한국어 예외 대신 콘솔이 같은 검사를 영어로). **Tab은 그 곡의 핀 타일**을 내놓습니다. 처음으로 돌아가려면 `checkpoint first`.
+- **`pin [<id>] <tile>`** — 곡의 타일에 핀을 꽂아 `go`의 Tab 후보로 둡니다. **핀은 곡 묶음(family)에 속합니다**: 원곡에 꽂든 수정본에 꽂든 원곡과 모든 수정본이 같은 핀을 봅니다(사용자 규칙). 타일 순서로 정렬되고, `go`가 받을 수 있는 타일만 꽂힙니다. 기본 `now`. `pin all`(또는 `pin <id> all`)은 `pin 1 · tile 120`처럼 번호를 붙여 나열합니다. 이미 있는 타일이면 그렇다고만. 앱 데이터 폴더의 `pins.json`에 저장되며 수정 창이 열려 있어도 됩니다(노트를 준비하지 않으므로).
+- **`unpin [<id>] <tile>`** — 그 곡 묶음에서 핀을 뺍니다. 기본 `now`. Tab은 그 곡의 핀(곡 id를 앞에 주면 그 곡의 핀).
+- **`hide <id>`·`show <id>`** — 곡 목록에서 숨기기·되돌리기(`songs.json`에 저장).
 
-`whoami`는 VISUALIZER 글자 그림(6줄, 72칸)을 출력합니다. 콘솔 글꼴(Cascadia Mono, 없으면 Consolas)이 그림의 모든 문자를 글자와 같은 폭으로 그리고, 콘솔 창의 최소 폭(640)은 그림이 줄바꿈되지 않게 정했습니다. 창의 기본 크기는 990×624입니다(0.5.8). 숨긴 명령은 없습니다.
+### 수정
 
-## 옵션
+- **`edit [<id>]`** — 수정 창을 엽니다. 인자 없으면 불러온 곡. 수정 창은 하나뿐이라, 다른 곡으로 부르면 열린 창을 앞으로 가져오고 거절합니다.
+- **`note [<id>] <range>`** — 곡의 노트를 **재생될 모양 그대로**(지금 설정의 배치 규칙, 수정본이면 그 레인을 덮어) `n<번호> <레인> <다음 노트까지 ms>`로 찍습니다. 동타는 `n3-4 3-4`. 기본 `now` = 지금 화면: **수정 창이 열려 있으면 저장 여부와 상관없이 수정 중인 레인**, 아니면 불러온 곡. id를 주면 불러오지 않고 그 곡을 찍습니다. 범위: `all`(`*`) · `a..b` · `a..` · `..b` · `n`, `-1`은 마지막(범위 끝에도). **번호는 맵의 hit 번호**라 자동 타일·롱노트 끝도 번호를 차지합니다. 화면에 없는 레인도 그대로 찍습니다. `-json`은 `{ "notes": [{ "n", "tile", "ms", "chord" }] }`(`ms`는 곡 안의 시각, `chord`는 같은 동타가 공유하는 번호)로, `override`가 그대로 읽습니다. 적용하지 않은 설정이 있으면 먼저 적용할지, 곡을 불러오지 않았지만 메인 화면에 골라 둔 곡이 있으면 불러올지 묻습니다(`-proceed`는 둘 다 Y).
+- **`override <json>`** — 수정 창이 열려 있을 때만, `note -json` 결과로 레인을 통째로 바꿉니다. 번호와 레인만 반영하고 `ms`는 대조용입니다. 한 줄이라도 어긋나면(시각 불일치·화면 밖 레인·떨어진 레인의 동타·한 레인에 50ms 안 두 노트) 아무것도 바꾸지 않고 첫 문제를 알립니다. 수정 창의 되돌리기로 취소됩니다.
+- **`retitle <title>`** — 불러온 곡의 표시 이름(곡 목록에서 바꾸는 것과 같음). 수정본은 `n*` 접두어를 지키고, 이름은 원곡에 저장되어 모든 수정본이 따릅니다. 전후를 보여 주고 [Y/n]. 이름에는 글자나 숫자가 하나 이상 있어야 합니다.
 
-| 옵션 | 짧은 별칭 | 뜻 | 명령 |
-| --- | --- | --- | --- |
-| `-copy` | `-c` | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, song, info, id, title, playlist, checkpoint, note, property, export, paste, prompt, report, date, scannow |
-| `-proceed` | `-p` | [Y/n]에 모두 Y(`[Y/n] Y (-proceed)`로 남김). **`-force`와 함께 쓸 수 없고**, `install -reinstall source`·`*`도 대신 답하지 못합니다 | install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update |
-| `-id` | | id만(song·playlist) / id도(title) / id로 찾기(load, 8자 전부) | song, title, load, playlist |
-| `-title` | `-tl` | 제목만(song·info·playlist) / 제목도(id) | song, info, id, playlist |
-| `-hidden` · `-shown` | `-h` · `-s` | 숨긴 곡만 · 보이는 곡만(playlist) / 가려진 곡도 함께(load) | load, playlist |
-| `-origin` | `-og` | 원곡만, 하나면 바로 불러옴 | load |
-| `-slot` · `-slot:<n>` | `-sl` · `-sl3` | 수정본만(하나면 바로) · 그 슬롯의 수정본. **이름만 쓰면 전체** | load |
-| `-speed:keep` · `-speed:reset` | `-sm` · `-sr` | 배속 유지 · 100%로 초기화. **`-speed`만 쓰면 `keep`** | load |
-| `-force` | | 거절될 일을 묻고 나서 그대로 함: 지원하지 않는 곡을 검증된 다른 형식으로 읽어 불러옴(load) · 이미 있는 제목 위에 새 메모(report create) · 자기 수정을 버리고, 또는 최신이 아닌 버전으로 갱신(update). **언제나 [Y/n]**, `-proceed`와 함께 쓰면 오류 | load, report, update |
-| `-version:<version>` | `-v` | 갈 버전: `latest`(이름만 쓰면 이것) 또는 `1.0.0`처럼 | update |
-| `-reinstall` | | 있어도 이 버전대로 다시 씀 | install |
-| `-rate` | `-ar` | 배속이 아니라 **노트 이동 시간**(ms) | speed |
-| `-keywords` · `-options` | `-k` · `-o` | 키워드도 · 옵션도 | option · keyword |
-| `-number` | `-n` | 숫자만 | version |
-| `-restart` | `-r` | 출력 뒤 측정을 새로 시작 | fps |
-| `-keep` | `-m` | 화면 유지 | exit |
-| `-json` | | JSON으로 출력 | note |
-| `-paste` | `-pa` | 복사하면서 화면에도 다시 보여 줌(`paste -copy`와 같음) | copy |
-| `-commands:with` · `-commands:only` | `-vs` · `-vo` | 친 명령도 함께(`Visualizer>` 포함) · 친 명령만. **이름만 쓰면 `with`** | copy, paste |
-| `-answers:skip` · `-count:others` | `-ep` · `-en` | [Y/n] 답한 줄 빼기 · 세는 동안 `copy`·`paste` 자신은 빼기. **이름만 쓰면 각각 `skip`·`others`** | copy, paste |
+### 곡 파일
 
-## 키워드
+- **`sync [rebuild]`** — 맵 폴더의 곡을 커스텀으로 복사하고 앱의 세 폴더를 다시 읽습니다(메인 화면의 동기화와 같음, 묻지 않음). `rebuild`는 커스텀을 처음부터 다시 만들며(맵 폴더에서 빠진 곡이 목록에서 사라지는 유일한 길) 먼저 묻습니다. 둘 다 진행률 막대(8절).
+- **`remove <id>`** — 수정본을 슬롯 폴더째 `maps/removed/`로 보관합니다(한 곡만 보관, 다음 `remove`가 앞의 보관본을 지움). [Y/n].
+- **`restore`** — 마지막으로 `remove`한 수정본을 되돌립니다(원래 슬롯이 비어 있으면 그 슬롯, 아니면 첫 빈 슬롯). 앱을 다시 켜도 됩니다.
+- **`delete <id>`** — 곡을 완전히 지웁니다(`restore` 불가). 수정본은 슬롯 폴더째, 커스텀 맵은 다음 동기화에 돌아옵니다. 불러온 곡이면 화면에서도 내립니다. [Y/n].
 
-대괄호는 **기본 키워드**(인자 없이 쳤을 때의 뜻)입니다. 도움말에도 이렇게 보입니다. **필수**는 키워드 없이는 실행되지 않는 명령입니다(옵션만으로도 안 됨).
+### 설정
 
-| 명령 | 키워드 |
-| --- | --- |
-| `help` `option` `keyword` | `[list]`(모든 명령), `last`(바로 앞 명령) |
-| `info` `hide` `show` `remove` `delete` | `now`(현재 곡) |
-| `edit` | `[now]`(현재 곡) |
-| `playlist` `id` `title` | `base` `custom` `edited`(폴더별), `main`(메인 화면 목록 그대로: 곡 그룹·숨김·정렬·표시 이름, 검색창 글자는 무시), `now`(현재 곡 하나), `family`(현재 곡의 원곡과 모든 수정본, 원곡 먼저·슬롯순), `origin`(현재 곡의 원곡, 이미 원곡이면 그 곡), `all`(모든 곡). 기본은 playlist `[all]`, id·title `[now]` |
-| `load` | `origin`, `edited` |
-| `note` | `[now]`(화면에 있는 것: 수정 창이 열려 있으면 수정 중인 레인, 아니면 불러온 곡), `all`(모든 노트) |
-| `prompt` | `[list]`(제목 목록) |
-| `report` | **필수**: `list`(메모 목록), `create`(새로 만들며 열기), `write`(있는 것 열기), `print`(찍기), `done` `undone`(반영 표시), `ask`(못 풀었음과 이유), `state`(서 있는 자리), `erase`(지우기), `sweep`(반영된 것 모두 지우기), `rename`(이름 바꾸기), `colon`(편집기 `:` 명령) |
-| `install` | **필수**, 쉼표로 여러 개: `linker`(읽기 전용 게임 링커 모드), `app`, `source`, `maps`, `edits`, `data`, `all`(`-reinstall`과 함께 이 버전 완전 재설치) |
-| `scannow` | 쉼표로 여러 개: `[all]`, `app`, `source`, `linker`, `maps`, `edits`, `data`(뜻은 위 명령 표) |
-| `link` | `start` `stop` `tiles` `follow` `unfollow` `again` `auto` `manual`(위 명령 표) |
-| `sync` | `rebuild`(커스텀 맵을 새로 만들어 맵 폴더에 없는 곡을 내림) |
-| `checkpoint` | `list`(목록), `first`(곡 처음), `next` `previous`(목록을 한 칸씩, 양 끝에서 순환), `last`(마지막 체크포인트) |
-| `autosave` | `on`, `off` |
-| `do` | **필수**: `clear-previous-checkpoint-key`, `clear-next-checkpoint-key`, `clear-settings-key`, `map-folder`, `data-folder`, `view-playlist-details`(곡 리스트 상세 창, 0.6.0까지의 `playlist`) |
+- **`get <setting>`** — 값(`get general.language`). 이름은 9절.
+- **`set <setting> <value>`** — 바꾸고 바로 적용합니다(`rollback`으로 되돌림). 토글은 `true/false`·`on/off`·`1/0`·`able/disable`, 비울 수 있는 키는 `none`, 데이터 폴더 기본값은 `auto`, 공백이 있는 값(패턴·색·경로)은 줄 끝까지. 설정판에서 잠기는 항목은 `set`도 거부합니다(예: `tiles.instant-down`이 false면 `tiles.down-notes`, 콘솔 쪽 판단은 `SettingPaths.LockedBy`).
+- **`speed [<percent>]`** — 배속(`set timing.speed`와 같음). 값이 없으면 지금 값. `-rate`는 배속 대신 **노트 이동 시간**(`display.travel`, ms라 작을수록 빠름).
+- **`autosave [on | off]`** — 적용한 설정을 저장소에도 쓸지(`general.autosave`). 값이 없으면 지금 값. 설정 바로가기 명령(`speed`·`autosave`)은 모두 값 없이 치면 보여 줍니다.
+- **`property [<section>[.<setting>]]`** — 인자 없으면 구역 목록, 구역이면 그 설정과 값, 설정이면 받는 값.
+- **`export`** — 설정 JSON(설정판의 내보내기와 같음, 맵·데이터 폴더 제외).
+- **`import <json>`** — 적힌 설정만 적용하고 나머지는 그대로. 바뀔 것을 보여 주고 묻습니다. 두 폴더 경로는 이 PC의 값을 유지합니다. 없어진 설정 이름은 조용히 건너뜁니다.
+- **`rollback`** — 마지막 설정 변경을 무엇이 했든(설정판·명령·불러올 때의 배속 초기화·여분 레인 같은 강제 변경) 되돌립니다. 그 단계에서 **바뀐 항목만** 돌리고, 다시 치면 한 단계 더. 앱을 끄면 기록은 사라집니다.
+- **`reset`** — 모든 설정을 기본값으로(맵·데이터 폴더는 그대로, `rollback`으로 되돌림).
+- **`do <action>`** — 설정판의 동작: 이전·다음 체크포인트 키·설정 키 지우기, 맵 폴더·데이터 폴더 고르기(폴더 고르기 창), 곡 리스트 상세 창 열기. 키워드 없이 오면 받는 낱말만.
 
-**`keyword <키워드>`**(0.9.1): 명령 이름 대신 키워드를 적으면 그 키워드의 뜻과 그것을 받는 명령을 보여 줍니다. 명령 이름과 키워드가 같은 단어는 없습니다(그래서 0.9.1에서 명령 `now`가 `song`이 되었습니다).
+### 콘솔
 
-0.9.1에서 `current` → **`main`**, `ones` → **`family`**로 바꿨습니다(`now`와 헷갈려서).
+- **`copy [<count>]`** — 화면의 마지막 메시지들을 클립보드로. 숫자는 그만큼 앞까지, `*`(또는 `all`)은 전부, `-1`은 첫 메시지, `a..b`는 범위. `-commands`(기본 `with`)는 친 명령을 `Visualizer>`와 함께, `-commands:only`는 친 명령만, `-answers`(기본 `skip`)는 답한 질문을 빼고 `:with`면 넣음, `-count`(기본 `others`)는 셀 때 복사 명령 자신을 세지 않고 `:all`이면 셈, `-paste`는 복사하면서 찍기도.
+- **`paste [<count>]`** — 같은 범위를 화면에 다시 찍습니다. `-copy`면 복사까지. 프롬프트 빈칸에서는 `/paste`로 값을 넣습니다.
+- **`prompt [<title>]`** — 언어 모델에 붙여 넣을 프롬프트를 채웁니다(6절). 인자 없거나 `list`면 제목 목록. 아무 곳에도 보내지 않습니다.
+- **`report <what> [<title>]`** — 7절.
+- **`update`** — 저장소에 이 복사본이 최신인지 묻고, 최신이면 그렇다고 끝납니다. 새 버전이 있으면 대상 버전과 재시작을 알리며 [Y/n](`-proceed`로 건너뜀), 예라면 앱을 닫고 `update.ps1`이 받기 → Release 빌드 → 앱 다시 열기를 하며, **링커가 설치되어 있으면 그 버전의 링커도 다시 씁니다**(질문에 적음). 이 복사본에 자기 수정이 있거나 앞서 있으면 거절하고 `-force`를 알려 줍니다. `-force`는 자기 수정을 버리고 가고, `-version:1.0.0`(`-v:1.0.0`)은 그 버전으로 갑니다(최신이 아닌 버전은 `-force` 필요) — **언제나 묻고** 위험은 사용자 책임이라고 적습니다. 없는 버전은 오류만(목록 보기 없음). 곡·설정·메모는 건드리지 않습니다.
+- **`clear`** — 화면 지우기. **`exit`** — 화면을 지우고 콘솔 닫기(`-keep`은 다음에 열 때를 위해 화면을 남김, 창을 닫는 것과 같음). **`date`** — 이 컴퓨터의 날짜·시각. **`whoami`** — 그림 한 장.
 
-**1.0.0에서 바뀐 것**: `note`가 `note [<id>] <range>`가 되었고(기본 `now`, 수정본은 자기 레인으로 — 0.9.2까지 수정본도 원곡 레인으로 찍히던 결함을 고침), 수정 중에도 동작합니다. 새 명령 `scannow`, `install`의 `-reinstall`과 가변 인자, `update`의 `-force`·`-version`, `version`의 최신 여부. `-force`는 언제나 묻고 `-proceed`와 함께 쓸 수 없습니다.
+## 5. load
 
-**0.9.2에서 바뀐 것**(사용자 규칙, **예전 입력이 더 이상 통하지 않는 첫 변경**): 명령 `list`는 `playlist`로 합쳤습니다(예전 `playlist` = 지금 `playlist main`). 곡 이름을 바꾸는 명령 `rename`은 **`retitle`**이 되었습니다(`report rename`과 겹쳐서). `report`는 **낱말이 필수**가 되어 `report <제목>`과 동작 옵션(`-list` `-print` `-remove` `-rename` `-clear` `-done` `-undone` `-ask` `-state` `-colon`)이 없어졌고 같은 일을 낱말로 합니다(`-remove` → `erase`, `-clear` → `sweep`). `checkpoint -list`는 `checkpoint list`, `help`·`option`·`keyword`의 `all`은 `list`가 되었습니다. 옵션은 키워드 뒤에 와도 됩니다.
-
-0.6.1에서 바뀐 것: `list now`·`id now`는 예전에 원곡과 수정본 전부를 냈으나 이제 **현재 곡 하나**이고, 그 동작은 `ones`(지금의 `family`)가 맡습니다. `do`의 `clear-previous-key`·`clear-next-key`는 체크포인트 키라는 것을 이름에 넣었습니다.
-
-## load (0.6.1)
-
-- 제목은 **어느 부분이든**(중간부터도) 맞으면 됩니다. 대상은 원곡(기본·커스텀)이며, 맞는 원곡마다 그 **수정본을 바로 아래에** 붙여 **한 목록**으로 보여 주고 번호로 고릅니다. 원곡 하나만 맞고 수정본이 없으면 **바로** 불러옵니다.
+- 제목의 **어느 부분이든** 맞으면 됩니다(대소문자 무관). 대상은 원곡(기본·커스텀)이며, 맞는 원곡마다 그 **수정본을 바로 아래에** 붙여 한 목록으로 보여 주고 번호로 고릅니다. 원곡 하나만 맞고 수정본이 없으면 바로 불러옵니다. 목록이 100개 이상이면 출력하지 않고 제목을 더 적어 달라고 합니다.
+- `*`는 모든 곡, `.`은 불러온 곡(다시 불러오거나 옵션과 함께 쓸 때).
 - 수정본은 목록 제목 그대로(`1*Plum - R`) 정확히 치면 바로 불러옵니다(자동완성에는 없음).
 - `-origin` 원곡만, `-slot` 제목이 맞는 수정본만(원곡이 사라진 수정본 포함), `-slot:<n>` 그 슬롯의 수정본만. 하나면 바로, 여럿이면 목록.
-- `-id <id>`: 8자 id가 **정확히** 같아야 합니다(대소문자 무관). 두 번째 단어는 받지 않습니다.
-- **후순위 id 검색**: 제목에 맞는 곡이 없고 친 글자가 id 모양(8자, 첫 자리 0–2)이면 그 id로 찾습니다. 그래도 없으면 둘 다 없다고 알립니다.
-- 키워드: `load origin`은 현재 수정본의 원곡을 불러옵니다(현재 곡이 원곡이면 거부하고, 수정본이 있을 때만 `load edited`를 안내). `load edited`는 현재 원곡의 수정본을 목록으로(하나면 바로), `-slot:<n>`을 붙이면 그 슬롯을 바로 불러옵니다(현재 곡이 수정본이면 거부하고 `load origin` 안내).
-- 목록이 **100개 이상**이면 출력하지 않고 제목을 더 적어 달라고 합니다(01–99까지 표시).
-- 배속: 고급 설정의 **불러와도 배속 유지**가 꺼져 있으면(기본) 불러올 때 배속을 100%로 되돌리고 `timing.speed: 80 → 100`을 알립니다. `-speed`(`:keep`)는 유지, `-speed:reset`은 초기화이며 설정과 무관하게 따릅니다. 되돌린 배속은 `rollback`으로 살립니다.
-- 불러오기 전에 설정 창을 닫습니다(아래 규칙). 메인 화면 목록에 있는 곡이면 검색창에도 그 곡이 골라집니다.
-- `-force`(0.6.8, 사용자 규칙)
-  - **Unsupported 곡에만** 동작하며 위험하므로 **항상 [Y/n]을 묻습니다**(`load`에는 `-proceed`가 없습니다).
-  - 곡의 형식 version보다 낮은 검증 형식을 가까운 것부터 읽어 보고, 없으면 높은 것을 읽어 봅니다(5→4→3→2→8…, 1→2, 20→19). 검증되지 않은 번호는 건너뜁니다.
-  - 읽히면 캐시에 그 형식을 남기고 불러오며, `Forced: read as format version N.`을 출력합니다. 곡 목록에는 주황 `forced`가 붙고, 같은 파일인 동안은 동기화 뒤에도 유지됩니다.
-  - 모든 형식이 실패하면(형식이 아닌 다른 이유로 막힌 곡) 캐시를 그대로 두고, 이유는 메인 화면에 나옵니다.
-  - 다른 곡에 `-force`를 붙이면 `-force is only for unsupported songs…`라고 알리고 그냥 불러옵니다.
-  - 근거와 한계: `docs/debug-logs/unsupported-maps.md`.
+- `-id <id>`: 8자 id가 정확히 같아야 합니다(두 번째 단어는 받지 않음). 제목에 맞는 곡이 없고 친 글자가 id 모양(8자, 첫 자리 0–2)이면 id로도 찾아봅니다.
+- 키워드: `load origin` 불러온 수정본의 원곡(원곡이면 거절, 수정본이 있을 때만 `load edited` 안내) · `load edited` 불러온 원곡의 수정본 목록(하나면 바로, `-slot:<n>`과 함께면 그 슬롯).
+- 숨긴 곡은 결과에서 빠지고 `-hidden`을 주면 함께 나옵니다.
+- **배속**: 불러올 때 배속을 100%로 되돌리고 `timing.speed: 80 → 100`을 알립니다(고급 설정 **불러오기 배속 유지**가 켜져 있으면 유지). `-speed`(`:keep`)는 유지, `-speed:reset`은 초기화이며 설정과 무관하게 따릅니다. 되돌림은 `rollback` 한 단계입니다.
+- **`-force`**: Unsupported 곡에만 동작하며 언제나 [Y/n]. 곡의 형식보다 낮은 검증 형식부터(없으면 높은 것) 읽어 보고, 읽히면 캐시에 그 형식을 남기며 불러옵니다(`Forced: read as format version N.`, 곡 목록에 주황 `forced`). 모든 형식이 실패하면 그대로 둡니다. 다른 곡에 붙이면 그렇다고 알리고 그냥 불러옵니다. 근거: `docs/debug-logs/unsupported-maps.md`.
+- 불러오기 전에 설정판을 닫습니다(9절의 공통 규칙). 메인 화면 목록에 있는 곡이면 검색창에도 골라집니다.
 
-예시 목록 `abcd (12345678)`, `Raimukun - C†hulhu (12333333)`, `2hello`, `2hi`, `22222222 (18569403)`, 그 수정본 `1*22222222 (28534333)`, 원곡이 없는 수정본 `1*2bye (22222222)`:
-`load 2` → 22222222·1*22222222·2hello·2hi 목록 / `load -slot:1 2` → 1*22222222·1*2bye 목록 / `load hu`+Tab → Raimukun - C†hulhu 바로 / `load 12345678` → 제목에 없으니 id로 abcd / `load -id 22222222` → 2bye / `load -id 2` → 오류. 이 사례와 경계 상황은 `CmdConsoleTests`의 load 그룹이 고정합니다.
+## 6. prompt의 빈칸 채우기
 
-## 동작 규칙
-
-- **설정 먼저 닫기**: `edit` `set` `speed` `import` `rollback` `reset` `do` `hide` `show` `load`는 설정이 열려 있으면 닫고 실행합니다(0.8.9부터 설정은 창이 아니라 메인 창 안에서 열리는 패널입니다). 적용하지 않은 변경이 있으면 `[Y/n]`으로 묻고(Y 적용, n 버림) `-proceed`는 Y입니다. 읽기만 하는 명령(`get`, `property`, `playlist` 등)은 설정을 건드리지 않습니다. (0.9.1부터 수정 창은 설정이 아니라 **노트 영역의 수정 버튼**에서 열리므로 "적용하고 수정" 확인은 없습니다.)
-- **수정 창이 열려 있을 때**: 설정·수정 창이 열려 있어도 콘솔을 쓸 수 있습니다. 다만 수정 창이 열려 있으면 `load` `set` `speed` `autosave` `import` `reset` `rollback` `do` `sync` `remove` `restore` `delete` `retitle` `checkpoint` `locate`는 실행하지 않고 "The note editor is open, so <명령> cannot run. Save or close the editor first."를 출력합니다. 읽기만 하는 명령은 그대로 동작하고, `edit`은 열려 있는 창을 앞으로 가져옵니다(다른 곡이면 거절). **`note`는 수정 중에도 동작하며 수정 중인 레인을 그대로 냅니다**(1.0.0).
-- **rollback**: 적용된 모든 설정 변경을 앱을 끌 때까지 기록합니다(설정 창 적용, `set`·`import`·`reset`·`do`, 메인 화면 자동 진행 토글, 여분 레인·최대 타일 수 확장에 동의한 강제 변경, 곡을 불러올 때의 배속 초기화). 강제 변경과 배속 초기화는 그 앞의 변경과 따로 한 단계로 남습니다. `rollback`은 가장 최근 단계에서 **바뀐 항목만** 이전 값으로 돌리고, 다시 치면 한 단계 더 돌아갑니다. 시작할 때의 설정 복원과 `rollback` 자신은 기록하지 않습니다. 강제 변경을 되돌려 곡이 배치되지 않으면 그대로 두고 같은 제안을 다시 묻지 않습니다.
-- **restore 보관**: `remove`는 수정본의 슬롯 폴더 전체를 `<저장소>/maps/removed/`로 옮기고 이름을 기록합니다. 다음 `remove`가 이전 보관본을 지우므로 한 곡만 남습니다. 복구는 원래 슬롯이 비어 있으면 그 슬롯, 아니면 첫 빈 슬롯입니다. 앱을 다시 켜도 복구할 수 있습니다.
-- **delete**: 수정본은 슬롯 폴더째(`edit.json` 포함) 지웁니다. 불러온 곡을 지우면 화면에서도 내립니다.
-- **import/export**: 설정 창의 불러오기·내보내기와 같은 규칙입니다. 일부만 적어도 되고, 두 폴더 경로는 이 PC 값을 유지합니다.
-- **곡 id**: 첫 자리는 폴더(0 기본, 1 커스텀, 2 수정본), 나머지 7자리는 소문자와 숫자이며 글자가 최소 하나 들어갑니다(0.6.1, 이전은 숫자 8자리). 예전 형식의 id는 형식 검사에 걸려 다음 실행·동기화 때 모두 새로 발급됩니다(`song-ids.json`).
-
-## prompt의 빈칸 채우기 (0.9.1)
-
-프롬프트에 `{request}`처럼 빈칸이 있으면 `prompt <title>`이 **하나씩 묻습니다.** 프롬프트 줄은 들여써서 `    prompt:<제목> (1/2)>`가 되고(콘솔의 `Visualizer>`와 한눈에 구분되게), 친 줄은 명령이 아니라 **그 빈칸의 값**입니다.
+프롬프트에 빈칸이 있으면 `prompt <title>`이 하나씩 묻습니다. 줄은 `    prompt:<제목> (1/2)>`로 들여 써서 콘솔의 `Visualizer>`와 구분되고, 친 줄은 명령이 아니라 **그 빈칸의 값**입니다.
 
 | 입력 | 뜻 |
 | --- | --- |
-| 아무 글자 | 그대로 값이 됩니다(`/string`이 생략된 형태) |
-| `/string <글자>` | 뒤의 내용을 글자 그대로. `/`로 시작하는 값을 넣을 때 씁니다 |
-| `/<명령>` | 그 명령을 실행해 **출력을 값으로** 넣습니다. `/paste`, `/note -json 1..64`처럼 씁니다 |
-| 빈 줄(Enter) | 답으로 치지 않고 **같은 빈칸을 다시** 묻습니다 |
-| `/skip` | 그 빈칸을 비워 둡니다(아래 표시가 남습니다) |
-| `/back` · `/again` | 이전 빈칸으로 · 처음부터 다시 |
-| `/cancel` | 취소하고 나갑니다 |
+| 아무 글자 | 그대로 값(`/string` 생략) |
+| `/string <글자>` | 글자 그대로(`/`로 시작하는 값을 넣을 때) |
+| `/<명령>` | 그 명령의 **출력을 값으로**(`/paste`, `/note -json 1..64`) — 찍고 끝나는 명령만 받고, 질문·창을 띄우는 명령은 거절 |
+| 빈 줄 | 같은 빈칸을 다시 물음 |
+| `/skip` | 비워 둠(`>>> WRITE THE REQUEST HERE. … <<<`가 남음) |
+| `/back` · `/again` | 이전 빈칸으로 · 처음부터 |
+| `/cancel` | 취소(채운 내용은 한 번 찍어 둠) |
 
-- **명령은 찍고 끝나는 것만** 받습니다(`paste` `note` `id` `title` `info` `song` `playlist` `get` `property` `export` `version` `date` `fps` `link` `cmd` `help` `option` `keyword` `whoami`). `load`처럼 질문을 띄우거나 창을 여는 명령은 거절하고 다시 묻습니다 — 질문 안에서 질문이 열리면 어느 쪽 답인지 알 수 없기 때문입니다.
-- 비워 둔 빈칸에는 `>>> WRITE THE REQUEST HERE. If this line is still here, ask for it instead of guessing. <<<`가 남습니다. 사람에게는 "여기 쓰세요", 모델에게는 "비었으면 묻고 멈춰라"로 읽히게 적었습니다.
-- 다 채우면 **줄인 미리보기**(긴 값은 `… n more lines …`)를 보여 주고 `[Y/n/detail]`로 묻습니다. `detail`(`d`)은 전부 출력한 뒤 다시 `[Y/n]`으로 묻고, `Y`면 클립보드로 복사합니다. `n`과 `/cancel`은 취소하되 **채워 둔 내용을 한 번 찍어** 길게 친 글이 사라지지 않게 합니다.
-- JSON을 직접 Ctrl+V로 붙여 넣어도 됩니다(콘솔이 줄바꿈을 공백으로 바꾸며, JSON은 뜻이 그대로입니다). 다만 화면이 밀리고 클립보드를 한 번 쓰므로 `/paste`·`/note -json` 쪽이 편합니다.
+다 채우면 줄인 미리보기와 `[Y/n/detail]`을 묻고(`detail`은 전부 찍은 뒤 다시 [Y/n]), Y면 클립보드로 복사합니다. 지금 저장된 프롬프트는 `note-lanes` 하나입니다.
 
-## report (0.9.1)
+## 7. report — 메모 편집기
 
-다음 버전에 반영할 내용을 적어 두는 콘솔 안의 작은 편집기입니다. 메모는 앱 저장소의 `reports/<제목>.txt`에만 쓰고 그 밖으로 나가지 않습니다.
+에이전트를 쓸 수 없을 때 문제를 적어 두는 곳입니다. 앱 데이터 폴더의 `reports/<제목>.txt`에만 쓰고 **누가 지울 때까지 남습니다**(버전으로 지우지 않음).
 
-- **낱말이 필수입니다**(0.9.2, 사용자 규칙): `report create <제목>`은 새로 만들며 열고(있으면 거절, `-force`면 묻고 나서 빈 채로), `report write <제목>`은 있는 메모를 엽니다(없으면 거절). `report`만 치거나 옵션만 주면 받는 낱말을 알려 주고 아무것도 하지 않습니다. 제목은 글자·숫자·공백·`-`·`_`만 쓸 수 있고 겹칠 수 없습니다.
-- 열리면 **콘솔 창 안에 편집기 화면**이 뜹니다(창을 새로 띄우지 않고, 기록은 가려질 뿐입니다). 맨 아래 상태줄에 제목·줄 수·커서 위치가 있고, 저장하지 않은 변경은 `[+]`로 표시됩니다.
-  - **`i`** 쓰기 모드, **Esc** 보기 모드. 쓰기 모드에서 **Enter는 줄바꿈**이고 방향키·마우스로 아무 줄이나 고칠 수 있습니다. Tab은 공백 네 칸입니다.
-  - 보기 모드에서 **`:`**를 누르면 상태줄이 명령줄이 됩니다: `:w`(`:write`) 저장 · `:q`(`:quit`) 나가기(저장하지 않은 변경이 있으면 상태줄에서 [Y/n]) · `:wq`(`:x`) 저장하고 나가기 · `:copy` 고른 글(없으면 메모 전체) 복사 · `:d`(`:delete`) 제거(묻고 나서). **`:q!`는 없앴습니다**(0.9.2).
-  - 한글 입력이 됩니다(0.9.2에서 고쳤습니다: 보기 모드의 읽기 전용 상태 때문에 IME가 꺼진 채였습니다). **Ctrl+T**는 편집 중에도 콘솔을 최소화합니다.
-  - 상태줄 오른쪽에 **`i write  :w save  :q leave  :d delete`**가 늘 떠 있습니다(0.9.2, 사용자 규칙). 콘솔 줄은 `제목: n lines`만 적고 키를 따라 적지 않습니다.
-  - 콘솔 창을 닫아도 **쓰던 메모는 그대로** 있어, 다시 열면 그 상태로 돌아옵니다. 앱을 닫을 때만 저장하지 않은 메모를 경고합니다.
-  - `[Y/n]` 질문은 **글자를 치고 Enter**를 눌러야 적용됩니다(콘솔의 다른 질문과 같은 방식). 한 글자만 눌러 바로 움직이지 않습니다.
-- **`report list`**: 메모마다 `제목 · 작성 버전 · open/done · 줄 수`를 보여 줍니다. 뒤에 글자를 붙이면 제목이나 **본문**에 그 글자가 든 메모만 남습니다.
-- **메모가 서 있는 자리는 셋**(0.9.2): **open**(기다리는 중) · **done**(반영됨, 그 버전과 함께) · **asked**(봤지만 해결하지 못해 답을 기다리는 중 — **이유를 함께 적습니다**). 이유는 **설정의 언어**로 적습니다(사용자가 읽는 글이라서. 콘솔의 다른 문구는 영어 고정이지만 이것은 곡 이름처럼 **데이터**입니다).
-- **표시는 메모 옆**(`reports/done.mark`)에 있어 본문에 타이핑해 넣거나 지울 수 없습니다. 보는 곳은 셋 — `report list` 목록(맨 끝 줄에 `n of m still open`, asked는 이유가 아랫줄에), 편집기 **상태줄**(`"제목" done 0.9.2` 또는 `open`), 그리고 `report state <제목>`이 한 줄만 찍습니다(`done 0.9.2` · `open` · `asked: <이유>`). 바꾸는 것은 `report done` · `report undone` · `report ask <제목> > <이유>`이며, **메모를 다시 저장하면 저절로 열립니다** — 새로 적은 말은 다음 버전의 일거리이기 때문입니다.
-- **작성 버전**은 저장할 때 `reports/written.mark`에 제목과 함께 적힙니다(메모 파일 자체는 사용자가 쓴 글 그대로 둡니다). 폴더의 버전은 `reports/version.mark`입니다 — 0.9.1까지는 둘 다 `.txt`라 **목록에 `version`·`written`이라는 메모로 섞여 나왔고**, 그 `version`을 지우면 다음 호출이 폴더를 다른 버전 것으로 보고 **메모를 전부 지웠습니다**(0.9.2에서 고침). 예전 파일은 내용이 이 형식일 때만 조용히 옮기고, 사용자가 쓴 글이면 메모로 남겨 둡니다.
-- **지워지지 않습니다**(0.9.2, 사용자 규칙): 버전으로 쓸어내던 기능은 없앴습니다. 메모는 누가 지울 때까지 남고, `report erase`로 하나씩 또는 `report sweep`으로 **이미 반영된 것만** 한꺼번에 지웁니다([Y/n], `-proceed`로 바로).
-- **터미널에서**(0.9.2): 에이전트는 앱 콘솔을 쓸 수 없으므로 저장소 루트의 **`report.ps1`**이 같은 일을 합니다 — `.\report.ps1 open`(아직 처리 안 한 메모를 본문까지), `list`, `read <제목>`, `state <제목>`, `done <제목>`, `undone <제목>`, `asked <제목> -Why "<이유>"`. `list`·`open`은 맨 위에 **이유를 어느 언어로 적어야 하는지**를 설정에서 읽어 찍습니다. 반영 표시를 바꾸는 길은 이 스크립트와 콘솔뿐이라 누가 하든 같은 모양으로 남습니다.
+- **낱말이 필수**: `create <제목>` 새로 만들어 열기(같은 제목이 있으면 거절, `-force`면 묻고 나서 빈 채로 열고 저장해야 바뀜) · `write <제목>` 있는 메모를 열어 덧붙이기(없으면 거절) · `list [<글자>]` 목록(제목이나 본문에 그 글자가 든 것만, 맨 끝 `n of m still open`) · `print <제목>` 열지 않고 찍기 · `done`·`undone <제목>` 반영 표시 · `ask <제목> > <이유>` 해결 못 함과 이유(설정의 언어로) · `state <제목>` 한 줄(`done 1.0.1` · `open` · `asked: <이유>`) · `erase <제목>` 지우기([Y/n]) · `sweep` 반영된 것 모두 지우기([Y/n]) · `rename <옛 제목> > <새 제목>`([Y/n]) · `colon` 편집기 `:` 명령. 제목이 낱말과 같으면 따옴표(`report write "create"`). 제목은 글자·숫자·공백·`-`·`_`만.
+- **자리 셋**: open(기다리는 중) · done(반영됨, 그 버전과 함께) · asked(이유와 함께 답을 기다림). 표시는 `reports/done.mark`, 작성 버전은 `reports/written.mark`에 있어 본문에 타이핑해 넣거나 지울 수 없습니다. **메모를 다시 저장하면 저절로 open**이 됩니다.
+- **편집기**: 콘솔 창 안에 층으로 뜹니다. `i` 쓰기 · Esc 보기(쓰기 중 Enter는 줄바꿈, Tab은 공백 넷). 보기에서 `:`를 누르면 상태줄이 명령줄: `:w` 저장 · `:q` 나가기(변경이 있으면 상태줄 [Y/n]) · `:wq`(`:x`) · `:copy` 고른 글(없으면 전체) 복사 · `:d`(`:delete`) 제거. 상태줄은 제목·줄 수·커서·`[+]`(저장 안 함)과 오른쪽 키 안내. [Y/n]은 글자를 치고 Enter. 한글 입력이 되고 Ctrl+T도 됩니다. 콘솔을 닫아도 쓰던 메모는 남아 다시 열면 그 자리로 돌아오고, 앱을 끌 때만 경고합니다.
+- **터미널**: 에이전트는 루트의 `report.ps1`(`open`·`list`·`read`·`state`·`done`·`undone`·`asked <제목> -Why <이유>`)로 같은 일을 합니다. 표시를 바꾸는 길은 이 스크립트와 콘솔뿐입니다.
 
-## 진행률 바 (0.9.2, 사용자 요청)
+## 8. 진행률 막대
 
-시간이 걸리는 명령은 프롬프트 대신 막대를 띄우고, **끝날 때까지 `Visualizer>`를 내놓지 않습니다** — 그래서 그동안 다른 명령을 칠 수 없습니다(터미널과 같게).
+시간이 걸리는 명령(`sync`, `sync rebuild`, `install linker`)은 프롬프트 대신 `Map sync  [#########...............]  38%`를 띄우고, **끝날 때까지 `Visualizer>`를 내놓지 않아** 다른 명령을 칠 수 없습니다. 그동안 Ctrl+T와 복사만 통하고, 들어온 입력은 쌓지 않고 버립니다. 끝나면 결과 줄을 적고 프롬프트가 돌아옵니다. 메인 화면 설명줄도 같은 퍼센트를 적습니다(복사 40% + 세 폴더 파싱 60%).
 
-- 모양: `Map sync  [#########...............]  38%` — 이름, 24칸 막대, 퍼센트.
-- 대상: `sync`, `sync rebuild`, `install linker`. `link`는 모드가 이미 보낸 값을 읽을 뿐이라 기다리지 않으므로 막대가 없습니다.
-- 그동안 통하는 것은 **Ctrl+T**(최소화)와 복사뿐이고, 어떤 경로로 들어온 입력도 큐에 쌓지 않고 버립니다.
-- 끝나면 결과 줄을 적고 프롬프트가 돌아옵니다(`Map sync finished. 57 songs in the library.`).
-- 메인 화면 설명줄은 같은 진행률을 **퍼센트**로 적습니다(`동기화 중… 38%`). 복사가 앞의 40%, 세 폴더 파싱이 나머지 60%입니다.
+## 9. 공통 동작 규칙
 
-## 설정 이름 (`구역.설정`)
+- **설정판 먼저 닫기**: `load` `checkpoint` `go` `hide` `show` `edit` `set` `speed` `autosave` `import` `rollback` `reset` `do`는 설정판이 열려 있으면 닫고 실행합니다. 적용하지 않은 변경이 있으면 [Y/n](Y 적용, n 버림, `-proceed`는 Y). 읽기만 하는 명령은 설정판을 건드리지 않습니다.
+- **수정 창이 열려 있을 때**: 콘솔은 그대로 쓸 수 있지만 `load` `set` `speed` `autosave` `import` `reset` `rollback` `do` `sync` `remove` `restore` `delete` `retitle` `checkpoint` `go`는 "The note editor is open, so <명령> cannot run. Save or close the editor first."로 거절합니다(노트나 곡을 바꾸기 때문). `note`는 수정 중인 레인을 찍고, `edit`은 열린 창을 앞으로 가져옵니다(다른 곡이면 거절). `pin`·`unpin`은 노트를 바꾸지 않아 됩니다.
+- **곡 id**: 첫 자리 폴더(0 기본 · 1 커스텀 · 2 수정본) + 소문자·숫자 7자리(글자 최소 하나). `song-ids.json`에 짝지어 두고, 형식이 맞지 않는 id는 다음 실행·동기화 때 새로 발급합니다. 내부 식별은 맵 경로 해시입니다.
+- **저장되는 것**: 설정(`settings.json`, `autosave`가 켜져 있을 때), 곡 목록 선택(`songs.json`), id(`song-ids.json`), 표시와 마지막 곡(`song-marks.json`), 핀(`pins.json`), 메모(`reports/`). 콘솔 기록과 키 입력은 저장하지 않습니다.
 
-설정 창에 행이 있는 설정만 이름이 있습니다(자동 진행 토글·곡 리스트 표시 항목·레인 배경색은 제외). 값: 토글은 `true`/`false`
-(`set`은 `on/off`·`1/0`·`able/disable`도 받음), 비울 수 있는 키는 `none`, 데이터 폴더 기본값은 `auto`, 패턴·색·경로처럼 공백이
-있는 값은 줄 끝까지입니다. 설정 창에서 잠기는 항목은 `set`도 거부합니다(예: `tiles.instant-down`이 false면 `tiles.down-notes`).
-`experimental` 구역은 `advanced.experimental`이 true일 때만 보이며, 이 버전에는 설정이 없어 "This version has no experimental
-features."라고 답합니다.
+## 10. 옵션 표
 
-| 구역 | 설정 |
+| 옵션 | 별칭 | 기본값 | 뜻 | 쓰는 명령 |
+| --- | --- | --- | --- | --- |
+| `-copy` | `-c` | | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, scannow, song, info, id, title, playlist, checkpoint, pin, note, property, export, paste, prompt, report, date |
+| `-proceed` | `-p` | | 모든 질문에 Y로 답하고 진행 | install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update |
+| `-id` | | | id만 / `title`과 함께면 id도 / `load`는 id로 찾기 | song, title, load, playlist |
+| `-title` | `-tl` | | 제목만 / `id`와 함께면 제목도 | song, info, id, playlist |
+| `-hidden` | `-h` | | 숨긴 곡만 / `load`는 숨긴 곡도 | load, playlist |
+| `-shown` | `-s` | | 보이는 곡만 | playlist |
+| `-origin` | `-og` | | 원곡을 바로 불러옴 | load |
+| `-slot[:<n>]` | `-sl` | 모든 수정본 | 수정본만 / 번호면 그 슬롯(1–9)을 바로 | load |
+| `-speed[:keep\|reset]` | | `keep` | 불러올 때 배속을 어떻게 할지 | load |
+| `-force` | | | 거절될 일을 묻고 나서 그대로 함(언제나 물음) | load, report, update |
+| `-rate` | `-ar` | | 배속 대신 노트 이동 시간(ms) | speed |
+| `-keywords` | `-k` | | 키워드도 | option |
+| `-options` | `-o` | | 옵션도 | keyword |
+| `-number` | `-n` | | 숫자만 | version |
+| `-restart` | `-r` | | 찍은 뒤 측정 새로 | fps |
+| `-keep` | `-m` | | 다음에 열 때 화면을 남김 | exit |
+| `-json` | | | JSON으로 | note |
+| `-paste` | `-pa` | | 복사하면서 찍기도 | copy |
+| `-commands[:with\|only]` | | `with` | 친 명령을 함께 / 친 명령만 | copy, paste |
+| `-answers[:with\|skip]` | | `skip` | 답한 질문을 함께 / 빼고 | copy, paste |
+| `-count[:all\|others]` | | `others` | 셀 때 복사 명령 자신을 셀지 | copy, paste |
+| `-version[:latest\|<version>]` | `-v` | `latest` | 갈 버전 | update |
+| `-reinstall` | | | 있어도 이 버전대로 다시 씀 | install |
+
+## 11. 키워드 표
+
+| 키워드 | 뜻 (명령) |
 | --- | --- |
-| `general` | language, theme, information-buttons, song-info, game-only, autosave |
-| `songs` | search, sort, high-first, group (`base` · `custom` · `edited` · `base-custom`(기본값) · `custom-edited` · `base-edited` · `all`) |
-| `checkpoint` | auto, auto-on-load |
-| `keys` | reset, start, toggle, previous, next, settings, lane-1 – lane-8 |
-| `tiles` | max, min, dynamic, 8k-6k, 6k-4k, 4k-2k, 2k-1k, instant-down, down-notes, pattern-8k, pattern-6k, pattern-4k, pattern-2k, initial, order-8k, order-6k, order-4k, order-2k |
-| `timing` | speed, chord-window, no-center-pair, chord-side(`none`·`1-2`·`3-4`·`1-2,3-4`(기본값)), trill-window, no-trill-center-pair, trill-side(chord-side와 같은 값), start-delay, calibration, pause-align |
-| `judgment` | bar, window, average, average-notes |
-| `magic` | notes, max-interval, fade-in, lead, fade-out, fixed, fixed-count |
-| `design` | display-lanes(`max`(기본값)·`1`·`2`·`4`·`6`·`8`, 최대 타일 수보다 작으면 거절) |
-| `display` | travel, line-height, press-window, thickness, width, hold-width, offset, input-effect, miss-effect |
-| `colors` | lane-effect, note, chord, checkpoint, judgment-line, miss, pressed-transparency |
-| `advanced` | experimental, extra-lanes, slowdown, tile-order, chord-lanes, keep-speed, next-gap, map-folder, data-folder, process |
-| `experimental` | chord-before, run-restart |
+| `list` | 나열 (help·option·keyword: 전부 · prompt: 제목 · checkpoint: 체크포인트, 지금 자리에 `>` · report: 메모, 뒤 글자로 거름) |
+| `last` | 바로 앞 명령 (help·option·keyword) · 마지막 체크포인트 (checkpoint) |
+| `all` | 전부 (playlist·id·title: 모든 곡 · note: 모든 노트 · scannow: 모든 영역 · install: 이 버전 전체(`-reinstall`)) · 핀 목록 (pin) |
+| `now` | 불러온 곡 (info·id·title·playlist·hide·show·edit·remove·delete·pin·unpin) · 지금 화면, 수정 중이면 수정 중인 레인 (note) |
+| `base` · `custom` · `edited` · `main` · `family` · `origin` | 곡 묶음 (id·title·playlist) — 기본 맵 · 커스텀 · 수정본 · 메인 화면 목록 · 원곡과 모든 수정본 · 원곡 |
+| `origin` · `edited` | 불러온 수정본의 원곡 · 불러온 원곡의 수정본 (load) |
+| `first` · `next` · `previous` | 곡 처음 · 다음 · 이전 체크포인트 (checkpoint) |
+| `start` · `stop` · `tiles` · `follow` · `unfollow` · `again` · `auto` · `manual` | 게임 링크 (link) |
+| `app` · `source` · `linker` · `maps` · `edits` · `data` | 영역 (scannow·install) |
+| `rebuild` | 커스텀 맵을 처음부터 (sync) |
+| `on` · `off` | 켜기 · 끄기 (autosave) |
+| `create` · `write` · `print` · `done` · `undone` · `ask` · `state` · `erase` · `sweep` · `rename` · `colon` | 메모 동작 (report) |
+| `clear-previous-checkpoint-key` · `clear-next-checkpoint-key` · `clear-settings-key` · `map-folder` · `data-folder` · `view-playlist-details` | 설정판 동작 (do) |
 
-0.6.1 이름 변경: `experimental.center-pair`(허용, 기본 false) → `timing.no-center-pair`(불가, 기본 true, 뜻이 반대), `experimental.chord-side` → `timing.chord-side`, `experimental.chord-lanes` → `advanced.chord-lanes`. 새 설정 `advanced.keep-speed`.
+## 12. 설정 이름 (`구역.설정`)
+
+설정판에 행이 있는 설정만 이름이 있습니다. 값의 꼴: 토글 `true`/`false`(그 밖의 낱말은 4절 `set`) · 키 이름(`R`, `F5`, `Back`, `Space`, `[`, `-` 등) · 비울 수 있는 키는 `none` · 숫자(단위는 표) · 타일 목록 `3 4 5 6` · 색 `R, G, B` 또는 `#RRGGBB` · 폴더는 전체 경로(데이터 폴더는 `auto`도). 고를 수 있는 값은 `property <설정>`이 보여 줍니다. `experimental` 구역은 `advanced.experimental`이 true일 때만 열립니다.
+
+| 이름 | 설정 속성 | 꼴 |
+| --- | --- | --- |
+| `general.language` | Language | 선택 |
+| `general.theme` | Theme | 선택 |
+| `general.information-buttons` | ShowGuideButtons | 토글 |
+| `general.song-info` | ShowSongInfo | 토글 |
+| `general.game-only` | OnlyReactWhenAdofaiForeground | 토글 |
+| `general.autosave` | AutoSaveSettings | 토글 |
+| `songs.sort` | SongSortKey | 선택 |
+| `songs.high-first` | SongSortHighFirst | 토글 |
+| `songs.group` | SongGroup | 선택 (`base` · `custom` · `edited` · `base-custom` · `custom-edited` · `base-edited` · `all`) |
+| `checkpoint.auto` | AutoCheckpointAdvance | 토글 |
+| `checkpoint.auto-on-load` | AutoCheckpointOnLoad | 토글 |
+| `keys.reset` · `keys.start` · `keys.toggle` | ResetKey · StartTriggerKey · VisualizerToggleKey | 키 |
+| `keys.previous` · `keys.next` · `keys.settings` | PreviousCheckpointKey · NextCheckpointKey · SettingsHotkey | 키 또는 `none` |
+| `keys.lane-1` … `keys.lane-8` | LaneKeys | 키 |
+| `design.display-lanes` | DisplayLaneCount | 선택 (`max` · 1 · 2 · 4 · 6 · 8, 최대 타일 수보다 작으면 거절) |
+| `tiles.max` · `tiles.min` | MaximumTileCount · MinimumTileCount | 선택 |
+| `tiles.dynamic` | DynamicTiming | 토글 |
+| `tiles.8k-6k` · `tiles.6k-4k` · `tiles.4k-2k` · `tiles.2k-1k` | EightKey… · SixKey… · FourKey… · TwoKeyBoundaryMs | ms |
+| `tiles.instant-down` | ImmediateDownshift | 토글 |
+| `tiles.down-notes` | DownshiftNoteCount | 노트 수 |
+| `tiles.pattern-8k` · `-6k` · `-4k` · `-2k` | EightKeyPattern … TwoKeyPattern | 타일 목록 |
+| `tiles.initial` | InitialTile | 선택 |
+| `tiles.order-8k` · `-6k` · `-4k` · `-2k` | EightKeyOrder … TwoKeyOrder | 타일 목록 |
+| `timing.speed` | PlaybackSpeedPercent | % |
+| `timing.chord-window` | SimultaneousWindowMs | ms |
+| `timing.no-center-pair` | NoChordCenterPair | 토글 |
+| `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
+| `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
+| `timing.no-trill-center-pair` | NoTrillCenterPair | 토글 |
+| `timing.trill-side` | TrillLanePreference | 선택 (chord-side와 같은 값) |
+| `timing.start-delay` | StartDelayMs | ms |
+| `timing.calibration` | CalibrationNoteCount | 노트 수 |
+| `timing.pause-align` | AlignNextNoteOnPause | 토글 |
+| `judgment.bar` | JudgmentBarMode | 선택 |
+| `judgment.window` | JudgmentBarDifficulty | 선택 |
+| `judgment.average` | ShowJudgmentAverage | 토글 |
+| `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
+| `magic.notes` | MagicCircleNoteCount | 노트 수 |
+| `magic.max-interval` · `magic.fade-in` · `magic.lead` · `magic.fade-out` | MagicCircleMaxIntervalMs · …FadeInMs · …LeadMs · …FadeOutMs | ms |
+| `magic.fixed` | MagicCircleFixedTiles | 토글 |
+| `magic.fixed-count` | MagicCircleTileCount | 선택 |
+| `display.travel` | NoteTravelTimeMs | ms |
+| `display.line-height` | JudgmentLineHeightDip | px |
+| `display.press-window` | KeyPressWindowMs | ms |
+| `display.thickness` · `display.width` · `display.hold-width` | NoteThickness · NoteWidth · HoldNoteWidth | 배 |
+| `display.offset` | GlobalDisplayOffsetMs | ms |
+| `display.input-effect` · `display.miss-effect` | ShowInputEffect · ShowMissEffect | 토글 |
+| `colors.lane-effect` · `colors.note` · `colors.chord` · `colors.start-note` · `colors.end-note` · `colors.checkpoint` · `colors.judgment-line` · `colors.miss` | LaneEffectColor · NoteColor · ChordColor · StartNoteColor · EndNoteColor · CheckpointColor · JudgmentLineColor · MissEffectColor | 색 |
+| `colors.pressed-transparency` | PressedNoteTransparencyPercent | % |
+| `advanced.experimental` | ExperimentalFeatures | 토글 |
+| `advanced.extra-lanes` | ExtraLanes | 토글 |
+| `advanced.slowdown` | SlowNotesPastJudgmentLine | 토글 |
+| `advanced.tile-order` | EnableTilePreference | 토글 |
+| `advanced.chord-lanes` | ChordSectionLanes | 토글 |
+| `advanced.keep-speed` | KeepSpeedOnLoad | 토글 |
+| `advanced.next-gap` | NextIntervalTiles | 토글 |
+| `advanced.map-folder` | MapRootDirectory | 폴더 |
+| `advanced.data-folder` | DataRootDirectory | 폴더 또는 `auto` |
+| `advanced.process` | AdofaiProcessName | 글자 |
+| `experimental.chord-before` | ChordAvoidBeforeLanes | 토글 |
+| `experimental.run-restart` | RestartPatternOnRun | 토글 |
 
 새 설정을 추가하면 `SettingPaths`에 이름을 넣어야 `CmdConsoleTests`의 "every setting has a name" 검사를 통과합니다.
+
+## 13. 계획 중인 변경 (아직 만들지 않음)
+
+명령 체계의 큰 개편을 앞두고 결정만 해 둔 것들입니다.
+
+- **`list`를 `all`로 통합**(사용자 결정): 두 낱말의 경계가 모호해서 하나로 합칩니다. 규칙은 "`all`(`*`)은 그 명령이 다루는 것 전부이고, 하나에만 할 수 있는 일을 하는 명령(`checkpoint`·`prompt`·`report`)에서는 전부를 보여 준다". `help`·`option`·`keyword`·`prompt`의 `list*` → `all*`, `checkpoint`·`report`의 `list` → `all`, `copy`·`paste`는 `all`을 정식 키워드로(지금도 범위로는 받음). 예전 `list`를 치면 "이제 `all`"이라고 한 줄 알려 줍니다. `pin all`은 이미 이 방식입니다.
+- **`report find <글자>`**(사용자 결정): `report list <글자>`의 거르기를 동작 낱말로 분리합니다.
+- **중복 명령 정리안**과 **가변 인자 후보**: `docs/future-plans.md` 4·5절.

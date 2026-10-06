@@ -60,7 +60,7 @@
 | `copy` · `paste` | paste는 클립보드에서 붙이는 게 아니라 화면에 다시 찍음 · `copy -paste` = `paste -copy` | `paste`를 `recall`로 바꾸고 `copy -paste`를 없앰(프롬프트 빈칸의 `/paste`도 `/recall`) |
 | `song` · `info now` | 완전히 같음 | `info`의 기본 키워드를 `[now]`로 두고 `song`을 없앰, song의 `-id`를 info로 |
 | `get` · `property` | property의 "구역의 설정과 값"이 get 여러 번과 같음 | `get [<section>[.<setting>]]` 하나로, 받는 값은 `get -choices <setting>` |
-| `checkpoint` · `locate` | 둘 다 시작 위치를 옮김 | 합치면 길어지므로 `locate`를 `tile`로 이름만(영어 화면의 구간 칸 이름이 "Tile") |
+| `checkpoint` · `go` | 둘 다 시작 위치를 옮김 | 1.0.1에 `locate`를 `go`로 바꿈(사용자 결정, Tab이 핀을 내놓음) |
 
 그대로 두기를 권한 것: `option -keywords` = `keyword -options`, `id`·`title` ≈ `info -id`·`playlist -id`, 일부러 둔 바로가기 `speed`·`autosave`, 대상이 다른 `restore`·`rollback`.
 

@@ -31,7 +31,7 @@ internal static class SettingsStoreTests
         {
             Language = "english", Theme = "dark",
             MapRootDirectory = @"D:\Maps", DataRootDirectory = @"D:\Store",
-            SongSearch = false, SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path",
+            SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path",
             ShowGuideButtons = false, ShowSongInfo = false,
             ResetKey = "Back", StartTriggerKey = "N", VisualizerToggleKey = "F9",
             PreviousCheckpointKey = "[", NextCheckpointKey = "]", SettingsHotkey = "F10",

@@ -1,6 +1,8 @@
 using System.IO;
 using System.IO.Pipes;
+using System.Reflection;
 using System.Text;
+using Visualizer.App;
 using Visualizer.App.Commands;
 using Visualizer.App.Views;
 using Visualizer.Application.Sync;
@@ -8,6 +10,7 @@ using Visualizer.Application.Playback;
 using Visualizer.Core.Maps;
 using Visualizer.Core.Settings;
 using Visualizer.Core.Visualization;
+using Visualizer.Infrastructure.Cache;
 using Visualizer.Infrastructure.Sync;
 using static Visualizer.Tests.Program;
 
@@ -73,6 +76,159 @@ internal static class GameSyncTests
             Equal(File.ReadAllText(Path.Combine(game, "A Dance of Fire and Ice.exe")), "game");
             Equal(string.Join(" ", Directory.GetDirectories(Path.Combine(game, "Mods")).Select(Path.GetFileName).Order(StringComparer.Ordinal)),
                 "AdofaiVisualizerSync SomeOtherMod");
+        });
+
+        yield return ("The linker ships built with this version, in the repository and beside the app", () =>
+        {
+            // User rule: another PC installs the linker with install linker alone and never builds it (that needs the game's
+            // assemblies and the .NET Framework tools). build-mod.ps1 writes the release build into plugins\linker, which is
+            // committed, and the app build carries it beside the exe. After a version change, build-mod.ps1 must run again.
+            var plugin = Path.Combine(WorkspaceMapCache.FindRepositoryRoot(AppContext.BaseDirectory), LinkerInstaller.PluginFolder);
+            Equal(LinkerInstaller.VersionAt(plugin), AppInfo.Version);
+            var dll = Path.Combine(plugin, LinkerInstaller.FileNames[0]);
+            Equal(AssemblyName.GetAssemblyName(dll).Version?.ToString(3), AppInfo.Version);
+            // The first place the console looks is beside the app, and the copy there is the committed one.
+            var beside = Path.Combine(AppContext.BaseDirectory, LinkerInstaller.PluginFolder);
+            Equal(LinkerInstaller.FindSource(AppContext.BaseDirectory, null), beside);
+            Assert(File.ReadAllBytes(Path.Combine(beside, LinkerInstaller.FileNames[0])).AsSpan().SequenceEqual(File.ReadAllBytes(dll)),
+                "The app carries the committed linker");
+        });
+
+        yield return ("The uninstaller takes a plugin folder whole, only the app's files from a chosen folder, and never follows a link", () =>
+        {
+            // User rule: uninstalling is done in PowerShell only (uninstall.ps1) and the plugins go cleanly, the files Unity
+            // Mod Manager adds beside a mod included. The script is dot-sourced so only its functions run, on folders under
+            // the test artifacts: nothing of this PC's game, data or copy is looked at (AGENTS.md rule 5).
+            var root = Path.Combine(artifactRoot, "uninstall");
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true); // .NET removes a junction without entering it
+            string Make(string path, string text = "x")
+            {
+                var full = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                File.WriteAllText(full, text);
+                return full;
+            }
+            var game = Path.Combine(root, "game");
+            Make(@"game\Mods\AdofaiVisualizerSync\AdofaiVisualizerSync.dll");
+            Make(@"game\Mods\AdofaiVisualizerSync\AdofaiVisualizerSync.dll.39107.cache");
+            Make(@"game\Mods\AdofaiVisualizerSync\Info.json", "{\"Id\":\"AdofaiVisualizerSync\",\"Version\":\"1.0.1\"}");
+            var otherMod = Make(@"game\Mods\OtherMod\Info.json", "{\"Id\":\"OtherMod\"}");
+            var umm = Make(@"game\A Dance of Fire and Ice_Data\Managed\UnityModManager\Params.xml", "<Mod Id=\"AdofaiVisualizerSync\" />");
+            // A folder of the same name that belongs to someone else (its Info.json says so) is not ours.
+            var game2 = Path.Combine(root, "game2");
+            var stranger = Make(@"game2\Mods\AdofaiVisualizerSync\Info.json", "{\"Id\":\"SomeoneElse\"}");
+            var outside = Make(@"outside\keep.txt", "kept");
+            var store = Path.Combine(root, "store");
+            Make(@"store\settings.json");
+            Make(@"store\maps\custom\1\main.adofai");
+            var chosen = Path.Combine(root, "chosen");
+            foreach (var mine in new[] { "settings.json", "songs.json", @"maps\edited\1\edit.json", @"reports\note.txt", "songs-1a2b.tmp" })
+                Make(Path.Combine("chosen", mine));
+            var theirs = new[] { Make(@"chosen\photo.png"), Make(@"chosen\letters\a.txt") };
+            var copy = Path.Combine(root, "copy");
+            Make(@"copy\AGENTS.md");
+            Make(@"copy\Visualizer.sln");
+            var packed = Make(@"copy\.git\objects\pack\a.pack");
+            File.SetAttributes(packed, FileAttributes.ReadOnly); // git's own files are read-only
+            var app = Make(@"copy\src\app.exe");
+            // Stand-ins for the Start menu and the desktop: Install.cmd's folder with its shortcut, and a desktop with one
+            // shortcut into the copy and one to something else.
+            var menu = Path.Combine(root, "menu", "ADOFAI Visualizer");
+            var desk = Path.Combine(root, "desk");
+            Directory.CreateDirectory(menu);
+            Directory.CreateDirectory(desk);
+
+            var script = Path.Combine(WorkspaceMapCache.FindRepositoryRoot(AppContext.BaseDirectory), "uninstall.ps1");
+            var steps = Path.Combine(root, "steps.ps1");
+            File.WriteAllText(steps, $$"""
+                $ErrorActionPreference = 'Stop'
+                . '{{script}}' -Plan
+                $ErrorActionPreference = 'Stop'
+                New-Item -ItemType Junction -Path '{{store}}\link' -Target '{{Path.GetDirectoryName(outside)}}' | Out-Null
+                New-Item -ItemType Junction -Path '{{copy}}\link' -Target '{{Path.GetDirectoryName(outside)}}' | Out-Null
+                $failed = New-Object System.Collections.Generic.List[string]
+                $shell = New-Object -ComObject WScript.Shell
+                foreach ($pair in @(@('{{menu}}\ADOFAI Visualizer.lnk', '{{app}}'), @('{{desk}}\ADOFAI Visualizer.lnk', '{{app}}'), @('{{desk}}\Other.lnk', '{{outside}}'))) {
+                    $link = $shell.CreateShortcut($pair[0]); $link.TargetPath = $pair[1]; $link.Save()
+                }
+                $root = '{{copy}}' # the copy being removed, as $PSScriptRoot is when the script runs from its own folder
+                $links = @(OwnShortcuts @('{{menu}}', '{{desk}}', '{{root}}\nowhere'))
+                'links ' + (($links | ForEach-Object { Split-Path (Split-Path $_ -Parent) -Leaf }) -join ',')
+                Remove-Shortcuts $links $failed
+                $found = @(InstalledPlugins @('{{game}}', '{{game2}}') @(PluginIds))
+                'found ' + (($found | ForEach-Object { $_.Folder + $_.Version }) -join '|')
+                foreach ($plugin in $found) { Remove-Tree $plugin.Folder $failed }
+                Remove-Tree '{{store}}' $failed
+                'mine ' + ((StoreFiles '{{chosen}}') -join ',')
+                Remove-StoreFiles '{{chosen}}' $failed
+                Remove-Tree '{{copy}}' $failed
+                'failed ' + ($failed -join '|')
+                """);
+            var start = new System.Diagnostics.ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true
+            };
+            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", steps }) start.ArgumentList.Add(argument);
+            using var run = System.Diagnostics.Process.Start(start)!;
+            run.StandardInput.Close(); // a question that slipped through would read no answer, which keeps everything
+            var output = run.StandardOutput.ReadToEnd();
+            var errors = run.StandardError.ReadToEnd();
+            Assert(run.WaitForExit(60000) && run.ExitCode == 0, $"The steps ran: {output} {errors}");
+            var lines = output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            Assert(!lines.Any(line => line.StartsWith("The visualizer on this computer", StringComparison.Ordinal)), "Dot-sourcing runs nothing: " + output);
+            Equal(string.Join(" / ", lines), string.Join(" / ", "links ADOFAI Visualizer,desk", $@"found {game}\Mods\AdofaiVisualizerSync 1.0.1",
+                "mine settings.json,songs.json,maps,reports,songs-1a2b.tmp", "failed"));
+            Assert(!Directory.Exists(menu), "The Start menu folder goes once its shortcut has");
+            Equal(string.Join(",", Directory.EnumerateFiles(desk).Select(Path.GetFileName)), "Other.lnk"); // only shortcuts into the copy go
+
+            Assert(!Directory.Exists(Path.Combine(game, "Mods", "AdofaiVisualizerSync")), "The linker folder is gone, the mod manager's copy with it");
+            Assert(File.Exists(otherMod) && File.Exists(stranger), "Another mod, and a folder of the same name that is not ours, stay");
+            Equal(File.ReadAllText(umm), "<Mod Id=\"AdofaiVisualizerSync\" />"); // the mod manager's own file is not touched
+            Assert(!Directory.Exists(store), "A store of ours goes whole");
+            Assert(!Directory.Exists(copy), "The copy goes, read-only files of git included");
+            Equal(File.ReadAllText(outside), "kept"); // the links were removed, not followed
+            Assert(theirs.All(File.Exists) && Directory.Exists(chosen), "In a chosen folder, files that are not the app's stay");
+            Equal(string.Join(",", Directory.EnumerateFileSystemEntries(chosen).Select(Path.GetFileName).Order(StringComparer.Ordinal)), "letters,photo.png");
+        });
+
+        yield return ("Install.cmd and Uninstall.cmd are double-click files that cmd and PowerShell both read right", () =>
+        {
+            // User choice A: installing and removing without typing PowerShell. Install.cmd is one file read twice (cmd runs
+            // its first lines, which hand the file to PowerShell, and PowerShell skips them as a comment); Uninstall.cmd
+            // removes the folder it sits in, so its work is one line that ends cmd before it would read on.
+            var repository = WorkspaceMapCache.FindRepositoryRoot(AppContext.BaseDirectory);
+            foreach (var name in new[] { "Install.cmd", "Uninstall.cmd" })
+            {
+                var bytes = File.ReadAllBytes(Path.Combine(repository, name));
+                Assert(bytes.All(b => b < 128), name + " is plain ASCII, which cmd reads the same under every code page");
+                var text = System.Text.Encoding.ASCII.GetString(bytes);
+                Assert(text.Replace("\r\n", "").IndexOf('\n') < 0, name + " has CRLF line ends");
+            }
+            var install = File.ReadAllText(Path.Combine(repository, "Install.cmd"));
+            Assert(install.StartsWith("<# :\r\n@echo off", StringComparison.Ordinal), "cmd sees a label, PowerShell a comment");
+            var uninstall = File.ReadAllLines(Path.Combine(repository, "Uninstall.cmd")).Where(line => !line.StartsWith("@rem", StringComparison.Ordinal)).ToArray();
+            Assert(uninstall.Length == 1 && uninstall[0].StartsWith("@cd /d \"%~dp0..\" & ", StringComparison.Ordinal)
+                && uninstall[0].Contains("uninstall.ps1", StringComparison.Ordinal) && uninstall[0].EndsWith("& exit /b", StringComparison.Ordinal),
+                "One line, started outside the folder, that exits before cmd reads on: " + string.Join(" | ", uninstall));
+            // PowerShell parses the whole installer, batch lines included, and so do both scripts.
+            var check = Path.Combine(artifactRoot, "parse.ps1");
+            File.WriteAllText(check, $$"""
+                foreach ($file in @('{{repository}}\Install.cmd', '{{repository}}\uninstall.ps1', '{{repository}}\update.ps1')) {
+                    $errors = $null
+                    [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($file), [ref]$null, [ref]$errors) | Out-Null
+                    '{0} {1}' -f (Split-Path $file -Leaf), $errors.Count
+                }
+                """);
+            var start = new System.Diagnostics.ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
+            };
+            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", check }) start.ArgumentList.Add(argument);
+            using var run = System.Diagnostics.Process.Start(start)!;
+            var output = run.StandardOutput.ReadToEnd();
+            Assert(run.WaitForExit(60000), "The parse ran");
+            Equal(string.Join(" / ", output.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)),
+                "Install.cmd 0 / uninstall.ps1 0 / update.ps1 0");
         });
 
         yield return ("Sync link takes good readings and measures the link", () =>

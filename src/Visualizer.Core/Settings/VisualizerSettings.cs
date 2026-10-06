@@ -34,8 +34,6 @@ public sealed record VisualizerSettings
     public string MapRootDirectory { get; init; } = Text(nameof(MapRootDirectory));
     /// <summary>App-owned store for settings and the map cache. Empty keeps the default location.</summary>
     public string DataRootDirectory { get; init; } = Text(nameof(DataRootDirectory));
-    /// <summary>Typing in the song box to filter the list. Off leaves a plain list that only picks.</summary>
-    public bool SongSearch { get; init; } = Flag(nameof(SongSearch));
     /// <summary>Song list order: a SongSortKey name such as "Difficulty" or "Manual".</summary>
     public string SongSortKey { get; init; } = Text(nameof(SongSortKey));
     /// <summary>Whether the larger value, later date or later letters come first in the song list.</summary>

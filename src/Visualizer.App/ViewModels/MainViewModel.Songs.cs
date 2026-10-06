@@ -55,8 +55,6 @@ public sealed partial class MainViewModel
     public string? ExampleRoot { get; set; }
     /// <summary>Tells the user to sync first when Load is pressed before any song was synced. Null shows only the message.</summary>
     public Action<string>? NotifySyncFirst { get; set; }
-    /// <summary>With song search off the song box only picks: typing is blocked and a click opens the list.</summary>
-    public bool SongListReadOnly => !Settings.SongSearch;
     /// <summary>Every synced song, hidden ones included and under its own name: what the song list window lists.</summary>
     public IReadOnlyList<MapCacheEntry> AllSongs => _allSongs;
     /// <summary>Which of the app's map folders a song is in. Set by the main window, which owns the file layout.</summary>

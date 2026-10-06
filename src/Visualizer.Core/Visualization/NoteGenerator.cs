@@ -77,6 +77,9 @@ public sealed class NoteGenerator
         var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings) : [];
         var magicIndex = 0;
         var notes = new List<VisualizerNote>(times.Length);
+        // Two singles this close are played as a roll, so the pattern lines them up on two neighbouring lanes in its own
+        // direction (user rule).
+        var trillStart = SimultaneousNotePlanner.TrillStarts(groups, settings, holdEndsMs);
         // Notes in a row that ask for fewer tiles; the smaller pattern waits until there are DownshiftNoteCount of them.
         var lowerRun = 0;
         for (var i = 0; i < times.Length; i++)
@@ -117,7 +120,7 @@ public sealed class NoteGenerator
                 && times[i] - times[i - 1] > (times[i + 1] - times[i]) * RunGapFactor
                 && RunNotes(times, i) is >= MinimumRunNotes and <= MaximumRunNotes)
                 cursor.RestartCycle();
-            var tile = cursor.Next(requested, anticipated);
+            var tile = cursor.Next(requested, anticipated, trillStart[i]);
             // Chord groups are re-placed by the planner, which checks busy lanes itself. A note exactly on a long note's
             // end may share its lane: that is where the key comes up, and two holds in a row are pressed again right there.
             for (var tries = 1; groups[i].Count == 1 && times[i] < busyUntil[tile]; tries++)

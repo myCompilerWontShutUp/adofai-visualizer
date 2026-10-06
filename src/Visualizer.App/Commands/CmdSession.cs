@@ -177,6 +177,10 @@ public interface ICmdHost
     /// checked here so the reason is in English rather than the timeline's own.
     /// </summary>
     string? StartAtTile(int tile) => "No song is loaded.";
+    /// <summary>The tiles pinned on a song family (an original and its edits share them), in order.</summary>
+    IReadOnlyList<int> PinsOf(string family) => [];
+    /// <summary>Keeps a family's pins; null when kept, otherwise why not.</summary>
+    string? SetPins(string family, IReadOnlyList<int> tiles) => "Pins are not kept here.";
 
     /// <summary>Every synced song, hidden ones included.</summary>
     IReadOnlyList<CmdSong> Songs { get; }
@@ -232,7 +236,7 @@ public interface ICmdHost
     void ScanNow(IReadOnlyList<string> areas, IProgress<double> progress, Action<IReadOnlyList<ScanArea>> done) =>
         done(areas.Select(area => new ScanArea(area, ["Checking is not set up here."])).ToArray());
 
-    /// <summary>install -reinstall linker: builds the linker from this version and writes it again, with the app still open.</summary>
+    /// <summary>install -reinstall linker: writes this version's linker into the game again, with the app still open.</summary>
     void ReinstallLinker(IProgress<double> progress, Action<IReadOnlyList<string>> done) => done(["Reinstalling is not set up here."]);
 
     /// <summary>
@@ -513,7 +517,7 @@ public sealed class CmdSession
     /// </summary>
     private static readonly HashSet<string> NotWhileEditing = new(StringComparer.Ordinal)
         { "load", "set", "speed", "autosave", "import", "reset", "rollback", "do", "sync", "remove", "restore", "delete", "retitle",
-          "checkpoint", "locate" };
+          "checkpoint", "go" };
 
     private bool Run(CmdLine line)
     {
@@ -625,8 +629,14 @@ public sealed class CmdSession
             case "checkpoint":
                 Checkpoint(line, copy);
                 break;
-            case "locate":
-                Locate(line);
+            case "go":
+                Go(line);
+                break;
+            case "pin":
+                Pin(line, copy, add: true);
+                break;
+            case "unpin":
+                Pin(line, copy, add: false);
                 break;
             case "hide" or "show":
                 SetHidden(line, line.Command.Name == "hide");
@@ -844,6 +854,11 @@ public sealed class CmdSession
             word = CmdCatalog.Words(history[^2]).FirstOrDefault().Word ?? "";
         }
         if (CmdCatalog.Find(word) is { Hidden: false } command) return [command];
+        if (word == "uninstall")
+        {
+            Write(CmdCatalog.UninstallNote);
+            return null;
+        }
         Write($"'{word}' is not a command. Type cmd to see them.");
         return null;
     }
@@ -1219,11 +1234,87 @@ public sealed class CmdSession
         });
     }
 
-    /// <summary>locate: the practice start, by tile number. Whole tiles only, and only ones this song presses.</summary>
-    private void Locate(CmdLine line)
+    /// <summary>
+    /// Why a tile cannot be started from, or null when it can: the checks ParsedTimeline.GetStartIndexForTile makes, said in
+    /// English the console's way. go and pin both use it, so a pin is always a tile go can take.
+    /// </summary>
+    public static string? TileProblem(ParsedTimeline timeline, int tile, string song)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+        if (timeline.HitFloors is not { Count: > 0 } floors) return "The song has no tile numbers. Sync the maps and load it again.";
+        if (tile >= floors[^1]) return $"{song} has tiles 1 to {floors[^1] - 1}.";
+        var index = floors.ToList().BinarySearch(tile);
+        if (index < 0) return $"Tile {tile} is a midspin tile, so starting there is not verified.";
+        // Play begins at the hit after that tile; if that one only releases a long note, there is nothing to press first.
+        if (index + 1 < floors.Count && ParsedTimeline.Closes(timeline.KindOf(index + 1)))
+            return $"Tile {tile} is inside a long note, so starting there is not verified.";
+        return null;
+    }
+
+    /// <summary>
+    /// pin and unpin: tiles marked for go (user request). A pin belongs to the song's family, the original and every edit
+    /// of it, so setting it on any of them sets it on all (user rule); the tiles are kept in order, as checkpoints are.
+    /// </summary>
+    private void Pin(CmdLine line, bool copy, bool add)
+    {
+        if (line.Arguments.Count is 0 or > 2)
+        {
+            Write(add ? "pin takes a tile, or all to list the pins, as in pin 120." : "unpin takes a pinned tile, as in unpin 120; Tab offers them.",
+                $"Usage: {line.Command.Usage}");
+            return;
+        }
+        var named = line.Arguments.Count == 2 ? line.Arguments[0] : "now";
+        CmdSong? song;
+        if (named.Equals("now", StringComparison.OrdinalIgnoreCase)) song = LoadedSong();
+        else if ((song = Song(named)) is null) Write($"No song has the id {named}. playlist shows the ids.");
+        if (song is null) return;
+        var title = BaseTitle(song);
+        var pins = _host.PinsOf(song.Family);
+        var word = line.Arguments[^1];
+        if (add && word.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            if (pins.Count == 0) Write($"{title} has no pins. pin <tile> adds one.");
+            else Show([.. pins.Select((tile, at) => $"pin {at + 1} · tile {tile}")], copy);
+            return;
+        }
+        if (!int.TryParse(word, NumberStyles.None, CultureInfo.InvariantCulture, out var tile) || tile < 1)
+        {
+            Write($"'{word}' is not a tile. A tile is a whole number of 1 or more.");
+            return;
+        }
+        if (!add)
+        {
+            if (!pins.Contains(tile)) { Write($"Tile {tile} of {title} is not pinned. pin all lists the pins."); return; }
+            if (_host.SetPins(song.Family, pins.Where(each => each != tile).ToArray()) is { } failed) { Write(failed); return; }
+            Write($"Unpinned tile {tile} of {title} and its edits.");
+            return;
+        }
+        if (pins.Contains(tile)) { Write($"Tile {tile} of {title} is already pinned."); return; }
+        if (song.Entry.Status != MapParseStatus.Supported || song.Entry.Timeline is not { } timeline)
+        {
+            Write($"{song.Title} cannot be read, so it has no tiles to pin.");
+            return;
+        }
+        if (TileProblem(timeline, tile, title) is { } problem) { Write(problem); return; }
+        var next = pins.Append(tile).Order().ToArray();
+        if (_host.SetPins(song.Family, next) is { } reason) { Write(reason); return; }
+        Write($"Pinned tile {tile} of {title} and its edits: pin {Array.IndexOf(next, tile) + 1} of {next.Length}.");
+    }
+
+    /// <summary>The pins of the song a line names by id, or of the loaded song, as Tab offers them.</summary>
+    private IEnumerable<string> PinWords(string? id)
+    {
+        var song = id is null || id.Equals("now", StringComparison.OrdinalIgnoreCase)
+            ? _host.LoadedId is { } loaded ? Song(loaded) : null
+            : Song(id);
+        return song is null ? [] : _host.PinsOf(song.Family).Select(tile => tile.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>go: the practice start, by tile number. Whole tiles only, and only ones this song presses.</summary>
+    private void Go(CmdLine line)
     {
         var word = line.Rest.Trim();
-        if (word.Length == 0) { Write("locate takes a tile number, as in locate 120."); return; }
+        if (word.Length == 0) { Write("go takes a tile number, as in go 120; Tab offers the song's pins."); return; }
         if (!int.TryParse(word, NumberStyles.None, CultureInfo.InvariantCulture, out var tile) || tile < 1)
         {
             Write($"'{word}' is not a tile. A tile is a whole number of 1 or more.");
@@ -1929,7 +2020,7 @@ public sealed class CmdSession
         if (place.Source is null)
         {
             Write("The linker itself was not found, so nothing was written.",
-                "It is built by build-mod.ps1, which needs the game's own assemblies, and is looked for beside this app and in the project's build output.");
+                @"It ships with the app in plugins\linker beside it; build the app again (build.ps1) or update to bring it back.");
             return;
         }
         var version = place.SourceVersion is { Length: > 0 } made ? " " + made : "";
@@ -3101,6 +3192,11 @@ public sealed class CmdSession
                     (CmdArgument.Range, 0) when command.Name == "note" => _host.Songs.Select(song => song.Id).Order(StringComparer.Ordinal),
                     (CmdArgument.Range, 0) => ["all"],
                     (CmdArgument.Range, 1) when command.Name == "note" => ["all"],
+                    (CmdArgument.Tile, 0) => PinWords(null),
+                    (CmdArgument.Pin, 0) when command.Name == "unpin" => PinWords(null).Concat(_host.Songs.Select(song => song.Id).Order(StringComparer.Ordinal)),
+                    (CmdArgument.Pin, 0) => _host.Songs.Select(song => song.Id).Order(StringComparer.Ordinal),
+                    (CmdArgument.Pin, 1) when command.Name == "unpin" => PinWords(words[options + 1].Word),
+                    (CmdArgument.Pin, 1) => ["all"],
                     (CmdArgument.Action, 0) => CmdCatalog.ActionNames,
                     (CmdArgument.Setting or CmdArgument.SettingOrSection or CmdArgument.SettingValue, 0) => SettingWords(typed, settings),
                     (CmdArgument.SettingValue, 1) when SettingPaths.Find(words[options + 1].Word) is { } path => SettingPaths.Choices(path, settings),

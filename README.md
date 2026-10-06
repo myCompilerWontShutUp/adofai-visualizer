@@ -10,17 +10,18 @@ ADOFAI(얼불춤) 커스텀 맵을 읽어 **Falling Note**로 보여주는 개�
 
 C# / .NET 9 / WPF를 사용합니다. 설치된 SDK 9.0.305와 Windows Desktop 참조 팩으로 빌드를 확인하기 위한 선택입니다. 본격 개발 시 지원 정책을 확인하고 대상 .NET 버전 업그레이드를 검토합니다. WPF UI와 맵·타이밍 로직은 별도 프로젝트로 분리했습니다.
 
-## 다른 PC에서 최신 버전 받기
+## 다른 PC에 설치하기 (`Install.cmd`)
 
-이 폴더는 git 저장소입니다. 다른 컴퓨터에서는 저장소를 받아 빌드하면 그대로 최신 버전입니다.
+**`Install.cmd` 하나만 받아 더블클릭**합니다(GitHub에 로그인한 상태로 저장소에서 이 파일을 내려받거나, 이 PC에서 복사해 갑니다). PowerShell을 칠 일은 없습니다.
 
-```powershell
-git clone <저장소 주소> visualizer
-cd visualizer
-.\build.ps1 -Configuration Release
-```
+1. git과 .NET 9 SDK가 없으면 winget으로 설치할지 묻습니다(Windows가 권한을 물을 수 있음).
+2. 설치할 폴더를 묻습니다(그냥 Enter면 `C:\Users\<이름>\AdofaiVisualizer`). 문서 폴더는 OneDrive가 동기화하는 경우가 많아 기본값으로 쓰지 않습니다.
+3. 비공개 저장소를 받습니다. 처음 한 번은 GitHub 로그인 창이 뜹니다.
+4. 빌드하고, **시작 메뉴**(기본 예)와 **바탕화면**(기본 아니요) 바로가기를 만들지 묻고, 바로 실행할지 묻습니다.
 
-필요한 것은 **.NET SDK 9.0.305**(`global.json`이 고정) 하나뿐입니다. NuGet 소스를 비워 두어 패키지 복원이 없습니다.
+이미 저장소를 받아 둔 폴더 안의 `Install.cmd`를 실행하면 그 복사본을 그대로 쓰고 빌드와 바로가기만 합니다. 손으로 하려면 `git clone <저장소 주소> visualizer` 뒤 `.\build.ps1 -Configuration Release`와 같습니다. 필요한 것은 git과 **.NET SDK 9.0.305 이상의 9.0**(`global.json`, 1.0.1부터 `latestFeature`) 뿐이고, NuGet 소스를 비워 두어 패키지 복원이 없습니다.
+
+**게임 링커**(게임 시작 동기화용 모드)는 빌드된 채로 저장소의 `plugins/linker/`에 들어 있고, 앱을 빌드하면 실행 파일 옆에 함께 놓입니다. 그래서 다른 PC에서는 `build-mod.ps1`을 돌리지 않고 앱 콘솔(Ctrl+T)에서 `install linker`만 치면 됩니다(게임에 Unity Mod Manager가 있어야 함). `build-mod.ps1`은 버전을 올리는 PC에서만 씁니다 — 실행하면 `plugins/linker/`를 새로 쓰므로 그것도 함께 올립니다.
 
 ### 받기 (`update`)
 
@@ -38,6 +39,22 @@ cd visualizer
 **무결성 검사**: 콘솔의 `scannow`가 앱·저장소 파일·링커·맵 사본·수정본·데이터를 검사해 결과만 보여 주고, 고칠 것은 `install -reinstall maps, linker`처럼 권합니다.
 
 **올라가지 않는 것**: 앱 저장소(**스팀 워크숍 맵 사본·설정·메모**)는 저장소 밖 `%LOCALAPPDATA%\AdofaiVisualizer\`에 있어 올라가지 않습니다(1.0.0부터. 그 전에는 저장소 안 `.local/app-data`였고, 1.0.0을 처음 켜면 한 번 그리로 옮깁니다 — 이전 폴더는 그대로 둡니다). 같은 PC의 **모든 복사본이 이 한 곳을 함께 씁니다**. 남의 창작물과 이 PC의 설정이 함께 올라가지 않으므로, 새 PC에서는 맵을 한 번 동기화해야 하고 설정도 그 PC의 것을 씁니다(설정까지 함께 쓰려면 고급 설정의 **데이터 저장 폴더**를 동기화 폴더로 지정합니다). 빌드 산출물(`bin`·`obj`)과 `.local/`도 `.gitignore`가 뺍니다.
+
+### 지우기 (`Uninstall.cmd`)
+
+앱 안의 콘솔로는 지울 수 없습니다. 앱과 게임을 닫고 **시작 메뉴의 "Uninstall ADOFAI Visualizer"** 또는 이 폴더의 **`Uninstall.cmd`를 더블클릭**합니다. PowerShell에서는 같은 일을 하는 `uninstall.ps1`을 직접 부를 수 있습니다.
+
+```powershell
+.\uninstall.ps1 -Plan                # 무엇이 지워질지 보기만 함
+.\uninstall.ps1                      # 플러그인 · 데이터 · 이 복사본을 하나씩 물어보고 지움
+.\uninstall.ps1 -Part plugins        # 플러그인(게임의 링커)만
+```
+
+- **플러그인**: 게임의 `Mods\AdofaiVisualizerSync` 폴더를 통째로 지웁니다(Unity Mod Manager가 옆에 만든 사본 포함). Unity Mod Manager의 모드 목록에서는 다음에 게임을 끌 때 저절로 빠집니다. 다른 모드는 건드리지 않습니다.
+- **데이터**: 복사해 둔 곡·수정본·설정·메모(`%LOCALAPPDATA%\AdofaiVisualizer`). 설정에서 데이터 폴더를 따로 골랐다면 그 안에서는 앱이 만든 것만 지웁니다.
+- **이 복사본**: 이 폴더 전체와, 이 복사본을 여는 시작 메뉴·바탕화면 바로가기. 올리지 않은 수정이나 커밋이 있으면 지우지 않고, `-Force`를 주면 그래도 물어본 뒤 지웁니다. 설치 때 함께 깐 git과 .NET SDK는 다른 프로그램도 쓸 수 있어 남깁니다(Windows 설정 > 앱에서 지움).
+
+`y`를 쳐야만 지우고, 그냥 Enter는 남깁니다. 스팀 워크숍의 원본 맵은 어떤 경우에도 지우지 않습니다.
 
 원격은 처음 한 번만 만들어 둡니다(비공개 권장).
 
@@ -108,6 +125,9 @@ AGENTS.md                   작업 목적 및 필수 안전 규칙
 Directory.Build.props       공통 컴파일 설정
 global.json / NuGet.Config  SDK 및 패키지 소스 설정
 build.ps1                   프로젝트 내부 경로를 사용하는 빌드
+plugins/linker/             빌드된 게임 링커(앱 빌드가 실행 파일 옆으로 복사, install linker가 설치)
+Install.cmd / Uninstall.cmd 더블클릭 설치·제거
+uninstall.ps1               Uninstall.cmd가 부르는 언인스톨러(앱 콘솔로는 실행 불가)
 docs/architecture.md        계층, 확장 지점, 저장소 설계
 docs/note-rules.md          설정 및 사이클/Reset 규칙
 docs/windows-input.md       전역 입력 방식과 검증 한계

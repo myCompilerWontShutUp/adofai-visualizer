@@ -63,7 +63,7 @@ internal static class CmdConsoleTests
 
         /// <summary>Where the song is prepared from, as the app counts it: 1 is the beginning.</summary>
         public int Checkpoint { get; set; } = 1;
-        /// <summary>What checkpoint and locate asked for, and the reason to hand back.</summary>
+        /// <summary>What checkpoint and go asked for, and the reason to hand back.</summary>
         public List<int> Moves { get; } = [];
         public List<int> Tiles { get; } = [];
         public string? MoveError { get; set; }
@@ -81,6 +81,15 @@ internal static class CmdConsoleTests
         {
             Tiles.Add(tile);
             return TileError;
+        }
+
+        /// <summary>Pins by song family, kept in memory as the app keeps them in pins.json.</summary>
+        public Dictionary<string, IReadOnlyList<int>> PinBook { get; } = [];
+        public IReadOnlyList<int> PinsOf(string family) => PinBook.TryGetValue(family, out var tiles) ? tiles : [];
+        public string? SetPins(string family, IReadOnlyList<int> tiles)
+        {
+            PinBook[family] = tiles.ToArray();
+            return null;
         }
 
         /// <summary>The main window's list for list main and playlist.</summary>
@@ -703,6 +712,13 @@ internal static class CmdConsoleTests
             // all means "every one of them" and list "show them in a list"; these commands only list (user rule).
             session.Submit("option all");
             Lines(LastOutput(log), "'all' is not a command. Type cmd to see them.");
+            // Uninstalling is PowerShell only (user rule): the console has no such command and says where it is done.
+            Assert(CmdCatalog.Find("uninstall") is null, "No uninstall command");
+            foreach (var line in new[] { "uninstall", "help uninstall" })
+            {
+                session.Submit(line);
+                Lines(LastOutput(log), @"Uninstalling is not done from inside the visualizer: close it and run .\uninstall.ps1 in PowerShell, in its folder.");
+            }
             session.Submit("option exit");
             Lines(LastOutput(log), "exit: [-keep]", "  -keep  Keep the screen for the next time the console opens.");
             session.Submit("option clear");
@@ -2007,7 +2023,7 @@ internal static class CmdConsoleTests
             Assert(host.Reinstalled[^1] == "linker" && LastOutput(log)[^1].StartsWith("The linker is built", StringComparison.Ordinal), Output(log));
         });
 
-        yield return ("checkpoint moves by name or number and locate starts from a tile, with the loaded song's own limits", () =>
+        yield return ("checkpoint moves by name or number and go starts from a tile, with the loaded song's own limits", () =>
         {
             var host = new Host();
             var log = new CmdLog();
@@ -2017,7 +2033,7 @@ internal static class CmdConsoleTests
             session.Submit("cmd");
             var listed0 = LastOutput(log);
             Assert(listed0.Any(l => l.Contains("checkpoint", StringComparison.Ordinal) && l.Contains("Move to a checkpoint", StringComparison.Ordinal))
-                && listed0.Any(l => l.Contains("locate", StringComparison.Ordinal) && l.Contains("Start from a tile", StringComparison.Ordinal)),
+                && listed0.Any(l => l.Contains("go <tile>", StringComparison.Ordinal) && l.Contains("Start from a tile", StringComparison.Ordinal)),
                 "cmd lists them");
             session.Submit("help checkpoint");
             var explained = LastOutput(log);
@@ -2078,27 +2094,81 @@ internal static class CmdConsoleTests
                 && listed[1].StartsWith("> ", StringComparison.Ordinal) && listed[2].Contains("tile 90", StringComparison.Ordinal),
                 string.Join(" | ", listed));
 
-            // locate takes whole tiles of 1 or more and hands them over; the app's own reason comes back.
-            session.Submit("locate 120");
+            // go takes whole tiles of 1 or more and hands them over; the app's own reason comes back.
+            session.Submit("go 120");
             Sequence(host.Tiles, 120);
             Assert(LastOutput(log)[0] == "Starting from tile 120.", Output(log));
-            session.Submit("locate 0");
-            session.Submit("locate 2.5");
-            session.Submit("locate -3");
-            session.Submit("locate");
+            session.Submit("go 0");
+            session.Submit("go 2.5");
+            session.Submit("go -3");
+            session.Submit("go");
             Sequence(host.Tiles, 120); // None of those reached the app.
-            Assert(LastOutput(log)[0].StartsWith("locate takes a tile number", StringComparison.Ordinal), Output(log));
+            Assert(LastOutput(log)[0].StartsWith("go takes a tile number", StringComparison.Ordinal), Output(log));
             host.TileError = "Tile 7 is a midspin tile, so starting there is not verified.";
-            session.Submit("locate 7");
+            session.Submit("go 7");
             Assert(LastOutput(log)[0] == host.TileError, Output(log));
 
             // Both are refused while the note editor is open, as the other commands that prepare notes are.
             host.EditorOpen = true;
             session.Submit("checkpoint first");
             Assert(LastOutput(log)[0].Contains("note editor is open", StringComparison.Ordinal), Output(log));
-            session.Submit("locate 5");
+            session.Submit("go 5");
             Assert(LastOutput(log)[0].Contains("note editor is open", StringComparison.Ordinal), Output(log));
             Sequence(host.Tiles, 120, 7);
+        });
+
+        yield return ("pin keeps tiles for go on a song and all its edits, in order; unpin takes them off and Tab offers them", () =>
+        {
+            // User request: a pin is a tile marked for go, shared by the original and every edit of it (the family), kept in
+            // tile order and numbered as checkpoints are; go and unpin offer the pins on Tab. locate is gone: go took its place.
+            var host = Library();
+            var timeline = new ParsedTimeline(new[] { 0d, 500, 1000, 1500, 2000, 2500 }, null, false, new[] { 1, 2, 3, 4, 5, 6 });
+            for (var i = 0; i < host.SongList.Count; i++)
+                host.SongList[i] = host.SongList[i] with { Entry = host.SongList[i].Entry with { Timeline = timeline } };
+            var log = new CmdLog();
+            var session = new CmdSession(host, log);
+            Assert(CmdCatalog.Find("locate") is null && CmdCatalog.Find("go") is not null, "go replaced locate");
+
+            session.Submit("pin 3");
+            Equal(LastOutput(log)[0], "No song is loaded.");
+            host.LoadedId = "20000004"; // the edit in slot 2 of Plum - R
+            host.LoadedSongName = "2*Plum - R";
+            session.Submit("pin 3");
+            Equal(LastOutput(log)[0], "Pinned tile 3 of Plum - R and its edits: pin 1 of 1.");
+            session.Submit("pin 10000002 1"); // on the original, by id
+            session.Submit("pin 3");
+            Equal(LastOutput(log)[0], "Tile 3 of Plum - R is already pinned.");
+            // Shared by the family, in tile order; another song has none.
+            session.Submit("pin 10000002 all");
+            Lines(LastOutput(log), "pin 1 · tile 1", "pin 2 · tile 3");
+            session.Submit("pin all");
+            Lines(LastOutput(log), "pin 1 · tile 1", "pin 2 · tile 3");
+            session.Submit("pin 00000001 all");
+            Equal(LastOutput(log)[0], "Built in has no pins. pin <tile> adds one.");
+            // Only tiles go can take.
+            session.Submit("pin 6");
+            Equal(LastOutput(log)[0], "Plum - R has tiles 1 to 5.");
+            session.Submit("pin x");
+            Equal(LastOutput(log)[0], "'x' is not a tile. A tile is a whole number of 1 or more.");
+            session.Submit("pin 99999999 2");
+            Equal(LastOutput(log)[0], "No song has the id 99999999. playlist shows the ids.");
+
+            // Tab offers the pins after go and unpin, and the ids too where a song may be named.
+            Lines(session.Complete("go ", out _), "1", "3");
+            Assert(session.Complete("unpin ", out _).Take(3).SequenceEqual(["now", "1", "3"]), "unpin offers its pins first");
+            Lines(session.Complete("unpin 10000002 ", out _), "1", "3");
+
+            session.Submit("unpin 4");
+            Equal(LastOutput(log)[0], "Tile 4 of Plum - R is not pinned. pin all lists the pins.");
+            session.Submit("unpin 10000002 1");
+            Equal(LastOutput(log)[0], "Unpinned tile 1 of Plum - R and its edits.");
+            Sequence(host.PinsOf("1234/main.adofai"), 3);
+            // Pins do not prepare notes, so they work while the note editor is open; go does not.
+            host.EditorOpen = true;
+            session.Submit("pin 5");
+            Equal(LastOutput(log)[0], "Pinned tile 5 of Plum - R and its edits: pin 2 of 2.");
+            session.Submit("go 5");
+            Assert(LastOutput(log)[0].Contains("note editor is open", StringComparison.Ordinal), Output(log));
         });
 
         yield return ("Console song files: remove only edits and restore the last one, delete any song, sync rebuild with -p", () =>
@@ -2433,7 +2503,7 @@ internal static class CmdConsoleTests
             Assert(app.ApplySettings(app.Settings with { NoteTravelTimeMs = 750 }) is null && app.LastChange is not null, "Applied through the host");
             Assert(app.RollBack() is null && app.Settings.NoteTravelTimeMs == new VisualizerSettings().NoteTravelTimeMs, "Rolled back through the host");
             Equal(app.EditSong("99999999"), "No song has the id 99999999.");
-            // checkpoint and locate on the real app: with no song, then on one whose tiles and checkpoints are known.
+            // checkpoint and go on the real app: with no song, then on one whose tiles and checkpoints are known.
             Equal(app.MoveCheckpoint(2), "The loaded song has no checkpoints.");
             Equal(app.StartAtTile(3), "No song is loaded.");
             var appModel = (MainViewModel)main.DataContext;

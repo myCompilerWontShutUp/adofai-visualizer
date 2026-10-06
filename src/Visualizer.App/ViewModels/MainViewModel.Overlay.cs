@@ -50,13 +50,14 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// Whether the band over the field is there at all. The details and the controls share one wash with nothing between
-    /// them (user rule), so the band shows while either half does.
+    /// them (user rule), so the band shows while either half does. Folded, none of it is (user rule): only the button that
+    /// brings it back stays.
     /// </summary>
-    public bool ShowOverlayBand => ShowSongOverlay || ShowFieldControls;
+    public bool ShowOverlayBand => !SongOverlayHidden && (ShowSongOverlay || ShowFieldControls);
 
     /// <summary>
-    /// Whether the fold button is on the band. It is only worth showing while there are details to fold, which is the
-    /// same song and state the details themselves need.
+    /// Whether the fold button is on the field. It is only worth showing while there are details to fold, which is the
+    /// same song and state the details themselves need; folded, it stays to bring them back.
     /// </summary>
     public bool ShowHideOverlay => Settings.ShowSongInfo && _loadedEntry is not null
         && Playback.State is PlaybackState.Waiting or PlaybackState.Paused && Playback.Notes.Count > 0;

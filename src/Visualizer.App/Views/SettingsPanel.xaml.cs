@@ -82,7 +82,6 @@ public partial class SettingsPanel : UserControl
     private readonly ComboBox _magicTiles = new() { ItemsSource = VisualizerSettings.Modes.ToArray() };
     private readonly Button _browseFolder = new() { MinWidth = 64 };
     private readonly Button _browseData = new() { MinWidth = 64 };
-    private readonly CheckBox _songSearch = new();
     private readonly ComboBox _songSortField = new();
     private readonly ComboBox _songSortDirection = new();
     private readonly ComboBox _songGroup = new();
@@ -222,7 +221,6 @@ public partial class SettingsPanel : UserControl
         AddField("Auto save", _autoSave, nameof(settings.AutoSaveSettings));
 
         AddSection("SectionSongs");
-        AddField("Song search", _songSearch, nameof(settings.SongSearch));
         AddField("Song order", SortRow(), nameof(settings.SongSortKey));
         AddField("Song group", _songGroup, nameof(settings.SongGroup));
         CurrentSection.Children.Add(SongListButtons());
@@ -348,8 +346,6 @@ public partial class SettingsPanel : UserControl
         _trillLane.SelectionChanged += (_, _) => FormChanged();
         _judgmentMode.SelectionChanged += (_, _) => FormChanged();
         _judgmentDifficulty.SelectionChanged += (_, _) => FormChanged();
-        _songSearch.Checked += (_, _) => FormChanged();
-        _songSearch.Unchecked += (_, _) => FormChanged();
         _songSortField.SelectionChanged += (_, _) => { UpdateSongSort(); FormChanged(); };
         _songSortDirection.SelectionChanged += (_, _) => FormChanged();
         _songGroup.SelectionChanged += (_, _) => FormChanged();

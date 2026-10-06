@@ -127,13 +127,14 @@ internal static class SongListTests
             if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
         }),
 
-        ("The settings card holds the search toggle, both order lists and the detail button", () =>
+        ("The settings card holds both order lists and the detail button; typing in the song box is not a setting", () =>
         {
             var window = new SettingsPanel(new VisualizerSettings(), new MemorySettingsLayoutStore());
-            var search = (CheckBox)window.InputFor(nameof(VisualizerSettings.SongSearch))!;
-            Assert(search.IsChecked == true, "Song search starts on");
-            search.IsChecked = false;
-            Assert(!window.BuildSettings().SongSearch, "The toggle reaches the settings");
+            // User rule: the song box always takes typing, so there is no switch for it, and a settings file that still
+            // names the old one is read without it rather than refused.
+            Assert(typeof(VisualizerSettings).GetProperty("SongSearch") is null, "No search switch");
+            var kept = SettingsJson.Import("{ \"SongSearch\": false, \"SongSortKey\": \"Title\" }", new VisualizerSettings());
+            Equal(kept.SongSortKey, "Title");
 
             var row = window.InputFor(nameof(VisualizerSettings.SongSortKey))!;
             var lists = FindAll<ComboBox>(row).ToList();

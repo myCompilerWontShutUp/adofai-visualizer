@@ -51,6 +51,15 @@ public static class SettingsJson
     /// </summary>
     private const string LegacyCenterPair = "ChordCenterPair";
 
+    /// <summary>
+    /// Settings that are gone. A file that still names one is read as if it did not (the app's own settings file keeps
+    /// every setting, so refusing the name would throw all the others away with it).
+    /// </summary>
+    private static readonly HashSet<string> Retired = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SongSearch", // typing in the song box is always on (user rule)
+    };
+
     /// <summary>Every setting, for the app's own settings file.</summary>
     public static string Export(VisualizerSettings settings)
     {
@@ -132,6 +141,7 @@ public static class SettingsJson
                     derived.Add((property, value));
                     continue;
                 }
+                if (name is null && Retired.Contains(key)) continue;
                 if (name is null) { unknown.Add(key); continue; }
                 if (!seen.Add(name))
                     throw new SettingsJsonException(T("Json.Repeated", name), [name]);

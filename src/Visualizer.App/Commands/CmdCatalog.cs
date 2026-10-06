@@ -3,7 +3,7 @@ using System.Globalization;
 namespace Visualizer.App.Commands;
 
 /// <summary>What a command takes after its options; it also decides what Tab offers there.</summary>
-public enum CmdArgument { None, Id, Command, Songs, Title, Range, Setting, SettingValue, SettingOrSection, Action, Json, Note, Prompt, Text, Areas }
+public enum CmdArgument { None, Id, Command, Songs, Title, Range, Setting, SettingValue, SettingOrSection, Action, Json, Note, Prompt, Text, Areas, Tile, Pin }
 
 /// <summary>
 /// One console command. <see cref="Options"/> lists option groups split by "/"; the options of one group, split by commas,
@@ -69,6 +69,12 @@ public static class CmdCatalog
     public const string NumberMark = "<n>";
     /// <summary>A version as the app numbers them, major.minor.patch: -version:1.0.0.</summary>
     public const string VersionMark = "<version>";
+    /// <summary>
+    /// The answer to "uninstall", typed or asked about. Taking the visualizer off the computer is done in PowerShell only,
+    /// never from inside it (user rule), so there is no such command; the word just says where it is done.
+    /// </summary>
+    public const string UninstallNote =
+        @"Uninstalling is not done from inside the visualizer: close it and run .\uninstall.ps1 in PowerShell, in its folder.";
 
     /// <summary>Whether <paramref name="text"/> is a version written as major.minor.patch.</summary>
     public static bool IsVersion(string text)
@@ -112,7 +118,7 @@ public static class CmdCatalog
         new("install", "Help", "install <what>[, …]", "Install the game link mod, or put a part back.",
             "install linker writes the read-only link mod into the game's own Mods folder, which is the one place outside this app's folders it ever writes, and only when Unity Mod Manager is there. "
             + "It asks first, writes the mod's two files and nothing else, and leaves other mods alone. A mod already there with the same version is left as it is. "
-            + "-reinstall writes a part again when scannow finds it wrong: source puts this version's files back, app builds it again, linker builds the mod and writes it again, "
+            + "-reinstall writes a part again when scannow finds it wrong: source puts this version's files back, app builds it again, linker writes this version's mod again, "
             + "maps builds the custom maps again, and all is this version in full. Your edits and data are your own and are never reinstalled. "
             + "Name several with commas, as in install -reinstall app, linker.",
             "-reinstall / -proceed", CmdArgument.Areas, "all, app, source, linker, maps, edits, data"),
@@ -146,10 +152,19 @@ public static class CmdCatalog
             + "first is the song's beginning, last is the final one, and next and previous step through the list and wrap around at its ends. "
             + "With nothing, it says where the song stands now, and list shows every checkpoint of the song.",
             "-copy", CmdArgument.None, "list, first, next, previous, last"),
-        new("locate", "Songs", "locate <tile>", "Start from a tile.",
+        new("go", "Songs", "go <tile>", "Start from a tile.",
             "Prepare the loaded song from a tile number, as the section box does: play begins at the first note at or after that tile, with the lanes "
-            + "of a full run. The tile must be one this song presses, so a midspin tile or one inside a long note is refused. checkpoint first goes back to the beginning.",
-            "", CmdArgument.None),
+            + "of a full run. The tile must be one this song presses, so a midspin tile or one inside a long note is refused. Tab offers the song's pins; "
+            + "checkpoint first goes back to the beginning.",
+            "", CmdArgument.Tile),
+        new("pin", "Songs", "pin [<id>] <tile>", "Pin a tile for go.",
+            "Pin a tile of a song so go can find it again: Tab after go offers the pins. A pin belongs to the song and every edit of it alike, "
+            + "whichever of them it was set on. now, the default, is the loaded song; all lists the song's pins in tile order, numbered as "
+            + "checkpoints are. The tile must be one go can start from.",
+            "-copy", CmdArgument.Pin, "now*, all"),
+        new("unpin", "Songs", "unpin [<id>] <tile>", "Remove a pin.",
+            "Remove a pin from a song and every edit of it. now, the default, is the loaded song, and Tab offers its pins.",
+            "", CmdArgument.Pin, "now*"),
         new("hide", "Songs", "hide <id>", "Hide a song from the song list.", "Hide a song from the song list. show brings it back.", "", CmdArgument.Id, "now"),
         new("show", "Songs", "show <id>", "Show a hidden song again.", "Show a hidden song in the song list again.", "", CmdArgument.Id, "now"),
 
@@ -277,7 +292,7 @@ public static class CmdCatalog
         new("-slot", "Only the edits; with a number, load that slot (1 to 9) at once.", "-sl", NumberMark, ""),
         new("-speed", "What the playback speed does on a load.", "", "keep,reset", "keep"),
         new("-force", "Go ahead with what would be refused, after asking: load an unsupported song as an older verified format version, "
-            + "which may not time as the game does, or start a note over a title report create would keep."),
+            + "which may not time as the game does, start a note over a title report create would keep, or update over this copy's own changes."),
         new("-rate", "The approach rate instead of the playback speed: how long a note takes to reach the judgment line, in ms.", "-ar"),
         new("-keywords", "Show the keywords too.", "-k"),
         new("-options", "Show the options too.", "-o"),
@@ -445,6 +460,7 @@ public static class CmdCatalog
         ["note all"] = "Every note.",
         ["note now"] = "What is on screen: the lanes being edited while the editor is open, else the loaded song.",
         ["checkpoint list"] = "List the song's checkpoints, marking the one it starts from.",
+        ["pin all"] = "List the song's pins, in tile order.",
         ["report erase"] = "Remove the note, after asking.",
         ["report sweep"] = "Remove every note already marked done.",
         ["report rename"] = "Give a note another name: report rename <old> > <new>.",
@@ -535,7 +551,8 @@ public static class CmdCatalog
         if (words.Count == 0) return null;
         if (Find(words[0].Word) is not { } command)
         {
-            error = $"'{words[0].Word}' is not recognized as a command. Type 'cmd' to see the commands.";
+            error = words[0].Word == "uninstall" ? UninstallNote
+                : $"'{words[0].Word}' is not recognized as a command. Type 'cmd' to see the commands.";
             return null;
         }
         var options = new Dictionary<string, string>(StringComparer.Ordinal);

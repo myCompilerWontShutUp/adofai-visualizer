@@ -15,4 +15,9 @@
     <!-- Every file in Themes/Palettes is a theme; its file name is the theme id. -->
     <EmbeddedResource Include="Themes\Palettes\*.json" LogicalName="Visualizer.Themes.%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Plugins ship built: every file under plugins goes beside the exe as it is, so the console's install puts one in
+         place with no build tools of its own. plugins\linker is the game link mod, written there by build-mod.ps1. -->
+    <None Include="..\..\plugins\**\*" Link="plugins\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -135,33 +135,6 @@ internal static class MapCompatibilityTests
             // A number cannot name a member, so a level the game could not read either is still an error here.
             Equal(Read("{\"settings\":{\"version\":18,\"bpm\":120} 5,\"angleData\":[0,0],\"actions\":[]}").Status, MapParseStatus.Error);
         });
-        yield return ("A comma missing between members loads, as the game's own reader never needed one", () =>
-        {
-            // 2850594034\main.adofai has no comma between the "actions" array and "decorations". The game loads a level
-            // with GDMiniJSON, whose ParseObject and ParseArray reach the next member through the default case of a
-            // switch on the next token and never throw, so it plays there; strict JSON was all that refused it.
-            static MapParseResult Read(string text) => new AdofaiTimelineParser().Parse(new("test.adofai", text));
-            const string Settings = "{\"settings\":{\"version\":18,\"bpm\":120}";
-            Times(Read(Settings + ",\"angleData\":[0,0,0],\"actions\":[]}"), 500, 1000, 1500);
-            // The real shape: no comma after the array that ends, and none before the name that follows.
-            Times(Read(Settings + ",\"angleData\":[0,0,0],\"actions\":[]\"decorations\":[]}"), 500, 1000, 1500);
-            Times(Read(Settings + "\"angleData\":[0,0,0],\"actions\":[]}"), 500, 1000, 1500);
-            // Inside an array any value may follow another, so three angles stay three tiles.
-            Times(Read(Settings + ",\"angleData\":[0 0 0],\"actions\":[]}"), 500, 1000, 1500);
-            // Two events with nothing between them are two events: the same timing as with the comma in place.
-            const string Events = "[{\"floor\":1,\"eventType\":\"SetSpeed\",\"speedType\":\"Bpm\",\"beatsPerMinute\":60},"
-                + "{\"floor\":2,\"eventType\":\"SetSpeed\",\"speedType\":\"Bpm\",\"beatsPerMinute\":240}]";
-            var spaced = Parse(18, "\"angleData\":[0,0,0]", Events);
-            Times(spaced, 500, 1500, 1750);
-            Times(Parse(18, "\"angleData\":[0,0,0]", Events.Replace("},{", "}{", StringComparison.Ordinal)),
-                spaced.Timeline!.HitTimesMs.ToArray());
-            // A name is still a name: the separator goes in front of the next one, never inside a string or before a colon.
-            var named = Read("{\"settings\":{\"version\":18,\"bpm\":120,\"song\":\"A}\\\"B\"\"artist\":\"C,D\"}"
-                + ",\"angleData\":[0,0,0],\"actions\":[]}");
-            Equal(named.SongName, "C,D - A}\"B");
-            // A number cannot name a member, so a level the game could not read either is still an error here.
-            Equal(Read("{\"settings\":{\"version\":18,\"bpm\":120} 5,\"angleData\":[0,0],\"actions\":[]}").Status, MapParseStatus.Error);
-        });
         yield return ("Legacy pathData absolute angles and midspins", () =>
         {
             Times(Parse(4, "\"pathData\":\"RULD\""), 500, 750, 1000, 1250);

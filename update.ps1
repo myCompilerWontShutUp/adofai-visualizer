@@ -34,7 +34,8 @@
     Lists the files that differ from the version this copy is on. Changes nothing.
 
 .PARAMETER LinkerGame
-    The game folder whose linker is built and written again after the app is built (an installed linker follows updates).
+    The game folder whose linker is written again after the app is built (an installed linker follows updates). The
+    linker comes built in plugins\linker, so nothing of the game is needed to build it here.
 
 .PARAMETER NoBuild
     Takes the version without building, for a computer that builds by hand.
@@ -99,12 +100,24 @@ function Build-App {
     Write-Output 'Built.'
 }
 
-# The linker follows the app (user rule): built from this version and written into the game's own mod folder.
+# The linker follows the app (user rule): this version's built copy in plugins\linker is written into the game's own mod
+# folder, its two files and nothing else (AGENTS.md rule 2). Nothing is built, so no game assemblies are needed here.
 function Install-Linker {
     if (-not $LinkerGame) { return }
+    $from = Join-Path $root 'plugins\linker'
+    $mods = Join-Path $LinkerGame 'Mods'
+    $target = Join-Path $mods 'AdofaiVisualizerSync'
+    function IsLink([string]$path) { (Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) }
     try {
-        & (Join-Path $root 'build-mod.ps1') -Configuration Release -GameDir $LinkerGame -Install | Out-Null
-        Write-Output 'The linker is built from this version and written into the game again.'
+        $manager = Join-Path $LinkerGame 'A Dance of Fire and Ice_Data\Managed\UnityModManager\UnityModManager.dll'
+        if (-not (Test-Path -LiteralPath $manager)) { throw 'Unity Mod Manager is not in that game folder' }
+        $files = @('AdofaiVisualizerSync.dll', 'Info.json')
+        foreach ($file in $files) { if (-not (Test-Path -LiteralPath (Join-Path $from $file))) { throw "plugins\linker\$file is missing" } }
+        # A link on the way would write outside the mod's own folder.
+        foreach ($path in @($mods, $target) + @($files | ForEach-Object { Join-Path $target $_ })) { if (IsLink $path) { throw "$path is a link" } }
+        New-Item -ItemType Directory -Path $target -Force -ErrorAction Stop | Out-Null
+        foreach ($file in $files) { [IO.File]::WriteAllBytes((Join-Path $target $file), [IO.File]::ReadAllBytes((Join-Path $from $file))) }
+        Write-Output 'The linker of this version is written into the game again.'
     }
     catch { Write-Output ('The linker could not be updated ({0}). Close the game and run install -reinstall linker.' -f $_.Exception.Message) }
 }

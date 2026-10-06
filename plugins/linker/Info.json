@@ -1,0 +1,8 @@
+{
+  "Id": "AdofaiVisualizerSync",
+  "DisplayName": "ADOFAI Visualizer Sync (read-only)",
+  "Author": "personal",
+  "Version": "1.0.1",
+  "AssemblyName": "AdofaiVisualizerSync.dll",
+  "EntryMethod": "AdofaiVisualizerSync.Main.Load"
+}
