@@ -3,7 +3,8 @@ using Visualizer.Core.Settings;
 namespace Visualizer.Core.Visualization;
 
 /// <summary>
-/// A prepared note. <paramref name="StartsChord"/> marks the first of two notes drawn as one chord with the next note.
+/// A prepared note. <paramref name="StartsChord"/> marks a note drawn as one chord with the next note: a chord of n notes
+/// has the mark on all but its last.
 /// <paramref name="HoldEndMs"/> is set for a long note: its key is held until then (the release plays the next hit).
 /// </summary>
 public sealed record VisualizerNote(double HitTimeMs, int Tile, int Mode, bool StartsChord = false, double? HoldEndMs = null,
@@ -93,9 +94,9 @@ public sealed class NoteGenerator
         var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1).ToArray()) : [];
         var magicIndex = 0;
         var notes = new List<VisualizerNote>(times.Length);
-        // Two singles this close are played as a roll, so the pattern lines them up on two neighbouring lanes in its own
-        // direction (user rule).
-        var trillStart = SimultaneousNotePlanner.TrillStarts(groups, settings, holdEndsMs);
+        // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction
+        // (user rule), as many lanes as the roll has notes.
+        var trillAt = SimultaneousNotePlanner.TrillRuns(groups, settings, holdEndsMs, out var trillLength);
         // Notes in a row that ask for fewer tiles; the smaller pattern waits until there are DownshiftNoteCount of them.
         var lowerRun = 0;
         // When each tile was last given, so a trill can keep off a lane that would come back too soon.
@@ -155,14 +156,15 @@ public sealed class NoteGenerator
             // A single that a trill follows closely is the head of the same roll. Close to the note before, a skipped lane
             // or the same lane again breaks the run; further apart the run has ended anyway.
             var close = settings.TrillWindowMs * RollLeadWindows;
-            var leadsTrill = i + 2 < times.Length && trillStart[i + 1] && !trillStart[i] && (i == 0 || !trillStart[i - 1])
+            var leadsTrill = i + 2 < times.Length && trillAt[i + 1] == 1 && trillAt[i] == 0
                 && groups[i].Count == 1 && times[i + 1] - times[i] <= close;
             var closeToLast = i > 0 && (leadsTrill ? times[i + 1] : times[i]) - times[i - 1] <= close;
             var quickMs = QuickReturnMs(settings, requested);
             var from = i;
-            var tile = cursor.Next(requested, anticipated, trillStart[i], leadsTrill, closeToLast,
+            var tile = cursor.Next(requested, anticipated, trillLength[i], leadsTrill, closeToLast,
                 from > 0 ? notes => from + notes < times.Length && times[from + notes] - times[from - 1] < quickMs : null,
-                (lane, notes) => from + notes < times.Length && times[from + notes] - played[lane] < quickMs);
+                (lane, notes) => from + notes < times.Length && times[from + notes] - played[lane] < quickMs,
+                leadsTrill ? trillLength[i + 1] : 2);
             // Chord groups are re-placed by the planner, which checks busy lanes itself. A long note keeps its lane through
             // the note after it (user rule), so a single that lands there takes the next pattern tile; one lane has no other
             // tile, so 1K reaches for 2K there.

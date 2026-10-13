@@ -224,11 +224,12 @@ public sealed class NoteEditField : FrameworkElement
             var picked = _session.Selection.Contains(index);
             if (picked) drawing.DrawRectangle(Gap, Ring, new Rect(box.X - 3, box.Y - 3, box.Width + 6, box.Height + 6));
             drawing.DrawRectangle(note.Chord > 0 ? picked ? _pickedChord : palette.Chord : picked ? _pickedNote : palette.Note, null, box);
-            if (note.Chord > 0 && Partner(notes, index) is { } partner && BoxOf(partner) is { } other && other.X > box.X)
+            // A thin bar ties each of a chord's notes to the next one to its right, whichever lanes they are on.
+            if (note.Chord > 0 && Members(notes, index).Select(BoxOf).OfType<Rect>().Where(other => other.X > box.X)
+                    .OrderBy(other => other.X).Select(other => (Rect?)other).FirstOrDefault() is { } next)
             {
-                // A thin bar ties a chord's notes together, whichever lanes they are on.
                 var y = box.Y + box.Height / 2;
-                drawing.DrawLine(_chordBar, new Point(box.Right, y), new Point(other.X, y));
+                drawing.DrawLine(_chordBar, new Point(box.Right, y), new Point(next.X, y));
             }
             if (!numbers || Label(notes, index) is not { } label) continue;
             var text = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, NumberSize, _muted, dpi);
@@ -254,22 +255,23 @@ public sealed class NoteEditField : FrameworkElement
     private static Color Lighter(string color) =>
         NoteFieldPalette.Blend(NoteFieldPalette.ToColor(VisualizerSettings.ParseColor(color)), Colors.White, 0.55);
 
-    private static EditNote? Partner(IReadOnlyList<EditNote> notes, int index)
+    /// <summary>The other notes of a chord: they sit next to each other in the list, a chord being at most the lanes on screen.</summary>
+    private static IEnumerable<EditNote> Members(IReadOnlyList<EditNote> notes, int index)
     {
         var chord = notes[index].Chord;
-        for (var other = Math.Max(0, index - 4); other < Math.Min(notes.Count, index + 5); other++)
-            if (other != index && notes[other].Chord == chord) return notes[other];
-        return null;
+        for (var other = Math.Max(0, index - 8); other < Math.Min(notes.Count, index + 9); other++)
+            if (other != index && notes[other].Chord == chord) yield return notes[other];
     }
 
-    /// <summary>The hit number over a note; a chord shows both numbers once, as in "44-45".</summary>
+    /// <summary>The hit number over a note; a chord shows its first and last numbers once, as in "44-45" or "44-46".</summary>
     private static string? Label(IReadOnlyList<EditNote> notes, int index)
     {
         var note = notes[index];
         if (note.Chord == 0) return (note.Hit + 1).ToString(CultureInfo.InvariantCulture);
-        if (Partner(notes, index) is not { } partner) return (note.Hit + 1).ToString(CultureInfo.InvariantCulture);
-        // Only the earlier hit carries the label, so the pair is not written twice.
-        return partner.Hit < note.Hit ? null : $"{note.Hit + 1}-{partner.Hit + 1}";
+        var others = Members(notes, index).ToArray();
+        if (others.Length == 0) return (note.Hit + 1).ToString(CultureInfo.InvariantCulture);
+        // Only the earliest hit carries the label, so the chord is not written more than once.
+        return others.Any(other => other.Hit < note.Hit) ? null : $"{note.Hit + 1}-{others.Max(other => other.Hit) + 1}";
     }
 
     private static int LowerBound(IReadOnlyList<EditNote> notes, double timeMs)

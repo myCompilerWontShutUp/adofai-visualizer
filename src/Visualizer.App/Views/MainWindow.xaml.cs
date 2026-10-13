@@ -640,8 +640,13 @@ public partial class MainWindow : Window, ICmdHost
         for (var i = 0; i < notes.Count; i++)
         {
             lanes[hits[i]] = notes[i].Tile;
-            // A chord is the note marked StartsChord and the one after it, which is how the renderer reads them.
-            if (notes[i].StartsChord && i + 1 < notes.Count) chords.Add(new[] { hits[i], hits[i + 1] });
+            // A chord is the notes marked StartsChord in a row and the one after the last, which is how the renderer reads them.
+            if (notes[i].StartsChord && i + 1 < notes.Count && (i == 0 || !notes[i - 1].StartsChord))
+            {
+                var end = i + 1;
+                while (end + 1 < notes.Count && notes[end].StartsChord) end++;
+                chords.Add(hits.Skip(i).Take(end - i + 1).ToArray());
+            }
         }
         // Built through the same path a saved layout takes, so both sit on the map's own clock. Taking the times from the
         // prepared notes instead put every one of these on the playback clock, which starts at the first hit — the ghost

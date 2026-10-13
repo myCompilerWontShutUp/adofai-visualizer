@@ -27,10 +27,15 @@ internal static class SixKeyTests
         for (var i = 0; i + 1 < notes.Count; i++)
         {
             if (!notes[i].StartsChord) continue;
-            var a = visible.IndexOf(notes[i].Tile);
-            var b = visible.IndexOf(notes[i + 1].Tile);
-            Assert(notes[i].HitTimeMs == notes[i + 1].HitTimeMs && Math.Abs(a - b) == 1 && !(visible.Count == 4 && Math.Min(a, b) == 1),
-                $"Chord on lanes {a + 1}-{b + 1} (mode {notes[i].Mode}): " + string.Join(" ", notes.Select(n => n.Tile)));
+            // A chord of three or more lies over lanes side by side and crosses pairs by nature (user rule: the pair rules
+            // are the two-note chord's own).
+            var end = i;
+            while (end + 1 < notes.Count && notes[end].StartsChord) end++;
+            var lanes = Enumerable.Range(i, end - i + 1).Select(k => visible.IndexOf(notes[k].Tile)).Order().ToArray();
+            Assert(Enumerable.Range(i, end - i + 1).All(k => notes[k].HitTimeMs == notes[i].HitTimeMs) && lanes[^1] - lanes[0] == lanes.Length - 1
+                && (lanes.Length > 2 || !(visible.Count == 4 && lanes[0] == 1)),
+                $"Chord on lanes {string.Join("-", lanes.Select(lane => lane + 1))} (mode {notes[i].Mode}): " + string.Join(" ", notes.Select(n => n.Tile)));
+            i = end;
         }
     }
 
@@ -116,11 +121,12 @@ internal static class SixKeyTests
         yield return ("6K notes cycle the 6-tile pattern from the Initial Tile and switch at cycle boundaries", () =>
         {
             var generator = new NoteGenerator();
-            var fixedSix = new VisualizerSettings { MaximumTileCount = 6, DynamicTiming = false, SimultaneousWindowMs = 0 };
+            // Trills are off: notes 25ms apart would roll over the six lanes as one (that is the trill tests' part).
+            var fixedSix = new VisualizerSettings { MaximumTileCount = 6, DynamicTiming = false, SimultaneousWindowMs = 0, TrillWindowMs = 0 };
             Sequence(generator.Generate(Enumerable.Range(0, 8).Select(i => i * 25d), fixedSix).Select(n => n.Tile), 5, 4, 3, 2, 7, 6, 5, 4);
             // Downshift wait pinned to 1: this check is about the cycle boundary, not about ignoring a single slow note.
             // The boundaries are pinned to the values this case was written for (25ms is 6K, 40ms is 4K).
-            var dynamic = new VisualizerSettings { MaximumTileCount = 8, SimultaneousWindowMs = 0, DownshiftNoteCount = 1,
+            var dynamic = new VisualizerSettings { MaximumTileCount = 8, SimultaneousWindowMs = 0, DownshiftNoteCount = 1, TrillWindowMs = 0,
                 EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500 };
             var fast = generator.Generate(Enumerable.Range(0, 12).Select(i => i * 25d), dynamic);
             Assert(fast.All(n => n.Mode == 6), "25ms intervals choose 6K under an 8-lane maximum: " + string.Join(" ", fast.Select(n => n.Mode)));
@@ -134,11 +140,13 @@ internal static class SixKeyTests
             var generator = new NoteGenerator();
             var six = new VisualizerSettings { MaximumTileCount = 6, DynamicTiming = false };
             var chords = generator.Generate(new[] { 0d, 1, 100, 101, 200, 201, 300, 301, 302 }, six);
-            Equal(chords.Count, 9); Equal(chords.Count(n => n.StartsChord), 4);
+            // Three pairs and one group of three: the three are one chord on three lanes side by side (user rule).
+            Equal(chords.Count, 9); Equal(chords.Count(n => n.StartsChord), 5);
             AssertPairs(chords, six);
-            // Three chords at once need all six lanes, so the pair across the center (tiles 4-5) is used as the last resort.
+            // Six notes at once are one chord over all six lanes.
             var three = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5 }, six);
-            Equal(three.Count(n => n.StartsChord), 3);
+            Equal(three.Count(n => n.StartsChord), 5);
+            Sequence(three.Select(n => n.Tile).Order(), 2, 3, 4, 5, 6, 7);
             AssertPairs(three, six);
             // Two chords and two singles in one 6K cycle: the chords take the preferred pairs, tiles 2-3 and 4-5.
             AssertPreferred(generator.Generate(new[] { 0d, 1, 100, 101, 200, 300 }, six), six);

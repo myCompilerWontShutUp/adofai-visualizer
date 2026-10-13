@@ -10,8 +10,9 @@ public sealed class NotePlacementException(string message) : InvalidOperationExc
 internal static class SimultaneousNotePlanner
 {
     /// <summary>
-    /// One cycle step. <paramref name="Count"/> hits share <paramref name="TimeMs"/>; members are shown as
-    /// two-note chords in order (first+second, third+fourth), and an odd last member as a separate single.
+    /// One cycle step. <paramref name="Count"/> hits share <paramref name="TimeMs"/>, every one of them within the chord window
+    /// of the first, so start and end are both in it (user rule). Two or more are one chord on lanes side by side as long as
+    /// the screen has the lanes; a group wider than the screen is laid out as two-note chords in order.
     /// </summary>
     internal sealed record GroupedHit(double TimeMs, int Count, int SourceIndex);
 
@@ -30,22 +31,32 @@ internal static class SimultaneousNotePlanner
     }
 
     /// <summary>
-    /// The groups that start a trill: two single taps within the trill window, taken in twos from the left as chord members
-    /// are (a third this close starts the next pair). Long notes are never trills. The cursor, the chord pass and the trill
-    /// pass all read trills from here, so they agree on which notes pair up.
+    /// Trills (user rule): single taps that each come within the trill window of the one before are one roll, however many
+    /// there are: a b c with a-b and b-c that close is a three-note trill, on four lanes 1-2-3 or 2-3-4. A roll is cut at the
+    /// number of screen lanes, which is as far as it can roll; what is left starts the next one. Chords come first: a group
+    /// of two or more is never part of a trill. Long notes are never trills. Each group's place in its roll comes back: 0
+    /// outside any, 1 the first note, 2 the second and so on; <paramref name="lengths"/> holds each roll's length at its first
+    /// note. The cursor, the chord pass and the trill pass all read trills from here, so they agree on which notes roll.
     /// </summary>
-    internal static bool[] TrillStarts(IReadOnlyList<GroupedHit> groups, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds)
+    internal static int[] TrillRuns(IReadOnlyList<GroupedHit> groups, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds,
+        out int[] lengths)
     {
-        var starts = new bool[groups.Count];
-        for (var i = 0; settings.TrillWindowMs > 0 && i + 1 < groups.Count; i++)
+        var positions = new int[groups.Count];
+        lengths = new int[groups.Count];
+        if (settings.TrillWindowMs <= 0) return positions;
+        var cap = Math.Max(2, settings.GetVisibleTiles().Count);
+        bool Tap(int i) => groups[i].Count == 1 && holdEnds?[groups[i].SourceIndex] is null;
+        bool Close(int i) => groups[i + 1].TimeMs - groups[i].TimeMs is var gap && gap > 0 && gap <= settings.TrillWindowMs;
+        for (var i = 0; i + 1 < groups.Count;)
         {
-            var gap = groups[i + 1].TimeMs - groups[i].TimeMs;
-            if (groups[i].Count != 1 || groups[i + 1].Count != 1 || gap <= 0 || gap > settings.TrillWindowMs
-                || holdEnds?[groups[i].SourceIndex] is not null || holdEnds?[groups[i + 1].SourceIndex] is not null) continue;
-            starts[i] = true;
-            i++;
+            if (!Tap(i) || !Tap(i + 1) || !Close(i)) { i++; continue; }
+            var end = i + 1;
+            while (end + 1 < groups.Count && end + 1 - i < cap && Tap(end + 1) && Close(end)) end++;
+            lengths[i] = end - i + 1;
+            for (var k = i; k <= end; k++) positions[k] = k - i + 1;
+            i = end + 1;
         }
-        return starts;
+        return positions;
     }
 
     /// <summary>
@@ -117,9 +128,25 @@ internal static class SimultaneousNotePlanner
         // The trill just turned: two trills in a row take two pairs (user rule: not 1-2 1-2).
         var lastEnd = -2;
         var lastLow = -1;
+        var lastRoll = Array.Empty<int>();
+        // How many notes roll from here (user rule): taps that each come within the window of the one before, cut at the
+        // screen's lanes as TrillRuns cuts them. Long notes end a roll.
+        bool Tap(int index) => Single(index) && result[index].HoldEndMs is null;
+        int RunLength(int index)
+        {
+            var end = index + 1;
+            while (end + 1 < result.Count && end + 1 - index < visible.Count && Tap(index) && Tap(end) && Tap(end + 1) && Trill(end)) end++;
+            return end - index + 1;
+        }
         for (var i = 0; i + 1 < result.Count; i++)
         {
             if (!Trill(i)) continue;
+            if (RunLength(i) is var length and >= 3)
+            {
+                LayRoll(i, length);
+                i += length - 1;
+                continue;
+            }
             // Taken in twos, as a chord group is: a third note this close starts the next pair.
             var lane = visible.IndexOf(result[i].Tile);
             var other = visible.IndexOf(result[i + 1].Tile);
@@ -166,7 +193,52 @@ internal static class SimultaneousNotePlanner
                 }
             }
             (lastEnd, lastLow) = (i + 1, Math.Min(visible.IndexOf(result[i].Tile), visible.IndexOf(result[i + 1].Tile)));
+            lastRoll = [visible.IndexOf(result[i].Tile), visible.IndexOf(result[i + 1].Tile)];
             i++;
+        }
+
+        // A roll of three notes or more (user rule: a b c, each within the window of the one before, read 1-2-3 or 2-3-4 on
+        // four lanes) runs over that many lanes side by side in the pattern's direction, back the other way only from the far
+        // edge. One already laid out so stays; else the lanes keep off the event before and the event after, a roll right
+        // after one keeps off its lanes, the first note stays where it can, and nothing moves onto a lane a long note holds.
+        // The center rule is the two-note trill's own, so it does not apply here. A roll with nowhere to go stays as it is.
+        void LayRoll(int at, int length)
+        {
+            var step = Direction(settings, Enumerable.Range(at, length).Max(k => result[k].Mode));
+            var lanes = Enumerable.Range(at, length).Select(k => visible.IndexOf(result[k].Tile)).ToArray();
+            var before = LanesAround(result, at - 1, backward: true);
+            var ahead = LanesAround(result, at + length, backward: false);
+            bool Fits(int first, int way) => first >= 0 && first < visible.Count
+                && first + (length - 1) * way >= 0 && first + (length - 1) * way < visible.Count;
+            bool Allowed(int first, int way) => Fits(first, way) && (way == step || !Fits(first, step));
+            int LaneAt(int first, int way, int k) => first + k * way;
+            // Rolls in a row are the ones that follow each other closely; one after a pause may well read the same.
+            bool Repeats(int first, int way) => lastEnd == at - 1 && lastRoll.Length > 0
+                && result[at].HitTimeMs - result[at - 1].HitTimeMs <= settings.TrillWindowMs * NoteGenerator.RollLeadWindows
+                && Enumerable.Range(0, length).Select(k => LaneAt(first, way, k)).Order().SequenceEqual(lastRoll.Order());
+            bool Clear(int first, int way) => !before.Contains(visible[first]) && !ahead.Contains(visible[LaneAt(first, way, length - 1)]);
+            var way = lanes.All(lane => lane >= 0) && Enumerable.Range(1, length - 1).All(k => lanes[k] - lanes[k - 1] == lanes[1] - lanes[0])
+                && Math.Abs(lanes[1] - lanes[0]) == 1 ? lanes[1] - lanes[0] : 0;
+            if (way == 0 || !Allowed(lanes[0], way) || !Clear(lanes[0], way) || Repeats(lanes[0], way))
+            {
+                var current = lanes[0] >= 0 ? lanes[0] : 0;
+                var chosen = Enumerable.Range(0, visible.Count).SelectMany(first => new[] { (First: first, Way: step), (First: first, Way: -step) })
+                    .Where(option => Allowed(option.First, option.Way)
+                        && Enumerable.Range(0, length).All(k => Free(visible[LaneAt(option.First, option.Way, k)], result[at + k].HitTimeMs)))
+                    .OrderBy(option => Clear(option.First, option.Way) ? 0 : 1)
+                    .ThenBy(option => Repeats(option.First, option.Way) ? 1 : 0)
+                    .ThenBy(option => option.Way == step ? 0 : 1)
+                    .ThenBy(option => Math.Abs(option.First - current))
+                    .Select(option => ((int First, int Way)?)option).FirstOrDefault();
+                if (chosen is { } pick)
+                {
+                    for (var k = 0; k < length; k++) result[at + k] = result[at + k] with { Tile = visible[LaneAt(pick.First, pick.Way, k)] };
+                    lanes = Enumerable.Range(0, length).Select(k => LaneAt(pick.First, pick.Way, k)).ToArray();
+                }
+            }
+            lastEnd = at + length - 1;
+            lastRoll = lanes;
+            lastLow = Math.Min(lanes[^2], lanes[^1]);
         }
     }
 
@@ -225,13 +297,34 @@ internal static class SimultaneousNotePlanner
         return pattern.Count >= 2 && pattern[1] > pattern[0] ? 1 : -1;
     }
 
-    /// <summary>The lanes of the event at <paramref name="index"/>: one for a single, both for a chord.</summary>
+    /// <summary>
+    /// The lanes of the event at <paramref name="index"/>: one for a single, every member for a chord. A chord is the notes
+    /// marked <see cref="VisualizerNote.StartsChord"/> in a row and the one after the last of them.
+    /// </summary>
     private static int[] LanesAround(List<VisualizerNote> notes, int index, bool backward)
     {
         if (index < 0 || index >= notes.Count) return [];
-        if (backward && index > 0 && notes[index - 1].StartsChord) return [notes[index - 1].Tile, notes[index].Tile];
-        if (!backward && notes[index].StartsChord && index + 1 < notes.Count) return [notes[index].Tile, notes[index + 1].Tile];
-        return [notes[index].Tile];
+        var (first, last) = ChordSpan(notes, index);
+        return backward ? notes.Skip(first).Take(index - first + 1).Select(note => note.Tile).ToArray()
+            : notes.Skip(index).Take(last - index + 1).Select(note => note.Tile).ToArray();
+    }
+
+    /// <summary>The first and last note of the chord the note at <paramref name="index"/> belongs to (itself for a single).</summary>
+    internal static (int First, int Last) ChordSpan(IReadOnlyList<VisualizerNote> notes, int index)
+    {
+        var first = index;
+        while (first > 0 && notes[first - 1].StartsChord) first--;
+        var last = index;
+        while (last + 1 < notes.Count && notes[last].StartsChord) last++;
+        return (first, last);
+    }
+
+    /// <summary>The tiles of the chord that starts at <paramref name="at"/> in a block's assignment.</summary>
+    private static int[] ChordTiles((int Tile, bool StartsChord)[] assignment, int at)
+    {
+        var end = at;
+        while (end + 1 < assignment.Length && assignment[end].StartsChord) end++;
+        return assignment.Skip(at).Take(end - at + 1).Select(placed => placed.Tile).ToArray();
     }
 
     internal static IReadOnlyList<VisualizerNote> Place(IReadOnlyList<GroupedHit> groups,
@@ -243,10 +336,13 @@ internal static class SimultaneousNotePlanner
         var busyUntil = NewBusyLanes();
         // When each lane was last played, so a single in a chord section keeps off a lane that would come back too soon.
         var lastPlayed = NewBusyLanes();
-        // The part each group plays in a trill: 1 opens one, 2 closes it.
-        var trillStarts = TrillStarts(groups, settings, holdEnds);
-        var roles = Enumerable.Range(0, groups.Count)
-            .Select(i => trillStarts[i] ? 1 : i > 0 && trillStarts[i - 1] ? 2 : 0).ToArray();
+        // The part each group plays in a trill: 1 opens one, 2 carries it on (its second note and any after it).
+        var trillAt = TrillRuns(groups, settings, holdEnds, out var trillLengths);
+        var roles = trillAt.Select(at => at == 1 ? 1 : at >= 2 ? 2 : 0).ToArray();
+        // Every note of a roll knows how long it is, so a block that holds part of one leaves room for the rest.
+        var rollLengths = new int[groups.Count];
+        for (var i = 0; i < groups.Count; i++)
+            if (trillAt[i] > 0) rollLengths[i] = trillAt[i] == 1 ? trillLengths[i] : rollLengths[i - 1];
         // Every note is checked against the long notes already placed, so no note ever lands on a lane still held, nor the
         // note after a long note on its lane (HeldUntil).
         var groupTimes = groups.Select(group => group.TimeMs).ToArray();
@@ -322,8 +418,9 @@ internal static class SimultaneousNotePlanner
                     : [(true, false, true, false), (true, true, true, false), (true, true, false, false), (false, false, true, false), (false, false, false, false)];
                 var lanes = chordLanes;
                 var used = laneHistory.ToArray();
+                int[] Around(int[] values) => Enumerable.Range(blockStart - 2, blockEnd - blockStart + 2).Select(i => i >= 0 ? values[i] : 0).ToArray();
                 var flow = new Flow(Enumerable.Range(blockStart, blockEnd - blockStart).Select(i => baseline[i].Tile).ToArray(),
-                    Enumerable.Range(blockStart - 2, blockEnd - blockStart + 2).Select(i => i >= 0 ? roles[i] : 0).ToArray(),
+                    Around(roles), Around(trillAt), Around(rollLengths),
                     Direction(settings, mode), settings.NoTrillCenterPair,
                     [result.Count >= 2 ? result[^2].Tile : 0, result.Count >= 1 ? result[^1].Tile : 0],
                     result.Count >= 1 ? result[^1].HitTimeMs : double.NegativeInfinity, settings.TrillWindowMs * NoteGenerator.RollLeadWindows,
@@ -344,7 +441,7 @@ internal static class SimultaneousNotePlanner
                     && Array.FindIndex(assignment, placed => placed.StartsChord) is var chordAt and >= 0)
                 {
                     var last = result.Count - 1;
-                    var pair = new[] { assignment[chordAt].Tile, assignment[chordAt + 1].Tile };
+                    var pair = ChordTiles(assignment, chordAt);
                     // Only a single moves: a chord member would break its pair, and its partner sits beside it.
                     var isChordMember = result[last].StartsChord || (last > 0 && result[last - 1].StartsChord);
                     if (!isChordMember && pair.Contains(result[last].Tile))
@@ -367,9 +464,10 @@ internal static class SimultaneousNotePlanner
                 if (settings.UseChordSectionLanes)
                 {
                     var chord = Array.FindLastIndex(assignment, placed => placed.StartsChord);
+                    while (chord > 0 && assignment[chord - 1].StartsChord) chord--;
                     if (chord >= 0)
                     {
-                        chordLanes = [assignment[chord].Tile, assignment[chord + 1].Tile];
+                        chordLanes = ChordTiles(assignment, chord);
                         chordGroup = blockEnd - 1;
                         laneHistory.Clear();
                         laneHistory.AddRange(chordLanes);
@@ -403,11 +501,12 @@ internal static class SimultaneousNotePlanner
         var holds = result.Where(note => note.HoldEndMs is not null)
             .Select(note => (note.Tile, Start: note.HitTimeMs, Until: HeldUntil(noteTimes, note.HoldEndMs!.Value))).ToArray();
         bool Free(int tile, double time) => !holds.Any(hold => hold.Tile == tile && hold.Start < time && time <= hold.Until);
-        // The events in order: where each starts in the result and how many notes it has (a chord is two).
+        // The events in order: where each starts in the result and how many notes it has. Only two-note chords are locked;
+        // a wider one keeps its lanes and ends a stretch.
         var events = new List<(int At, int Size)>();
         for (var i = 0; i < result.Count;)
         {
-            var size = result[i].StartsChord && i + 1 < result.Count ? 2 : 1;
+            var size = ChordSpan(result, i).Last - i + 1;
             events.Add((i, size));
             i += size;
         }
@@ -604,8 +703,11 @@ internal static class SimultaneousNotePlanner
                 return positions.Max() - positions.Min() + 1 == positions.Length;
             }
             if (member == groups[groupIndex].Count) return Search(groupIndex + 1, 0);
-            // Odd members pair with the member before them; an odd last member is a free single.
-            var pairsWithPrevious = member % 2 == 1;
+            // A group of three or more that the screen has lanes for is one chord (user rule: a b c with a-c in the chord
+            // window), each member on the lane after the one before. Narrower or wider groups pair up in order, an odd
+            // last member being a free single.
+            var wide = groups[groupIndex].Count >= 3 && groups[groupIndex].Count <= visible.Length;
+            var pairsWithPrevious = wide ? member >= 1 : member % 2 == 1;
             // Drawn as a single: no partner before it and none after it inside its group.
             var single = !pairsWithPrevious && member + 1 == groups[groupIndex].Count;
             // Chord lane preference (default 1-2,3-4): a chord takes the chosen pairs first, then the nearest lanes.
@@ -645,6 +747,31 @@ internal static class SimultaneousNotePlanner
                     var continues = Array.IndexOf(visible, tile) == (from < 0 || from >= visible.Length ? (flow.Step < 0 ? visible.Length - 1 : 0) : from);
                     var breaks = closeSingle && !continues;
                     return (breaks ? 3 : 0) + (Centered(tile, partner) ? 1 : 0);
+                }
+                // A roll of three notes or more (user rule) runs over that many lanes side by side: the pattern's way where it
+                // fits, back from the far edge where it does not, and no center rule (that is the two-note trill's own). It may
+                // reach past this block, so its first note looks at the lanes the rest will need: one a chord of this block
+                // already holds cannot be had. Each note after the first goes on the way the roll started.
+                var length = flow.LengthOf(groupIndex);
+                int RollWay(int at) => at < 0 ? 0
+                    : at + (length - 1) * flow.Step is var end && end >= 0 && end < visible.Length ? flow.Step
+                    : at - (length - 1) * flow.Step is var back && back >= 0 && back < visible.Length ? -flow.Step : 0;
+                int Long(int tile)
+                {
+                    var at = Array.IndexOf(visible, tile);
+                    if (flow.PlaceOf(groupIndex) == 1)
+                    {
+                        var way = RollWay(at);
+                        if (way == 0 || Enumerable.Range(1, length - 1)
+                                .Any(k => groupIndex + k < groups.Length && chordTiles.Contains(visible[at + k * way]))) return 5;
+                        var from = Array.IndexOf(visible, before.Length == 1 ? before[0] : 0) + flow.Step;
+                        var continues = at == (from < 0 || from >= visible.Length ? (flow.Step < 0 ? visible.Length - 1 : 0) : from);
+                        return way != flow.Step ? 2 : closeSingle && !continues ? 3 : 0;
+                    }
+                    var last = Array.IndexOf(visible, LaneOf(groupIndex - 1));
+                    var going = flow.PlaceOf(groupIndex) == 2 ? RollWay(last)
+                        : Array.IndexOf(visible, LaneOf(groupIndex - 2)) is var earlier && earlier >= 0 ? last - earlier : 0;
+                    return last >= 0 && going != 0 && at == last + going ? 0 : 2;
                 }
                 // The trill that ended right before this group, as its first and second tile, when one did.
                 (int First, int Second)? trill = flow.RoleOf(groupIndex - 1) == 2 && LaneOf(groupIndex - 2) is var a && a > 0
@@ -686,10 +813,10 @@ internal static class SimultaneousNotePlanner
                 double PlayedAt(int tile) => Math.Max(flow.LastPlayed[tile], tiles.Select((placed, index) => (placed, index))
                     .Where(entry => entry.placed == tile).Select(entry => groups[owners[entry.index]].TimeMs).DefaultIfEmpty(double.NegativeInfinity).Max());
                 bool Rested(int tile) => groups[groupIndex].TimeMs - PlayedAt(tile) >= flow.QuickMs;
-                ordered = ordered.OrderBy(tile => role == 1 ? Opens(tile)
+                ordered = ordered.OrderBy(tile => role != 0 && length >= 3 ? Long(tile) : role == 1 ? Opens(tile)
                         : role == 2 && before.Length == 1 ? RollsBack(before[0], tile) ? 1 : !Rolls(before[0], tile) ? 2 : Centered(before[0], tile) ? 1 : 0 : 0)
                     // Two trills in a row take two pairs (user rule: not 1-2 1-2).
-                    .ThenBy(tile => role == 1 && SamePair(tile) ? 1 : 0)
+                    .ThenBy(tile => role == 1 && length < 3 && SamePair(tile) ? 1 : 0)
                     .ThenBy(tile => role == 0 && trill is { } last ? BesideTrill(last, tile) : 0)
                     .ThenBy(tile => afterChord && before.Any(lane => Beside(lane, tile)) ? 0 : 1)
                     .ThenBy(tile => leadsTrill ? Heads(tile) : 0)
@@ -714,7 +841,9 @@ internal static class SimultaneousNotePlanner
                 if (spare && spareUsed == budget) continue;
                 if (spare && keepChords && (pairsWithPrevious || member + 1 < groups[groupIndex].Count)) continue;
                 var chord = pairsWithPrevious && !spare && Array.IndexOf(extras, tiles[^1]) < 0;
-                if (chord && !Adjacent(tiles[^1], tile)) continue;
+                // A wide chord runs over lanes side by side in one direction. The center rule is the two-note chord's own
+                // (user rule): three notes on four lanes cannot keep off the center anyway.
+                if (chord && !(wide ? Array.IndexOf(visible, tile) == Array.IndexOf(visible, tiles[^1]) + 1 : Adjacent(tiles[^1], tile))) continue;
                 if (chord) { chords[^1] = true; chordTiles.Add(tiles[^1]); chordTiles.Add(tile); }
                 tiles.Add(tile);
                 owners.Add(groupIndex);
@@ -734,16 +863,19 @@ internal static class SimultaneousNotePlanner
 
     /// <summary>
     /// What the chord pass knows of the notes around a block: the tile the cursor gave each group, each group's part in a
-    /// trill (1 opens, 2 closes; the two groups before the block first), the pattern's direction over the lanes, whether a
-    /// trill may cross the center, the last two tiles placed before the block, when the last of them sounded, and how close
-    /// a single must come before a trill to be part of its roll; when each lane was last played, and how soon a lane coming
-    /// back is too soon.
+    /// trill (1 opens, 2 closes; the two groups before the block first), its place in its roll and how long that roll is,
+    /// the pattern's direction over the lanes, whether a trill may cross the center, the last two tiles placed before the
+    /// block, when the last of them sounded, and how close a single must come before a trill to be part of its roll; when
+    /// each lane was last played, and how soon a lane coming back is too soon.
     /// </summary>
-    private sealed record Flow(int[] Hints, int[] Roles, int Step, bool NoTrillCenter, int[] Trailing, double LastTimeMs, double CloseMs,
-        double[] LastPlayed, double QuickMs)
+    private sealed record Flow(int[] Hints, int[] Roles, int[] Places, int[] Lengths, int Step, bool NoTrillCenter, int[] Trailing,
+        double LastTimeMs, double CloseMs, double[] LastPlayed, double QuickMs)
     {
         /// <summary>A group's part in a trill; the two groups before the block are -2 and -1.</summary>
         public int RoleOf(int group) => Roles[group + 2];
+        /// <summary>A group's place in its roll, 1 for the first note (0 outside any), and how many notes the roll has.</summary>
+        public int PlaceOf(int group) => Places[group + 2];
+        public int LengthOf(int group) => Lengths[group + 2];
     }
 
     internal static NotePlacementException HoldOverlap(VisualizerSettings settings, int index, double time) =>

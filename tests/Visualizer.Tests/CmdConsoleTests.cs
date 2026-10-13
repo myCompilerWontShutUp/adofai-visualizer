@@ -931,6 +931,14 @@ internal static class CmdConsoleTests
             var chords = new VisualizerNote[] { new(0, 5, 2), new(333.5, 3, 4, true), new(333.5, 4, 4), new(333.5, 6, 4), new(500.4, 5, 4) };
             Lines(CmdSession.FormatNotes(chords, 1, 5), "n1 5 334", "n2-3 3-4 0", "n4 6 167", "n5 5");
             Lines(CmdSession.FormatNotes(chords, 3, 3), "n2-3 3-4");
+            // A chord of three is one step, all its lanes in order (user rule); -json numbers it as one group.
+            var wide = new VisualizerNote[] { new(0, 4, 4, true), new(0, 2, 4, true), new(0, 3, 4), new(200, 1, 4), new(400, 3, 4, true), new(400, 4, 4) };
+            Lines(CmdSession.FormatNotes(wide, 1, 6), "n1-3 2-3-4 200", "n4 1 200", "n5-6 3-4");
+            var groups = CmdSession.FormatNotesJson(wide, Enumerable.Range(0, 6).ToArray(),
+                new Visualizer.Core.Maps.ParsedTimeline(new[] { 0d, 0, 0, 200, 400, 400 }, null, false, new[] { 1, 2, 3, 4, 5, 6 }), 1, 6)
+                .Select(line => line.Contains("\"chord\": 1", StringComparison.Ordinal) ? 1 : line.Contains("\"chord\": 2", StringComparison.Ordinal) ? 2
+                    : line.Contains("\"n\":", StringComparison.Ordinal) ? 0 : -1).Where(group => group >= 0);
+            Sequence(groups, 1, 1, 1, 0, 2, 2);
             // all took the place of *.
             foreach (var (text, first, last) in new (string, int, int?)[] { ("all", 1, null), ("ALL", 1, null), ("1..3", 1, 3), ("100..", 100, null), ("..50", 1, 50), ("7", 7, 7) })
             {

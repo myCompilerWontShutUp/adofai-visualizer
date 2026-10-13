@@ -1697,9 +1697,12 @@ public sealed class CmdSession
             var note = notes[i];
             if (note.StartsChord && i + 1 < notes.Count)
             {
-                var other = notes[i + 1];
-                steps.Add((noteHits[i] + 1, noteHits[i + 1] + 1, $"{Math.Min(note.Tile, other.Tile)}-{Math.Max(note.Tile, other.Tile)}{Hold(note, other)}", note.HitTimeMs));
-                i++;
+                // Every note marked in a row and the one after the last are one chord (two or more, user rule).
+                var end = i + 1;
+                while (end + 1 < notes.Count && notes[end].StartsChord) end++;
+                var members = notes.Skip(i).Take(end - i + 1).ToArray();
+                steps.Add((noteHits[i] + 1, noteHits[end] + 1, string.Join("-", members.Select(m => m.Tile).Order()) + Hold(members), note.HitTimeMs));
+                i = end;
             }
             else steps.Add((noteHits[i] + 1, noteHits[i] + 1, note.Tile.ToString(CultureInfo.InvariantCulture) + Hold(note), note.HitTimeMs));
         }
@@ -1866,8 +1869,9 @@ public sealed class CmdSession
         for (var i = 0; i < notes.Count; i++)
         {
             var group = 0;
-            if (notes[i].StartsChord && i + 1 < notes.Count) group = ++chord;
-            else if (i > 0 && notes[i - 1].StartsChord) group = chord;
+            // A chord's members are marked in a row up to the one before its last, so only the first opens a group.
+            if (i > 0 && notes[i - 1].StartsChord) group = chord;
+            else if (notes[i].StartsChord && i + 1 < notes.Count) group = ++chord;
             var number = noteHits[i] + 1;
             if (number < first || number > last) continue;
             var time = noteHits[i] < timeline.HitTimesMs.Count ? timeline.HitTimesMs[noteHits[i]] : notes[i].HitTimeMs;

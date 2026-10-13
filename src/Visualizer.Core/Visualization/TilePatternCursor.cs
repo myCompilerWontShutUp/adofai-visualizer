@@ -14,6 +14,11 @@ public sealed class TilePatternCursor
     /// <summary>The lane an open trill closes on (its second note comes next), and the whole trill once it has.</summary>
     private int? _trillSecond;
     private (int First, int Second)? _lastTrill;
+    /// <summary>The lanes an open roll of three notes or more still has to play, in order, and the whole roll.</summary>
+    private readonly Queue<int> _rollAhead = new();
+    private int[] _openRoll = [];
+    /// <summary>The lanes of the last trill or roll that closed, so the next one can keep off them.</summary>
+    private int[] _lastRoll = [];
     /// <summary>The screen lanes, to tell which two tiles a trill may share.</summary>
     private readonly IReadOnlyList<int> _visible;
     /// <summary>The way the patterns run over the lanes, which is the way a trill rolls: -1 right to left (the default).</summary>
@@ -45,16 +50,17 @@ public sealed class TilePatternCursor
     /// <summary>
     /// Consumes the generator's latest group-mode request. <paramref name="anticipated"/> marks the 1K to 2K and 2K to 4K
     /// anticipation, which starts the faster cycle on this note instead of waiting for the current one to end.
-    /// <paramref name="trillStart"/> marks the first of two notes close enough to be a trill: they are played as a roll in
-    /// the pattern's own direction, so the cursor picks both lanes at once (see <see cref="OpenTrill"/>) and the next call
-    /// closes it. The single after a trill sits beside it (<see cref="BesideTrill"/>). <paramref name="leadsTrill"/> marks a
-    /// single that a trill follows closely: the three are one roll (<see cref="RollHead"/>). <paramref name="closeToLast"/>
+    /// <paramref name="trillLength"/> marks the first note of a trill and says how many notes it rolls over (0 for none):
+    /// they are played as a roll in the pattern's own direction, so the cursor picks every lane at once (see
+    /// <see cref="OpenTrill"/> for two, <see cref="OpenRoll"/> for more) and the next calls play them. The single after a
+    /// trill sits beside it (<see cref="BesideTrill"/>). <paramref name="leadsTrill"/> marks a single that a trill of
+    /// <paramref name="leadsLength"/> notes follows closely: they are one roll (<see cref="RollHead"/>). <paramref name="closeToLast"/>
     /// says the note being placed, or for <paramref name="leadsTrill"/> the trill after it, comes close after the previous
     /// note, which is when a skipped lane or the same lane again reads as a broken run. <paramref name="tooSoon"/> is asked,
     /// when a new pattern starts, how many notes on the tile just played would come back (see <see cref="FreshStart"/>).
     /// </summary>
-    public int Next(int requestedMode, bool anticipated = false, bool trillStart = false, bool leadsTrill = false, bool closeToLast = false,
-        Func<int, bool>? tooSoon = null, Func<int, int, bool>? recent = null)
+    public int Next(int requestedMode, bool anticipated = false, int trillLength = 0, bool leadsTrill = false, bool closeToLast = false,
+        Func<int, bool>? tooSoon = null, Func<int, int, bool>? recent = null, int leadsLength = 2)
     {
         _closeToLast = closeToLast;
         _tooSoon = tooSoon;
@@ -64,18 +70,79 @@ public sealed class TilePatternCursor
         if (_trillSecond is { } second)
         {
             closed = (_lastTile, second);
+            _lastRoll = [_lastTile, second];
             tile = Place(second);
             _trillSecond = null;
         }
-        else if (trillStart && OpenTrill(tile) is { } trill)
+        else if (_rollAhead.Count > 0)
+        {
+            var lane = _rollAhead.Dequeue();
+            if (_rollAhead.Count == 0)
+            {
+                closed = (_lastTile, lane);
+                _lastRoll = _openRoll;
+            }
+            tile = Place(lane);
+        }
+        else if (trillLength == 2 && OpenTrill(tile) is { } trill)
         {
             tile = Place(trill.First);
             _trillSecond = trill.Second;
         }
-        else if (!trillStart && _lastTrill is { } last && BesideTrill(last) is { } beside) tile = beside;
-        else if (leadsTrill && RollHead(tile) is { } head) tile = head;
+        else if (trillLength >= 3 && OpenRoll(tile, trillLength) is { } roll)
+        {
+            tile = Place(roll[0]);
+            _openRoll = roll;
+            foreach (var lane in roll.Skip(1)) _rollAhead.Enqueue(lane);
+        }
+        else if (trillLength == 0 && _lastTrill is { } last && BesideTrill(last) is { } beside) tile = beside;
+        else if (leadsTrill && RollHead(tile, leadsLength) is { } head) tile = head;
         _lastTrill = closed;
         return Commit(tile);
+    }
+
+    /// <summary>
+    /// The lanes a roll of three notes or more rolls over (user rule: a b c, each within the trill window of the one before,
+    /// read 1-2-3 or 2-3-4 on four lanes, in the pattern's direction). The same way <see cref="OpenTrill"/> looks for two:
+    /// from this tile or the next one, ending on either, and back the other way only from the far edge; rolls that keep the
+    /// flow first, then lanes that have rested, then the pattern's own way, then not the last roll's lanes again. The center
+    /// rule is the two-note trill's own (user rule), so a longer roll crosses the center freely. Null when no lanes fit, which
+    /// leaves the notes to the pattern.
+    /// </summary>
+    private int[]? OpenRoll(int tile, int length)
+    {
+        var next = _pattern[(_offset + _emittedInCycle + 1) % _pattern.Count];
+        int[]? Run(int start, int step)
+        {
+            var at = IndexOf(start);
+            if (at < 0) return null;
+            var lanes = new int[length];
+            for (var k = 0; k < length; k++)
+            {
+                var lane = at + k * step;
+                if (lane < 0 || lane >= _visible.Count) return null;
+                lanes[k] = _visible[lane];
+            }
+            return lanes;
+        }
+        int[]? Into(int end) => IndexOf(end) is var at && at >= 0 && at - (length - 1) * _step is var first
+            && first >= 0 && first < _visible.Count ? Run(_visible[first], _step) : null;
+        var forward = new[] { Run(tile, _step), Run(next, _step), Into(tile), Into(next) }.OfType<int[]>()
+            .Select(lanes => (Lanes: lanes, Back: false));
+        // At the far edge a roll has nowhere to go that way, so it rolls back (user rule, as two-note trills do).
+        var back = new[] { Run(tile, -_step), Run(next, -_step) }.OfType<int[]>().Where(lanes => Run(lanes[0], _step) is null)
+            .Select(lanes => (Lanes: lanes, Back: true));
+        var found = forward.Concat(back).Where(option => option.Lanes[0] != _lastTile)
+            .DistinctBy(option => string.Join(",", option.Lanes)).ToArray();
+        int Breaks(int[] lanes) => !_closeToLast ? 0 : (lanes[0] != tile ? 1 : 0) + (lanes.Contains(_lastTile) ? 1 : 0);
+        int Recent(int[] lanes) => lanes.Select((lane, k) => _recent?.Invoke(lane, k) == true ? 1 : 0).Sum();
+        // Only a roll that follows the last one closely keeps off its lanes; after a pause the same roll reads well.
+        bool Repeats(int[] lanes) => _closeToLast && _lastRoll.Length > 0 && _lastRoll.Order().SequenceEqual(lanes.Order());
+        return found.OrderBy(option => Breaks(option.Lanes))
+            .ThenBy(option => Recent(option.Lanes))
+            .ThenBy(option => option.Back ? 1 : 0)
+            .ThenBy(option => Repeats(option.Lanes) ? 1 : 0)
+            .Select(option => option.Lanes).FirstOrDefault();
     }
 
     /// <summary>
@@ -127,15 +194,30 @@ public sealed class TilePatternCursor
     /// heads another roll, and 4 2-1 is never made here). Null when this tile already heads the best roll there is, or when
     /// no tile heads one; the nearest to this tile comes first.
     /// </summary>
-    private int? RollHead(int tile)
+    private int? RollHead(int tile, int length = 2)
     {
-        bool Leads(int head, bool center) => IndexInPattern(head) >= 0 && Neighbour(head, _step) is { } second
-            && Neighbour(second, _step) is { } third && (center ? Adjacent(second, third) : TrillPair(second, third));
+        // The lanes a trill of this length rolls over when it starts on that tile, or null where the screen ends first.
+        int[]? Roll(int start)
+        {
+            var lanes = new int[length];
+            var lane = (int?)start;
+            for (var k = 0; k < length; k++)
+            {
+                if (lane is not { } current) return null;
+                lanes[k] = current;
+                lane = Neighbour(current, _step);
+            }
+            return lanes;
+        }
+        // Off the center applies to a two-note trill only (user rule); a longer roll crosses it anyway.
+        bool Fits(int[]? lanes, bool center) => lanes is not null
+            && (length != 2 || (center ? Adjacent(lanes[0], lanes[1]) : TrillPair(lanes[0], lanes[1])));
+        bool Leads(int head, bool center) => IndexInPattern(head) >= 0 && Neighbour(head, _step) is { } second && Fits(Roll(second), center);
         var at = IndexOf(tile);
         // A tile at the far edge already leads a roll when the pattern goes round from it (2 1 4-3): moving it would only
         // break the cycle the trill continues.
         var round = IndexInPattern(tile) is var place && place >= 0 ? _pattern[(place + 1) % _pattern.Count] : 0;
-        if (Neighbour(tile, _step) is null && round != 0 && Neighbour(round, _step) is { } partner && TrillPair(round, partner)) return null;
+        if (Neighbour(tile, _step) is null && round != 0 && Fits(Roll(round), false)) return null;
         // A roll over the tile just played would bring it straight back (3 4-3) right after it. For a roll off the center,
         // anywhere inside the quick window is too soon (1 3 2-1 with lane 4 free): that is where 3 cannot be the head and the
         // center roll is taken. The center roll is the fallback, so only a close tile just played stops it: what is left
@@ -143,8 +225,7 @@ public sealed class TilePatternCursor
         bool Clear(int head, bool center)
         {
             if (head == _lastTile) return false;
-            var second = Neighbour(head, _step);
-            var lanes = new[] { head, second ?? 0, second is { } middle ? Neighbour(middle, _step) ?? 0 : 0 };
+            var lanes = new[] { head }.Concat(Neighbour(head, _step) is { } second ? Roll(second) ?? [] : []).ToArray();
             var back = Array.IndexOf(lanes, _lastTile);
             return back < 0 || !(_closeToLast || (!center && _tooSoon?.Invoke(back) == true));
         }

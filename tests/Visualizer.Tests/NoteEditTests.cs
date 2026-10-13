@@ -97,6 +97,13 @@ internal static class NoteEditTests
             // Which is exactly where a saved layout of the same lanes puts them.
             var edit = new NoteEdit("hash", rules.Notes.ToDictionary(note => note.Hit, note => note.Tile), []);
             Sequence(NoteEditSession.BuildNotes(timeline, edit).Select(note => (int)note.ShowTimeMs), 700, 1200, 1700, 2200);
+
+            // A chord of three opens as one chord, all three at its first hit (user rule).
+            var wide = MainWindow.FromRules(new ParsedTimeline(new[] { 700d, 1200, 1205, 1210, 1700 }, null, false, new[] { 1, 2, 3, 4, 5 }),
+                settings, "hash");
+            Assert(wide.Notes[1].Chord > 0 && wide.Notes.Skip(1).Take(3).All(note => note.Chord == wide.Notes[1].Chord && note.ShowTimeMs == 1200)
+                && wide.Notes[0].Chord == 0 && wide.Notes[4].Chord == 0,
+                "One chord of three: " + string.Join(" ", wide.Notes.Select(note => $"{note.Tile}/{note.Chord}")));
         }),
 
         ("Typing a lane slides the whole selection, and a wall stops it", () =>
@@ -223,7 +230,7 @@ internal static class NoteEditTests
                 .Any(error => error.Field == nameof(VisualizerSettings.SimultaneousWindowMs)), "40 itself is allowed");
         }),
 
-        ("A chord is two notes in a row on lanes side by side; the play screen shows what the editor shows", () =>
+        ("A chord is notes in a row on lanes side by side; the play screen shows what the editor shows", () =>
         {
             // The benchmark (AnythingBecomeMoe - Yararara, hits 730-732): three hits 0.014ms apart. The rules make 1-2 a
             // chord and 3 a single; the saved edit had split 1-2 and merged 1-3 past 2, so the song played all three apart.
@@ -257,6 +264,25 @@ internal static class NoteEditTests
             session.Select([Index(2)]);
             session.Toggle(Index(3));
             Equal(session.Selection.Count, 0);
+
+            // Three in a row merge into one chord when they lie side by side, all shown at the first one (user rule).
+            NoteEditSession Three(int last) => new(
+            [
+                new EditNote(0, 0, 0, 3, null, 0),
+                new EditNote(1, 10, 10, 4, null, 0),
+                new EditNote(2, 20, 20, last, null, 0)
+            ], All8);
+            var three = Three(5);
+            three.Select([0, 1, 2]);
+            Equal(three.Merge(40), EditRefusal.None);
+            Assert(three.Notes.All(note => note.Chord == three.Notes[0].Chord && note.Chord > 0 && note.ShowTimeMs == 0), "One chord of three");
+            Assert(three.ToLayout().Chords.Single().SequenceEqual([0, 1, 2]), "Saved as one chord");
+            three = Three(6);
+            three.Select([0, 1, 2]);
+            Equal(three.Merge(40), EditRefusal.LanesApart);
+            // Merge all takes as wide a chord as the rules allow: 3-4 here, and 6 stays a single.
+            Equal(three.MergeAll(40), EditRefusal.None);
+            Assert(three.Notes[0].Chord > 0 && three.Notes[1].Chord == three.Notes[0].Chord && three.Notes[2].Chord == 0, "3-4 and a single");
 
             // The play screen draws the same chord.
             var timeline = new ParsedTimeline([0, 1000, 1000.014236, 1000.028473, 2000]);
@@ -340,12 +366,12 @@ internal static class NoteEditTests
             Sequence(session.Notes.Select(note => note.Tile).ToArray(), [1, 2, 3, 4]);
             Assert(!session.Changed, "And nothing moved");
 
-            // The chord rules are the merge rules: two notes, next to each other, inside the window.
+            // The chord rules are the merge rules: two notes or more, side by side, inside the window.
             session = Four8();
             Equal(session.Override([new(3, 3, 1, null), new(4, 4, 1, null)], 40), null);
             Assert(session.Notes[2].Chord != 0 && session.Notes[2].Chord == session.Notes[3].Chord, "The pair is one chord");
             session = Four8();
-            Assert(session.Override([new(3, 3, 1, null), new(4, 6, 1, null)], 40)?.Contains("lanes next to each other", StringComparison.Ordinal) == true,
+            Assert(session.Override([new(3, 3, 1, null), new(4, 6, 1, null)], 40)?.Contains("lanes side by side", StringComparison.Ordinal) == true,
                 "Lanes apart cannot be a chord");
             session = Four8();
             Assert(session.Override([new(1, 1, 1, null), new(3, 2, 1, null)], 40)?.Contains("too far apart", StringComparison.Ordinal) == true,

@@ -185,8 +185,9 @@ internal static class Program
             }),
             ("Generator uses preceding interval and first pair", () =>
             {
-                // The boundaries are pinned to the values this case was written for (30ms is 4K, 10ms is 8K).
-                var s = new VisualizerSettings { MaximumTileCount = 8, InitialTile = 6, SimultaneousWindowMs = 0,
+                // The boundaries are pinned to the values this case was written for (30ms is 4K, 10ms is 8K). Trills are off:
+                // these notes are each within 40ms of the last, which would roll them as one (that is the trill tests' part).
+                var s = new VisualizerSettings { MaximumTileCount = 8, InitialTile = 6, SimultaneousWindowMs = 0, TrillWindowMs = 0,
                     EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500 };
                 var notes = new NoteGenerator().Generate(new[] { 0d, 30, 40, 50, 60, 70 }, s);
                 Sequence(notes.Select(n => n.Tile), 6, 5, 4, 3, 8, 7);
@@ -210,10 +211,10 @@ internal static class Program
                 Sequence(notes.Select(n => n.Mode), 2, 2, 4, 4, 4, 4, 4, 4, 4, 4);
                 Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                 // Mid-cycle the faster pattern also starts on the note before the close run: the 2K cycle is not
-                // opened again just to be completed. Its first tile would bring 5 straight back (5 6-5), so it goes on
-                // from 5 instead (user rule: 3 4 3 reads 3 2-1). The 30ms pairs are trills (4-3, 6-5) and the single after
-                // the 6-5 trill sits beside it on the side it rolled to, 4.
-                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 4, 3, 6, 5, 4);
+                // opened again just to be completed. 300 to 390 are each within the trill window of the last, so they are one
+                // roll over the four lanes (user rule: a trill takes as many notes as come that close, cut at the lanes on
+                // screen), 6-5-4-3; 420 starts what is left, alone, and after a roll into the edge the pattern goes on.
+                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 6, 5, 4, 3, 6);
                 // 4K -> 8K keeps the preceding-interval rule.
                 var eight = settings with { MaximumTileCount = 8, InitialTile = 6 };
                 Sequence(generator.Generate(new[] { 0d, 30, 40, 50, 60, 70 }, eight).Select(n => n.Mode), 4, 4, 4, 4, 8, 8);

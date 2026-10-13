@@ -47,9 +47,11 @@ public sealed class NoteEditSession
         _notes = notes.OrderBy(note => note.ShowTimeMs).ThenBy(note => note.Hit).ToList();
         Lanes = lanes.OrderBy(tile => tile).ToArray();
         SourceHash = sourceHash;
-        // A chord that skips a note in between cannot be one (user rule), so it opens split; saving keeps that.
+        // A chord that skips a note in between cannot be one (user rule), so it opens split; saving keeps that. Its own
+        // members between its first and last hit are the chord itself (a chord of three or more).
         var skipping = _notes.Where(note => note.Chord > 0).GroupBy(note => note.Chord)
-            .Where(group => HasNoteBetween(group.Min(note => note.Hit), group.Max(note => note.Hit))).Select(group => group.Key).ToHashSet();
+            .Where(group => HasNoteBetween(group.Min(note => note.Hit), group.Max(note => note.Hit), group.Select(note => note.Hit)))
+            .Select(group => group.Key).ToHashSet();
         if (skipping.Count == 0) return;
         for (var index = 0; index < _notes.Count; index++)
             if (skipping.Contains(_notes[index].Chord))
@@ -59,9 +61,15 @@ public sealed class NoteEditSession
         Changed = true;
     }
 
-    /// <summary>Whether a note of the song lies between these two hits, however close in time (user rule).</summary>
-    private bool HasNoteBetween(int firstHit, int lastHit) =>
-        _notes.Any(note => note.Hit > Math.Min(firstHit, lastHit) && note.Hit < Math.Max(firstHit, lastHit));
+    /// <summary>
+    /// Whether a note of the song lies between these two hits, however close in time (user rule). <paramref name="members"/>
+    /// are the chord's own hits, which do not count.
+    /// </summary>
+    private bool HasNoteBetween(int firstHit, int lastHit, IEnumerable<int>? members = null)
+    {
+        var own = members?.ToHashSet() ?? [];
+        return _notes.Any(note => note.Hit > Math.Min(firstHit, lastHit) && note.Hit < Math.Max(firstHit, lastHit) && !own.Contains(note.Hit));
+    }
 
     /// <summary>Where a tile sits on screen, 0-based, or -1 when it is not shown.</summary>
     public int LaneOf(int tile)
@@ -260,68 +268,74 @@ public sealed class NoteEditSession
     // ---- chords ----------------------------------------------------------
 
     /// <summary>
-    /// Whether two single notes may be one chord (user rules): within <paramref name="windowMs"/> (40ms at
-    /// most), no other note between their hits however close, and on lanes side by side.
+    /// Whether single notes may be one chord (user rules): two or more, the last within <paramref name="windowMs"/> (40ms at
+    /// most) of the first, so start and end are both in it; no other note between their hits however close; and on lanes
+    /// side by side, one lane each.
     /// </summary>
-    private EditRefusal CanMerge(EditNote first, EditNote second, double windowMs)
+    private EditRefusal CanMerge(IReadOnlyList<EditNote> members, double windowMs)
     {
-        if (first.Chord > 0 || second.Chord > 0) return EditRefusal.BadMerge;
-        if (first.Tile == second.Tile) return EditRefusal.LaneTaken;
+        if (members.Count < 2 || members.Any(note => note.Chord > 0)) return EditRefusal.BadMerge;
+        if (members.Select(note => note.Tile).Distinct().Count() != members.Count) return EditRefusal.LaneTaken;
         var window = Math.Min(windowMs, Core.Settings.VisualizerSettings.MaximumChordWindowMs);
-        if (Math.Abs(second.HitTimeMs - first.HitTimeMs) > window + Epsilon) return EditRefusal.BadMerge;
-        if (HasNoteBetween(first.Hit, second.Hit)) return EditRefusal.NoteBetween;
-        if (Math.Abs(LaneOf(first.Tile) - LaneOf(second.Tile)) != 1) return EditRefusal.LanesApart;
+        if (members.Max(note => note.HitTimeMs) - members.Min(note => note.HitTimeMs) > window + Epsilon) return EditRefusal.BadMerge;
+        if (HasNoteBetween(members.Min(note => note.Hit), members.Max(note => note.Hit), members.Select(note => note.Hit))) return EditRefusal.NoteBetween;
+        var lanes = members.Select(note => LaneOf(note.Tile)).Order().ToArray();
+        if (lanes[0] < 0 || lanes[^1] - lanes[0] != lanes.Length - 1) return EditRefusal.LanesApart;
         return EditRefusal.None;
     }
 
-    /// <summary>Makes the two selected notes one chord: the later one shows at the earlier one's time.</summary>
+    private EditRefusal CanMerge(EditNote first, EditNote second, double windowMs) => CanMerge([first, second], windowMs);
+
+    /// <summary>Makes the selected notes one chord, two or more of them: the later ones show at the earliest one's time.</summary>
     public EditRefusal Merge(double windowMs)
     {
-        if (_selection.Count != 2) return EditRefusal.BadMerge;
-        var pair = _selection.OrderBy(index => _notes[index].ShowTimeMs).ThenBy(index => _notes[index].Hit).ToArray();
-        var (first, second) = (_notes[pair[0]], _notes[pair[1]]);
-        if (CanMerge(first, second, windowMs) is var refusal and not EditRefusal.None) return refusal;
+        if (_selection.Count < 2) return EditRefusal.BadMerge;
+        var members = _selection.OrderBy(index => _notes[index].ShowTimeMs).ThenBy(index => _notes[index].Hit).ToArray();
+        if (CanMerge(members.Select(index => _notes[index]).ToArray(), windowMs) is var refusal and not EditRefusal.None) return refusal;
         Remember();
         var id = _notes.Count == 0 ? 1 : _notes.Max(note => note.Chord) + 1;
-        _notes[pair[0]] = first with { Chord = id };
+        var shown = _notes[members[0]].ShowTimeMs;
         // The chord shows at its first hit, exactly as an automatic chord does.
-        _notes[pair[1]] = second with { Chord = id, ShowTimeMs = first.ShowTimeMs };
+        foreach (var index in members) _notes[index] = _notes[index] with { Chord = id, ShowTimeMs = shown };
         Sort();
         return EditRefusal.None;
     }
 
     /// <summary>
-    /// Merges the selected single notes in pairs, earliest first, wherever a pair can be one chord (within the window, on
-    /// different lanes); a pair that cannot is skipped and its later note tries the next one.
-    /// Chords in the selection stay as they are. One undo step takes all the pairs back.
+    /// Merges the selected single notes, earliest first, into as wide chords as the rules allow (within the window, on lanes
+    /// side by side, user rule: two or more); a note that joins none is skipped and the next one tries.
+    /// Chords in the selection stay as they are. One undo step takes all of them back.
     /// </summary>
     public EditRefusal MergeAll(double windowMs)
     {
         var singles = _selection.Where(index => _notes[index].Chord == 0)
             .OrderBy(index => _notes[index].ShowTimeMs).ThenBy(index => _notes[index].Hit).ToArray();
-        var pairs = new List<(int First, int Second)>();
+        var chords = new List<int[]>();
         var reason = EditRefusal.BadMerge;
         for (var k = 0; k + 1 < singles.Length;)
         {
             var refusal = CanMerge(_notes[singles[k]], _notes[singles[k + 1]], windowMs);
-            if (refusal == EditRefusal.None)
+            if (refusal != EditRefusal.None)
             {
-                pairs.Add((singles[k], singles[k + 1]));
-                k += 2;
+                // The first reason is the one said when nothing merges.
+                if (chords.Count == 0 && reason == EditRefusal.BadMerge) reason = refusal;
+                k++;
                 continue;
             }
-            // The first reason is the one said when nothing merges.
-            if (pairs.Count == 0 && reason == EditRefusal.BadMerge) reason = refusal;
-            k++;
+            var end = k + 1;
+            while (end + 1 < singles.Length
+                && CanMerge(singles[k..(end + 2)].Select(index => _notes[index]).ToArray(), windowMs) == EditRefusal.None) end++;
+            chords.Add(singles[k..(end + 1)]);
+            k = end + 1;
         }
-        if (pairs.Count == 0) return reason;
+        if (chords.Count == 0) return reason;
         Remember();
         var id = _notes.Max(note => note.Chord) + 1;
-        foreach (var (first, second) in pairs)
+        foreach (var members in chords)
         {
-            _notes[first] = _notes[first] with { Chord = id };
+            var shown = _notes[members[0]].ShowTimeMs;
             // The chord shows at its first hit, exactly as an automatic chord does.
-            _notes[second] = _notes[second] with { Chord = id, ShowTimeMs = _notes[first].ShowTimeMs };
+            foreach (var index in members) _notes[index] = _notes[index] with { Chord = id, ShowTimeMs = shown };
             id++;
         }
         Sort();
@@ -393,23 +407,27 @@ public sealed class NoteEditSession
                         wanted[other] = wanted[other] with { Chord = 0, ShowTimeMs = wanted[other].HitTimeMs };
             wanted[index] = wanted[index] with { Tile = note.Tile, Chord = 0, ShowTimeMs = wanted[index].HitTimeMs };
         }
-        // Chords are rebuilt from the groups the lines share, and each pair goes through the same rules as a merge.
+        // Chords are rebuilt from the groups the lines share, and each goes through the same rules as a merge: two notes or
+        // more, the last within the window of the first, on lanes side by side, nothing else between.
         var groups = notes.Where(note => note.Chord is > 0).GroupBy(note => note.Chord!.Value).ToArray();
         var id = 0;
         foreach (var group in groups)
         {
             var members = group.Select(note => Array.FindIndex(wanted, each => each.Hit == note.Hit - 1)).OrderBy(index => index).ToArray();
-            if (members.Length != 2) return T("OverrideChordSize", group.Key, members.Length);
-            var (first, second) = (wanted[members[0]], wanted[members[1]]);
-            if (Math.Abs(second.HitTimeMs - first.HitTimeMs) > Math.Min(windowMs, Core.Settings.VisualizerSettings.MaximumChordWindowMs) + Epsilon)
-                return T("OverrideChordFar", first.Hit + 1, second.Hit + 1);
-            if (Math.Abs(LaneOf(first.Tile) - LaneOf(second.Tile)) != 1)
-                return T("OverrideChordLanes", first.Hit + 1, second.Hit + 1);
-            if (wanted.Any(each => each.Hit > first.Hit && each.Hit < second.Hit))
-                return T("OverrideChordBetween", first.Hit + 1, second.Hit + 1);
+            if (members.Length < 2) return T("OverrideChordSize", group.Key, members.Length);
+            var (first, last) = (wanted[members[0]], wanted[members[^1]]);
+            if (members.Max(index => wanted[index].HitTimeMs) - members.Min(index => wanted[index].HitTimeMs)
+                > Math.Min(windowMs, Core.Settings.VisualizerSettings.MaximumChordWindowMs) + Epsilon)
+                return T("OverrideChordFar", first.Hit + 1, last.Hit + 1);
+            var lanes = members.Select(index => LaneOf(wanted[index].Tile)).Order().ToArray();
+            if (lanes.Distinct().Count() != lanes.Length || lanes[^1] - lanes[0] != lanes.Length - 1)
+                return T("OverrideChordLanes", first.Hit + 1, last.Hit + 1);
+            var own = members.Select(index => wanted[index].Hit).ToHashSet();
+            if (wanted.Any(each => each.Hit > first.Hit && each.Hit < last.Hit && !own.Contains(each.Hit)))
+                return T("OverrideChordBetween", first.Hit + 1, last.Hit + 1);
             id++;
-            wanted[members[0]] = first with { Chord = id };
-            wanted[members[1]] = second with { Chord = id, ShowTimeMs = first.ShowTimeMs };
+            var shown = first.ShowTimeMs;
+            foreach (var index in members) wanted[index] = wanted[index] with { Chord = id, ShowTimeMs = shown };
         }
         // Two notes on one lane within a hand's reach of each other cannot be played, however they were asked for.
         var order = wanted.OrderBy(note => note.HitTimeMs).ToArray();

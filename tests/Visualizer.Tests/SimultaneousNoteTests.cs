@@ -87,6 +87,34 @@ internal static class SimultaneousNoteTests
                 }
             }
         });
+        yield return ("A chord of three is drawn as one gapless bar over its three lanes", () =>
+        {
+            const int width = 300, height = 400;
+            var session = new PlaybackSession(new Clock());
+            // The chord is the play's first moment, so the start color is set to the chord color to read it as a chord.
+            var plain = new VisualizerSettings();
+            session.LoadTimeline(new[] { 0d, 1, 2, 2000 }, plain with { DynamicTiming = false, JudgmentLineHeightDip = 36, StartNoteColor = plain.ChordColor });
+            session.Toggle();
+            var field = new Visualizer.App.Rendering.NoteField { Session = session };
+            field.Measure(new Size(width, height));
+            field.Arrange(new Rect(0, 0, width, height));
+            field.UpdateLayout();
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            bitmap.Render(field);
+            var pixels = new byte[width * height * 4];
+            bitmap.CopyPixels(pixels, width * 4, 0);
+            // Four lanes of 75px; the judgment line is at y 334. Chord green is high G and low R (B G R A bytes).
+            bool Green(int x) => (334 * width + x) * 4 is var index && pixels[index + 1] > 180 && pixels[index + 2] < 120;
+            var visible = plain.GetVisibleTiles().ToList();
+            var lanes = session.Notes.Take(3).Select(note => visible.IndexOf(note.Tile)).Order().ToArray();
+            Assert(lanes[^1] - lanes[0] == 2, "Three lanes side by side: " + string.Join(",", lanes));
+            // Lane centers and the two lane borders inside the chord, but not the lane left out.
+            foreach (var x in new[] { lanes[0] * 75 + 37, lanes[0] * 75 + 75, lanes[1] * 75 + 37, lanes[1] * 75 + 75, lanes[2] * 75 + 37 })
+                Assert(Green(x), $"Chord color at x {x}");
+            var left = Enumerable.Range(0, 4).Single(lane => !lanes.Contains(lane));
+            Assert(!Green(left * 75 + 37), $"Lane {left + 1} is empty");
+        });
+
         yield return ("Notes keep one hand's flow: no key twice in a row, singles beside chords, trills roll with the pattern", () =>
         {
             // User report (Plum - Megamix): 1 2 3 2 1 zigzags, trills against the 4-3-2-1 pattern (1-2 instead of 2-1), the same
@@ -105,7 +133,10 @@ internal static class SimultaneousNoteTests
                 var events = new List<(double, int[])>();
                 for (var i = 0; i < notes.Count; i++)
                 {
-                    var lanes = notes[i].StartsChord ? new[] { notes[i], notes[++i] } : new[] { notes[i] };
+                    // A chord is every note marked in a row and the one after the last.
+                    var first = i;
+                    while (notes[i].StartsChord && i + 1 < notes.Count) i++;
+                    var lanes = notes.Skip(first).Take(i - first + 1).ToArray();
                     events.Add((notes[i].HitTimeMs, lanes.Select(note => visible.IndexOf(note.Tile) + 1).Order().ToArray()));
                 }
                 return events;
@@ -326,28 +357,31 @@ internal static class SimultaneousNoteTests
             Sequence(Lanes([0, 30, 1000, 1030], settings with { InitialTile = 5 }), 2, 1, 4, 3);
         });
 
-        yield return ("Wide chords split into two-note chords plus the latest single", () =>
+        yield return ("A chord of three or four is one chord on lanes side by side; two keep an outer pair", () =>
         {
             var generator = new NoteGenerator();
-            // Checks every same-time group: members pair in order on adjacent lanes, an odd last member is a single,
-            // no tile repeats, and a 4K chord uses an outer pair.
+            // User rule: every note of a group within the chord window of the first (start and end both in it) is one chord,
+            // as wide as it has notes while the screen has the lanes: on four lanes 1-2-3 or 2-3-4 for three, 1-2-3-4 for four.
+            // The center rule is the two-note chord's own, so only a pair keeps an outer pair.
             void Check(IReadOnlyList<VisualizerNote> notes, VisualizerSettings settings, double[] times)
             {
                 Equal(notes.Count, times.Length);
                 var visible = settings.GetVisibleTiles().ToList();
-                foreach (var group in notes.GroupBy(n => n.HitTimeMs))
+                foreach (var group in notes.Select((note, index) => (note, index)).GroupBy(entry => entry.note.HitTimeMs))
                 {
                     var members = group.ToArray();
-                    Equal(members.Select(n => n.Tile).Distinct().Count(), members.Length);
-                    for (var m = 0; m + 1 < members.Length; m += 2)
+                    Equal(members.Select(entry => entry.note.Tile).Distinct().Count(), members.Length);
+                    if (members.Length == 1) continue;
+                    // One chord: every member but the last carries the mark, so the screen draws them as one.
+                    Assert(members.SkipLast(1).All(entry => entry.note.StartsChord) && !members[^1].note.StartsChord,
+                        "One chord, marked through: " + string.Join(" ", notes.Select(n => n.Tile + (n.StartsChord ? "-" : " "))));
+                    var lanes = members.Select(entry => visible.IndexOf(entry.note.Tile)).Order().ToArray();
+                    Assert(lanes[^1] - lanes[0] == lanes.Length - 1, "Lanes side by side: " + string.Join(",", lanes));
+                    if (members.Length == 2 && members[0].note.Mode == 4)
                     {
-                        Equal(Math.Abs(visible.IndexOf(members[m].Tile) - visible.IndexOf(members[m + 1].Tile)), 1);
-                        if (members[m].Mode == 4)
-                        {
-                            var pair = new[] { members[m].Tile, members[m + 1].Tile }.Order().ToArray();
-                            var active = settings.GetPattern(4).Order().ToArray();
-                            Assert(pair.SequenceEqual(active[..2]) || pair.SequenceEqual(active[2..]), "A 4K chord must occupy an outer pair");
-                        }
+                        var pair = members.Select(entry => entry.note.Tile).Order().ToArray();
+                        var active = settings.GetPattern(4).Order().ToArray();
+                        Assert(pair.SequenceEqual(active[..2]) || pair.SequenceEqual(active[2..]), "A 4K two-note chord must occupy an outer pair");
                     }
                 }
             }
@@ -365,9 +399,18 @@ internal static class SimultaneousNoteTests
             }
             var three = generator.Generate(new[] { 0d, 1, 2 }, Settings);
             Assert(three.All(n => n.HitTimeMs == 0), "Display times align to the first hit");
-            Equal(generator.Generate(new[] { 0d, 1, 2, 3 }, Settings with { FourKeyPattern = "1 2 3 4" }).Count, 4);
+            Assert(three[0].StartsChord && three[1].StartsChord && !three[2].StartsChord, "Three notes are one chord");
+            var four = generator.Generate(new[] { 0d, 1, 2, 3 }, Settings with { FourKeyPattern = "1 2 3 4" });
+            Assert(four.Select(n => n.Tile).Order().SequenceEqual(new[] { 1, 2, 3, 4 }) && four.SkipLast(1).All(n => n.StartsChord), "Four on four lanes");
+            // Start and end both in the window (user rule): a b c with a-b and b-c close but a-c not is no three-note chord;
+            // a-b is one, and c, close after it, rolls on beside it (1-2 3 or 3-4 2).
+            var chain = generator.Generate(new[] { 0d, 15, 30 }, Settings with { SimultaneousWindowMs = 20 });
+            Assert(chain[0].StartsChord && !chain[1].StartsChord && chain[2].HitTimeMs == 30, "a-b chord, c apart");
+            var chordLanes = chain.Take(2).Select(n => n.Tile).ToArray();
+            Assert(chordLanes.Any(tile => Math.Abs(tile - chain[2].Tile) == 1) && !chordLanes.Contains(chain[2].Tile),
+                "c sits beside the chord: " + string.Join(" ", chain.Select(n => n.Tile)));
         });
-        yield return ("With four lanes, chords never use the middle lanes 2-3 in any mode", () =>
+        yield return ("With four lanes, two-note chords never use the middle lanes 2-3 in any mode", () =>
         {
             var generator = new NoteGenerator();
             var defaults = new VisualizerSettings(); // Visible tiles 3 4 5 6; lanes 2-3 are tiles 4 and 5.
@@ -382,7 +425,8 @@ internal static class SimultaneousNoteTests
             {
                 var notes = generator.Generate(times, settings);
                 var visible = settings.GetVisibleTiles().ToList();
-                foreach (var group in notes.GroupBy(n => n.HitTimeMs).Select(g => g.ToArray()))
+                // A chord of three or more crosses the center by nature; the rule is the two-note chord's (user rule).
+                foreach (var group in notes.GroupBy(n => n.HitTimeMs).Select(g => g.ToArray()).Where(g => g.Length == 2))
                     for (var m = 0; m + 1 < group.Length; m += 2)
                     {
                         var lanes = new[] { visible.IndexOf(group[m].Tile), visible.IndexOf(group[m + 1].Tile) }.Order().ToArray();

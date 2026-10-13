@@ -248,7 +248,6 @@ public sealed class NoteField : FrameworkElement
         // Width scales: the lane width without its inset, scaled around the lane center. A long note bar is
         // never wider than a note (checked by the settings).
         var singleWidth = Math.Max(1, (laneWidth - 2 * NoteInset) * settings.NoteWidth);
-        var chordWidth = Math.Max(1, (2 * laneWidth - 2 * NoteInset) * settings.NoteWidth);
         var holdWidth = Math.Max(1, (laneWidth - 2 * NoteInset) * settings.HoldNoteWidth);
         static double Centered(double start, double span, double barWidth) => start + (span - barWidth) / 2;
         var (earliest, latest) = geometry.VisibleWindow(timeline, travel, half);
@@ -326,12 +325,15 @@ public sealed class NoteField : FrameworkElement
             if (note.HitTimeMs + offsets.TotalMs > latest) break;
             // Tiles the game rewound past on a checkpoint restart: they fall in front of the playhead but are not played.
             if (note.HitTimeMs < session.HideNotesBeforeMs) continue;
+            // A chord is the notes marked StartsChord in a row and the one after the last (two or more, user rule).
+            var chordEnd = i;
+            while (chordEnd + 1 < notes.Count && notes[chordEnd].StartsChord) chordEnd++;
             // A long note, or a chord with one, is drawn as separate bars in the note (or chord) color.
-            if (note.IsHold || (note.StartsChord && i + 1 < notes.Count && notes[i + 1].IsHold))
+            if (note.IsHold || Enumerable.Range(i, chordEnd - i + 1).Any(k => notes[k].IsHold))
             {
-                var chord = note.StartsChord && i + 1 < notes.Count;
-                DrawMember(i, chord);
-                if (chord) DrawMember(++i, true);
+                var chord = chordEnd > i;
+                for (var k = i; k <= chordEnd; k++) DrawMember(k, chord);
+                i = chordEnd;
                 continue;
             }
             var y = NoteY(note);
@@ -340,30 +342,35 @@ public sealed class NoteField : FrameworkElement
             var pressed = judge?.IsPressed(notes, i) == true;
             var shown = Shown(note, y, pressed);
             // The planner marks chords explicitly: a spare-lane single beside its group is never merged into a chord.
-            if (note.StartsChord && i + 1 < notes.Count && _laneByTile[notes[i + 1].Tile] is var partner and >= 0)
+            if (chordEnd > i)
             {
-                var partnerPressed = judge?.IsPressed(notes, i + 1) == true;
-                var partnerShown = Shown(notes[i + 1], y, partnerPressed);
-                if (!shown || !partnerShown || Math.Abs(partner - lane) != 1)
+                var members = Enumerable.Range(i, chordEnd - i + 1).Select(k => (Index: k, Lane: _laneByTile[notes[k].Tile],
+                    Pressed: judge?.IsPressed(notes, k) == true)).ToArray();
+                var memberShown = members.Select(member => member.Lane >= 0 && Shown(notes[member.Index], y, member.Pressed)).ToArray();
+                var memberLanes = members.Select(member => member.Lane).Order().ToArray();
+                var together = memberShown.All(seen => seen) && memberLanes[0] >= 0
+                    && memberLanes[^1] - memberLanes[0] == memberLanes.Length - 1 && memberLanes.Distinct().Count() == memberLanes.Length;
+                if (!together)
                 {
-                    // One half has left (its window ended unpressed): the other half stays as a one-lane chord note.
-                    if (shown) DrawSingle(lane, BrushOf(i, true, pressed));
-                    if (partnerShown) DrawSingle(partner, BrushOf(i, true, partnerPressed));
-                    i++;
+                    // A member has left (its window ended unpressed): the others stay as one-lane chord notes.
+                    for (var k = 0; k < members.Length; k++)
+                        if (memberShown[k]) DrawSingle(members[k].Lane, BrushOf(members[k].Index, true, members[k].Pressed));
+                    i = chordEnd;
                     continue;
                 }
-                var left = Math.Min(lane, partner);
-                var rect = new Rect(Centered(left * laneWidth, 2 * laneWidth, chordWidth), y - half, chordWidth, thickness);
-                dc.DrawRoundedRectangle(BrushOf(i, true, pressed && partnerPressed), null, rect, radius, radius);
-                if (pressed != partnerPressed)
+                var span = memberLanes.Length;
+                var width = Math.Max(1, (span * laneWidth - 2 * NoteInset) * settings.NoteWidth);
+                var rect = new Rect(Centered(memberLanes[0] * laneWidth, span * laneWidth, width), y - half, width, thickness);
+                dc.DrawRoundedRectangle(BrushOf(i, true, members.All(member => member.Pressed)), null, rect, radius, radius);
+                if (members.Any(member => member.Pressed) && !members.All(member => member.Pressed))
                 {
-                    // Fade only the pressed half; the chord stays one gapless tile.
-                    var dimmedLeft = (pressed ? lane : partner) == left;
-                    var halfWidth = rect.Width / 2;
-                    dc.DrawRoundedRectangle(BrushOf(i, true, true), null,
-                        new Rect(dimmedLeft ? rect.X : rect.X + halfWidth, rect.Y, halfWidth, thickness), radius, radius);
+                    // Fade only the pressed members' part; the chord stays one gapless tile.
+                    var part = rect.Width / span;
+                    foreach (var member in members.Where(member => member.Pressed))
+                        dc.DrawRoundedRectangle(BrushOf(i, true, true), null,
+                            new Rect(rect.X + (member.Lane - memberLanes[0]) * part, rect.Y, part, thickness), radius, radius);
                 }
-                i++;
+                i = chordEnd;
                 continue;
             }
             if (shown) DrawSingle(lane, BrushOf(i, false, pressed));
