@@ -2,7 +2,8 @@ using System.Globalization;
 using System.Text.Json;
 using Visualizer.Application.Cache;
 using Visualizer.Application.Library;
-using Visualizer.Application.Maps;
+using Visualizer.Application.Maps;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Storage;
 
@@ -130,7 +131,7 @@ public sealed class MapLibrary(AppStorage storage)
     public void Remove(MapCacheEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        if (KindOf(entry) == MapKind.External) throw new InvalidOperationException("Only songs in the app's map folders can be removed.");
+        if (KindOf(entry) == MapKind.External) throw new InvalidOperationException(T("OnlyAppSongsRemoved"));
         var path = Path.Combine(entry.RootDirectory, entry.RelativePath);
         CheckInside(path);
         if (SlotFolderOf(entry) is { } slot)
@@ -150,7 +151,7 @@ public sealed class MapLibrary(AppStorage storage)
     {
         ArgumentNullException.ThrowIfNull(entry);
         if (SlotFolderOf(entry) is not { } folder || !Directory.Exists(folder))
-            throw new InvalidOperationException("Only edited songs can be kept for restore.");
+            throw new InvalidOperationException(T("OnlyEditsKept"));
         CheckInside(folder);
         CheckInside(RemovedRoot);
         if (Directory.Exists(RemovedRoot)) Delete(RemovedRoot);
@@ -169,11 +170,11 @@ public sealed class MapLibrary(AppStorage storage)
     /// </summary>
     public int Restore()
     {
-        var held = ReadHeld() ?? throw new InvalidOperationException("Nothing is kept for restore.");
+        var held = ReadHeld() ?? throw new InvalidOperationException(T("NothingKept"));
         string Folder(int slot) => Path.Combine(EditedRoot, held.Song, slot.ToString(CultureInfo.InvariantCulture));
         var free = new[] { held.Slot }.Concat(Enumerable.Range(1, 9)).Where(slot => slot is >= 1 and <= 9)
             .Cast<int?>().FirstOrDefault(slot => !Directory.Exists(Folder(slot!.Value)));
-        if (free is not { } target) throw new IOException("Every slot of that song is in use.");
+        if (free is not { } target) throw new IOException(T("EverySlotUsed"));
         var destination = Folder(target);
         CheckInside(destination);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -225,7 +226,7 @@ public sealed class MapLibrary(AppStorage storage)
     private void CheckInside(string path)
     {
         // ".new" and ".old" sit beside the custom folder, so the test is against the maps root.
-        if (!Within(path, Root)) throw new IOException("The map library only ever writes inside its own folder.");
+        if (!Within(path, Root)) throw new IOException(T("LibraryOwnFolder"));
         RejectReparseAncestors(path);
     }
 
@@ -248,7 +249,7 @@ public sealed class MapLibrary(AppStorage storage)
             try
             {
                 if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Reparse point paths are not supported for the map library.");
+                    throw new IOException(T("LibraryReparse"));
             }
             catch (FileNotFoundException) { }
             catch (DirectoryNotFoundException) { }

@@ -2,6 +2,7 @@ using System.Globalization;
 using Visualizer.Application.Playback;
 using Visualizer.Application.Sync;
 using Visualizer.Core.Visualization;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Input;
 
@@ -36,6 +37,9 @@ public sealed class LinkInspection : IDisposable
     private readonly IMonotonicClock _clock;
     private readonly Action<int, bool> _send;
     private readonly Func<bool> _gameInFront;
+    private readonly Func<string>? _describeFront;
+    private bool _seenFront;
+    private int _skipped;
     private readonly IReadOnlyDictionary<int, int> _keyOfTile;
     private readonly Dictionary<int, (int Tile, double PressAt, double ReleaseAt)> _plan = [];
     private readonly HashSet<int> _done = [];
@@ -49,8 +53,11 @@ public sealed class LinkInspection : IDisposable
     /// <param name="keyOfTile">The virtual key of each tile's lane key (the settings' lane keys).</param>
     /// <param name="send">Sends a key down (true) or up; the window passes the real sender, tests their own.</param>
     /// <param name="gameInFront">Whether the game is the window in front right now. Asked before every press, from any thread.</param>
-    public LinkInspection(IMonotonicClock clock, IReadOnlyDictionary<int, int> keyOfTile, Action<int, bool> send, Func<bool> gameInFront)
+    /// <param name="describeFront">What is in front instead, for the reason a run stops; any thread may ask.</param>
+    public LinkInspection(IMonotonicClock clock, IReadOnlyDictionary<int, int> keyOfTile, Action<int, bool> send, Func<bool> gameInFront,
+        Func<string>? describeFront = null)
     {
+        _describeFront = describeFront;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _keyOfTile = keyOfTile ?? throw new ArgumentNullException(nameof(keyOfTile));
         _send = send ?? throw new ArgumentNullException(nameof(send));
@@ -62,6 +69,12 @@ public sealed class LinkInspection : IDisposable
 
     /// <summary>The keys sent so far.</summary>
     public IReadOnlyList<InspectPress> Presses { get { lock (_gate) return _presses.ToArray(); } }
+
+    /// <summary>Whether the run still waits for the game to come to the front for the first time.</summary>
+    public bool WaitingForGame { get { lock (_gate) return !_seenFront; } }
+
+    /// <summary>Notes that came due before the game had ever been in front, let go without a key.</summary>
+    public int Skipped { get { lock (_gate) return _skipped; } }
 
     /// <summary>The last key sent, or null.</summary>
     public InspectPress? LastPress { get { lock (_gate) return _presses.Count > 0 ? _presses[^1] : null; } }
@@ -112,7 +125,10 @@ public sealed class LinkInspection : IDisposable
         lock (_gate)
         {
             if (StopReason is not null) return false;
-            if (!double.IsNaN(_plannedAt) && nowMs - _plannedAt > StaleMs) return Stop("the visualizer stopped drawing its notes (minimized or busy)");
+            if (!double.IsNaN(_plannedAt) && nowMs - _plannedAt > StaleMs) return Stop(T("StaleDrawing"));
+            // Once the game has been in front, its leaving ends the run at once, not only when the next key is due.
+            if (_gameInFront()) _seenFront = true;
+            else if (_seenFront) return Stop(LeftFront());
             foreach (var key in _held.Where(held => held.Value <= nowMs).Select(held => held.Key).ToArray())
             {
                 _send(key, false);
@@ -121,9 +137,19 @@ public sealed class LinkInspection : IDisposable
             foreach (var (note, plan) in _plan.Where(entry => !_done.Contains(entry.Key) && entry.Value.PressAt <= nowMs)
                          .OrderBy(entry => entry.Value.PressAt).ToArray())
             {
-                if (!_keyOfTile.TryGetValue(plan.Tile, out var key)) return Stop($"lane {plan.Tile} has no lane key");
-                // Asked right before the key goes: a key may only ever reach the game.
-                if (!_gameInFront()) return Stop("the game window is not in front");
+                if (!_keyOfTile.TryGetValue(plan.Tile, out var key)) return Stop(T("NoLaneKey", plan.Tile));
+                // Asked right before the key goes: a key may only ever reach the game. Until the game has been in front once
+                // the run waits, and a note due then goes unpressed (user report: the run ended at the first note while the
+                // console was still in front); once it has been, the game leaving the front ends the run.
+                if (!_gameInFront())
+                {
+                    if (_seenFront) return Stop(LeftFront());
+                    _done.Add(note);
+                    _lastNote = Math.Max(_lastNote, note);
+                    _skipped++;
+                    continue;
+                }
+                _seenFront = true;
                 if (_held.ContainsKey(key)) _send(key, false);
                 _send(key, true);
                 _held[key] = plan.ReleaseAt;
@@ -170,10 +196,12 @@ public sealed class LinkInspection : IDisposable
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or ArgumentException or InvalidOperationException)
         {
-            lock (_gate) StopReason ??= "a key could not be sent: " + error.Message;
+            lock (_gate) StopReason ??= T("KeyNotSent", error.Message);
         }
         finally { ReleaseAll(); }
     }
+
+    private string LeftFront() => T("GameLeftFront") + (_describeFront?.Invoke() is { Length: > 0 } front ? $" ({front})" : "");
 
     private bool Stop(string why)
     {
@@ -256,42 +284,47 @@ public sealed class InspectRun
     /// <summary>A frame of the visualizer's that came this late after the one before (the app itself could not keep up).</summary>
     public void Stall(double gapMs) => _stalls.Add(gapMs);
 
-    public void Finish(string reason, IReadOnlyList<InspectPress> presses)
+    public void Finish(string reason, IReadOnlyList<InspectPress> presses, int skipped = 0)
     {
         StopReason = reason;
         Presses = presses;
+        Skipped = skipped;
     }
 
-    /// <summary>The run as the lines report -inspect writes (in English, as the console writes).</summary>
+    /// <summary>Notes let go without a key because the game had not been in front yet.</summary>
+    public int Skipped { get; private set; }
+
+    /// <summary>The run as the lines report -inspect writes, in the console's language.</summary>
     public IReadOnlyList<string> Lines()
     {
         static string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
         var lines = new List<string>
         {
-            $"link inspect #{Number} · {StartedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} · {Song} · linker {ModVersion ?? "?"}",
-            $"level: {LevelPath}"
+            T("InspectHeader", Number, StartedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), Song, ModVersion ?? "?"),
+            T("InspectLevel", LevelPath)
         };
         var late = Presses.Where(press => press.LateMs > LinkInspection.LateMs).ToArray();
-        lines.Add(Presses.Count == 0 ? "presses: none were sent"
-            : $"presses: {Presses.Count} sent, {late.Length} later than {Ms(LinkInspection.LateMs)} ms"
-              + (late.Length > 0 ? $" (most {Ms(late.Max(press => press.LateMs))} ms)" : "")
-              + $", mean {Ms(Presses.Average(press => press.LateMs))} ms after their moment");
-        lines.Add(_stalls.Count == 0 ? "frames: none came late" : $"frames: {_stalls.Count} came late (most {Ms(_stalls.Max())} ms apart)");
+        lines.Add(Presses.Count == 0 ? T("InspectNoPresses")
+            : T("InspectPresses", Presses.Count, late.Length, Ms(LinkInspection.LateMs))
+              + (late.Length > 0 ? T("InspectMostLate", Ms(late.Max(press => press.LateMs))) : "")
+              + T("InspectMean", Ms(Presses.Average(press => press.LateMs))));
+        if (Skipped > 0) lines.Add(T("InspectWaitingLine", Skipped));
+        lines.Add(_stalls.Count == 0 ? T("InspectNoStalls") : T("InspectStalls", _stalls.Count, Ms(_stalls.Max())));
         if (_first is { } first && _last is { } last && first.Length == last.Length)
         {
             var changed = Enumerable.Range(0, last.Length).Where(margin => last[margin] != first[margin])
                 .Select(margin => $"{(margin < MarginNames.Length ? MarginNames[margin] : margin.ToString(CultureInfo.InvariantCulture))} +{last[margin] - first[margin]}");
-            lines.Add("judgments: " + (changed.Any() ? string.Join(", ", changed) : "none"));
+            lines.Add(T("InspectJudgments", changed.Any() ? string.Join(", ", changed) : T("None")));
         }
-        else lines.Add("judgments: the linker did not send them");
-        if (_events.Count == 0) lines.Add("problems: none");
+        else lines.Add(T("InspectNoJudgments"));
+        if (_events.Count == 0) lines.Add(T("InspectNoProblems"));
         else
         {
-            lines.Add($"problems: {_events.Count}");
-            lines.AddRange(_events.Select(problem => $"  {problem.Judgment} at tile {problem.Floor} (game {Ms(problem.GameMs / 1000)} s)"
-                + (problem.LastPress is { } press ? $", after note {press.Note + 1} on lane {press.Tile} sent {Ms(press.LateMs)} ms after its moment" : "")));
+            lines.Add(T("InspectProblems", _events.Count));
+            lines.AddRange(_events.Select(problem => "  " + T("InspectProblem", problem.Judgment, problem.Floor, Ms(problem.GameMs / 1000))
+                + (problem.LastPress is { } press ? T("InspectAfterNote", press.Note + 1, press.Tile, Ms(press.LateMs)) : "")));
         }
-        lines.Add($"stopped: {StopReason ?? "still running"}");
+        lines.Add(T("InspectStoppedRun", StopReason ?? T("StillRunning")));
         return lines;
     }
 }

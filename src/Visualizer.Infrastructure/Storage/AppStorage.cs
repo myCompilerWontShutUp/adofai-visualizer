@@ -1,3 +1,5 @@
+using static Visualizer.Core.Localization.ConsoleText;
+
 namespace Visualizer.Infrastructure.Storage;
 
 /// <summary>
@@ -88,7 +90,7 @@ public sealed class AppStorage
     public static string SharedRoot()
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrEmpty(local)) throw new IOException("No local application data folder is available.");
+        if (string.IsNullOrEmpty(local)) throw new IOException(T("NoLocalAppData"));
         return Path.Combine(local, FolderName);
     }
 
@@ -181,7 +183,7 @@ public sealed class AppStorage
     private static string Normalize(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("A full path is required.", nameof(path));
+        if (!Path.IsPathFullyQualified(path)) throw new ArgumentException(T("FullPathRequired"), nameof(path));
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         RejectReparseAncestors(root);
         return root;
@@ -205,7 +207,7 @@ public sealed class AppStorage
             try
             {
                 if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Reparse point paths are not supported for the app store.");
+                    throw new IOException(T("StoreReparse"));
             }
             catch (FileNotFoundException) { }
             catch (DirectoryNotFoundException) { }

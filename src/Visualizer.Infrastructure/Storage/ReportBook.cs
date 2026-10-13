@@ -1,4 +1,5 @@
 using System.Text;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Storage;
 
@@ -131,9 +132,9 @@ public sealed class ReportBook(AppStorage storage)
     public string? Rename(string title, string name)
     {
         if (!IsTitle(title) || !IsTitle(name)) throw new ArgumentException(TitleRule, nameof(name));
-        if (!Has(title)) return $"{title} was never written.";
+        if (!Has(title)) return T("NeverWritten", title);
         if (title.Equals(name, StringComparison.OrdinalIgnoreCase)) return null;
-        if (Has(name)) return $"{name} is already a note.";
+        if (Has(name)) return T("AlreadyANote", name);
         File.Move(PathOf(title), PathOf(name));
         Move(WrittenPath, title, name);
         Move(DonePath, title, name);
@@ -197,7 +198,7 @@ public sealed class ReportBook(AppStorage storage)
         return true;
     }
 
-    private const string TitleRule = "A report title may only be letters, digits, spaces, dashes and underscores.";
+    private static string TitleRule => T("NoteTitleRule");
 
     private bool Has(string title) => IsTitle(title) && File.Exists(PathOf(title));
 

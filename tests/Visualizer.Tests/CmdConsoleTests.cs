@@ -15,6 +15,7 @@ using Visualizer.Application.Cache;
 using Visualizer.Application.Library;
 using Visualizer.Application.Maps;
 using Visualizer.Application.Playback;
+using Visualizer.Core.Localization;
 using Visualizer.Core.Maps;
 using Visualizer.Core.Settings;
 using Visualizer.Core.Visualization;
@@ -36,6 +37,8 @@ internal static class CmdConsoleTests
         public string? SongToLoad { get; set; }
         public string? LoadedSongName { get; set; }
         public VisualizerSettings Settings { get; set; } = new();
+        /// <summary>The language the console speaks; English here whatever the settings say, since these checks read its words.</summary>
+        public string Language { get; set; } = Languages.English;
         public VisualizerSettings? Pending { get; set; }
         public string? ApplyError { get; set; }
         public string Copied { get; private set; } = "";
@@ -54,6 +57,13 @@ internal static class CmdConsoleTests
         public List<CmdSong> SongList { get; } = [];
         public IReadOnlyList<CmdSong> Songs => SongList;
         public string? LoadedId { get; set; }
+        /// <summary>The id of the song the game is playing, as the window finds it; null while the link is off.</summary>
+        public string? GameSong { get; set; }
+        public string? GameSongId(out string? problem)
+        {
+            problem = GameSong is null ? "The link is not on. link start first." : null;
+            return GameSong;
+        }
         public string? Held { get; set; }
         public string? HeldSong => Held;
         public string? EditError { get; set; }
@@ -664,6 +674,61 @@ internal static class CmdConsoleTests
                 "sync keeps no options of its own but -c");
         });
 
+        yield return ("The console speaks the app's language: Korean from the banner on, the typed words as they are", () =>
+        {
+            // User rule: the console follows the app's language. Command, option and keyword names, ids, titles and setting
+            // paths are what is typed, so they stay as they are in every language.
+            var host = Library();
+            host.Language = Languages.Korean;
+            var log = new CmdLog();
+            try
+            {
+                var session = new CmdSession(host, log);
+                Equal(log.Lines[0], $"Visualizer 콘솔 [버전 {AppInfo.Version}]");
+                Equal(log.Lines[1], "'cmd'를 치면 명령 목록이 나옵니다.");
+                session.Submit("version");
+                Lines(LastOutput(log), $"Visualizer {AppInfo.Version}");
+                session.Submit("cmd");
+                var listed = LastOutput(log);
+                Assert(listed[0] == "도움말" && listed.Contains("곡") && listed.Any(line => line.TrimStart().StartsWith("load <title>", StringComparison.Ordinal)
+                    && line.EndsWith("곡을 불러옵니다.", StringComparison.Ordinal)), "Groups and summaries in Korean: " + string.Join(" | ", listed));
+                session.Submit("help version");
+                var help = LastOutput(log);
+                Assert(help[0] == "version" && help[1].Contains("-check는", StringComparison.Ordinal)
+                    && help.Contains("  옵션: [-number | -check] [-copy]") && help.Any(line => line.Contains("-check", StringComparison.Ordinal)
+                        && line.Contains("저장소", StringComparison.Ordinal)), "help in Korean: " + string.Join(" | ", help));
+                session.Submit("blah");
+                Equal(Output(log), "'blah'은(는) 명령이 아닙니다. 'cmd'를 치면 명령 목록이 나옵니다.");
+                session.Submit("version -x");
+                Equal(Output(log), "-x은(는) version의 옵션이 아닙니다. 옵션: [-number | -check] [-copy].");
+                session.Submit("info 10000002");
+                var info = LastOutput(log);
+                Assert(info.Any(line => line.StartsWith("제목", StringComparison.Ordinal) && line.EndsWith("Plum - R", StringComparison.Ordinal))
+                    && info.Any(line => line.StartsWith("숨김", StringComparison.Ordinal) && line.EndsWith("아니요", StringComparison.Ordinal)),
+                    "Rows in Korean, titles as they are: " + string.Join(" | ", info));
+                // The labels are Hangul, twice as wide as a letter, and the values still start in one column.
+                var column = info.Select(line => CmdSession.Wide(line[..line.IndexOf("  ", StringComparison.Ordinal)]) + line[line.IndexOf("  ", StringComparison.Ordinal)..].TakeWhile(c => c == ' ').Count()).Distinct().ToArray();
+                Assert(column.Length == 1, "One value column: " + string.Join(", ", column));
+                session.Submit("id now");
+                Equal(Output(log), "불러온 곡이 없습니다.");
+                session.Submit("load");
+                Lines(LastOutput(log), "제목이 필요합니다: 제목의 어느 부분, *, ., origin, edited 또는 link.", "사용법: load <title>");
+                session.Submit("playlist base");
+                Lines(LastOutput(log), "00000001  base    Built in");
+                session.Submit("date");
+                Assert(System.Text.RegularExpressions.Regex.IsMatch(Output(log), @"^\d{4}-\d{2}-\d{2} [월화수목금토일]요일 \d{2}:\d{2}:\d{2}$"), "A Korean weekday: " + Output(log));
+                session.Submit("set timing.speed fast");
+                Assert(Output(log).StartsWith("퍼센트 단위의 숫자를 씁니다.", StringComparison.Ordinal), "Setting errors in Korean: " + Output(log));
+                Assert(!HasHangul(string.Join(" ", CmdCatalog.All.Select(command => command.Usage + command.Options + command.Keywords))), "Names stay as typed");
+
+                // Back in English the next line is English again.
+                host.Language = Languages.English;
+                session.Submit("id now");
+                Equal(Output(log), "No song is loaded.");
+            }
+            finally { ConsoleText.Language = Languages.English; }
+        });
+
         yield return ("Console help: cmd by group, help and option with all and last, version, whoami hidden", () =>
         {
             var log = new CmdLog();
@@ -700,7 +765,7 @@ internal static class CmdConsoleTests
             var help = LastOutput(log);
             // The word a bare command means is shown in brackets, not said in a sentence (user rule).
             Assert(help[0] == "playlist [<string>]" && help.Contains("  Options: [-id | -title] [-hidden | -shown] [-copy]")
-                && help.Contains("    -id      Show only the ids.") && help.Contains("  Keywords: base, custom, edited, main, now, family, origin, [all]")
+                && help.Contains("    -id      Show only the ids.") && help.Contains("  Keywords: base, custom, edited, main, now, link, family, origin, [all]")
                 && help.Contains("    main    The main window's list, in its order."), "help playlist: " + string.Join(" | ", help));
             session.Submit("help clear");
             Lines(LastOutput(log), "clear", "  Clear the screen.");
@@ -744,8 +809,9 @@ internal static class CmdConsoleTests
             Assert(CmdCatalog.NameClash() is null, $"A command and a keyword share the name '{CmdCatalog.NameClash()}'");
             session.Submit("keyword playlist");
             // The word a bare playlist means stands in brackets, so it is seen and not read (user rule).
-            Lines(LastOutput(log), ["playlist keywords: base, custom, edited, main, now, family, origin, [all]", "  base    Base songs.",
+            Lines(LastOutput(log), ["playlist keywords: base, custom, edited, main, now, link, family, origin, [all]", "  base    Base songs.",
                 "  custom  Custom songs.", "  edited  Edited songs.", "  main    The main window's list, in its order.", "  now     The loaded song.",
+                "  link    The song the game is playing; the link must be on and the linker connected.",
                 "  family  The loaded song's original with all its edits.", "  origin  The loaded song's original.", "  [all]   Every song."]);
             session.Submit("keyword -o playlist");
             var keywordFirst = LastOutput(log);
@@ -764,14 +830,19 @@ internal static class CmdConsoleTests
                 "  [now]  What is on screen: the lanes being edited while the editor is open, else the loaded song.", "  all    Every note.");
             session.Submit("option nothing");
             Assert(LastOutput(log)[0].Contains("not a command", StringComparison.Ordinal), "Unknown command");
+            // version is the version at once (user rule); -check is what it used to do, asking the repository as well.
             session.Submit("version");
+            Lines(LastOutput(log), $"Visualizer {AppInfo.Version}");
+            session.Submit("version -check");
             Lines(LastOutput(log), $"Visualizer {AppInfo.Version}", $"Applied {AppInfo.VersionDate}", $"Built   {AppInfo.BuildTime}",
                 "Latest  yes, this is the latest version");
             session.Submit("version -n");
             Lines(LastOutput(log), AppInfo.Version);
-            session.Submit("version -c");
+            session.Submit("version -c -check");
             Equal(host.Copied, $"Visualizer {AppInfo.Version}{Environment.NewLine}Applied {AppInfo.VersionDate}{Environment.NewLine}Built   {AppInfo.BuildTime}"
                 + $"{Environment.NewLine}Latest  yes, this is the latest version");
+            session.Submit("version -number -check");
+            Equal(Output(log), "-number and -check cannot be used together.");
             Assert(System.Text.RegularExpressions.Regex.IsMatch(AppInfo.VersionDate, @"^\d{4}-\d{2}-\d{2}$"), "Version date");
             // The build's own time, which is the file's: the build is deterministic, so the header's stamp is not one.
             Assert(System.Text.RegularExpressions.Regex.IsMatch(AppInfo.BuildTime, @"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$"), "Build time: " + AppInfo.BuildTime);
@@ -843,11 +914,16 @@ internal static class CmdConsoleTests
             Assert(!quick.IsAsking && automatic.Loads == 1 && automatic.Settings.PlaybackSpeedPercent == 200
                 && quick.Log.Lines.Any(line => line.EndsWith("[Y/n] Y (-proceed)", StringComparison.Ordinal)), "-p answers Y and says so");
 
-            // A placement problem reads in English even when the app is in Korean.
-            var korean = new Host { Timeline = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 }), Settings = new VisualizerSettings { Language = "korean" } };
-            var english = new CmdSession(korean, new CmdLog());
+            // A placement problem reads in the console's language, which is the app's (user rule): English in English, and
+            // Korean through and through in Korean.
+            var english = new CmdSession(new Host { Timeline = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 }) }, new CmdLog());
             english.Submit("note all");
             Assert(Output(english.Log).Contains("The notes could not be placed.", StringComparison.Ordinal) && !HasHangul(Output(english.Log)), "English reason");
+            var korean = new CmdSession(new Host { Timeline = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 }), Language = Languages.Korean,
+                Settings = new VisualizerSettings { Language = Languages.Korean } }, new CmdLog());
+            korean.Submit("note all");
+            Assert(Output(korean.Log).StartsWith("노트를 배치하지 못했습니다.", StringComparison.Ordinal), "Korean reason: " + Output(korean.Log));
+            ConsoleText.Language = Languages.English;
         });
 
         yield return ("Console songs: song, info, list with its filters, id, hide, show and playlist", () =>
@@ -961,7 +1037,26 @@ internal static class CmdConsoleTests
             Lines(LastOutput(log), "Plum - R");
             host.LoadedId = "20000004";
             session.Submit("playlist nothing");
-            Lines(LastOutput(log), "Use base, custom, edited, main, now, family, origin or all.");
+            Lines(LastOutput(log), "Use base, custom, edited, main, now, link, family, origin or all.");
+            // link is the song the game is playing (user rule), only while the link is on: the window says why not otherwise.
+            session.Submit("id link");
+            Lines(LastOutput(log), "The link is not on. link start first.");
+            session.Submit("load link");
+            Assert(host.LoadedId == "20000004" && LastOutput(log)[^1] == "The link is not on. link start first.", "Nothing loads without the link");
+            host.GameSong = "10000002";
+            session.Submit("id link");
+            Lines(LastOutput(log), "10000002");
+            session.Submit("title link");
+            Lines(LastOutput(log), "Plum - R");
+            session.Submit("info link");
+            Assert(LastOutput(log).Any(line => line.Contains("10000002", StringComparison.Ordinal)), "info link: " + Output(log));
+            // load link takes the original the game plays; -slot picks one of its edits, as load . does (the title comes last).
+            session.Submit("load link");
+            Equal(host.LoadedId, "10000002");
+            session.Submit("load -slot:5 link");
+            Assert(host.LoadedId == "20000005", "load -slot:5 link: " + Output(log));
+            host.GameSong = null;
+            host.LoadedId = "20000004";
             // main and playlist: the main window's list in its order.
             host.Current.AddRange(["20000005", "10000002", "00000001"]);
             session.Submit("playlist -id main");
@@ -1309,7 +1404,7 @@ internal static class CmdConsoleTests
             Assert(Complete("help ").Contains("list") && !Complete("help ").Contains("all") && Complete("help ").Contains("last"), "help's words");
             Assert(!Complete("retitle ").Any(), "A new name has nothing to offer");
             // Keywords belong to their command, whatever else the argument takes.
-            Lines(Complete("link "), "start", "stop", "tiles", "follow", "unfollow", "again", "auto", "manual", "inspect", "uninspect");
+            Lines(Complete("link "), "start", "stop", "tiles", "follow", "unfollow", "again", "auto", "manual");
             Lines(Complete("install "), "all", "app", "source", "linker", "maps", "edits", "data");
             // A list takes its words at every place, less those already in it, after a comma with or without a space.
             Lines(Complete("scannow maps, "), "all", "app", "source", "linker", "edits", "data");
@@ -1448,10 +1543,18 @@ internal static class CmdConsoleTests
             session.Submit("report write -inspect nothing");
             Assert(LastOutput(log)[^1].Contains("There is no note called", StringComparison.Ordinal), Output(log));
 
-            session.Submit("link inspect");
+            // link -inspect takes start and stop only (user rule); start always asks first.
+            session.Submit("link -inspect start");
             Assert(session.IsAsking && log.Lines[^1].Contains("presses the lane key", StringComparison.Ordinal), Output(log));
             session.Submit("n");
             Equal(LastOutput(log)[^1], "Nothing was pressed.");
+            session.Submit("link -inspect stop");
+            Equal(LastOutput(log)[^1], "link inspect is not available here.");
+            foreach (var other in new[] { "link -inspect tiles", "link -inspect", "link -inspect follow" })
+            {
+                session.Submit(other);
+                Assert(LastOutput(log)[^1].StartsWith("-inspect goes with start or stop only", StringComparison.Ordinal), other + ": " + Output(log));
+            }
         });
 
         yield return ("report create starts a note and write opens one, each refusing what the other is for", () =>
@@ -1948,17 +2051,19 @@ internal static class CmdConsoleTests
             session.Submit("update");
             Equal(Output(log), "The repository could not be reached. Check the network or the sign-in.");
 
-            // version says whether this is the latest (user request); -number asks nothing.
+            // version -check says whether this is the latest (user request); version alone and -number ask nothing.
             host.Check = new("1.0.0", "1.0.0", true, 0, true, 0, 0, []);
-            session.Submit("version");
+            session.Submit("version -check");
             Lines(LastOutput(log), $"Visualizer {AppInfo.Version}", $"Applied {AppInfo.VersionDate}", $"Built   {AppInfo.BuildTime}",
                 "Latest  yes, this is the latest version");
             host.Check = new("1.0.0", "1.0.1", true, 2, false, 0, 0, []);
-            session.Submit("version");
+            session.Submit("version -check");
             Equal(LastOutput(log)[^1], "Latest  no, 1.0.1 is waiting; update takes it");
             var asked = host.Calls.Count;
             session.Submit("version -number");
             Assert(host.Calls.Count == asked && Output(log) == AppInfo.Version, "-number asks nothing");
+            session.Submit("version");
+            Assert(host.Calls.Count == asked && Output(log) == $"Visualizer {AppInfo.Version}", "version alone asks nothing (user rule)");
 
             // The script's lines are read into what it found; any other line is a problem to show.
             var read = UpdateCheck.Read(["state mine 1.0.0 abc1234", "state target 1.0.2 def5678", "state behind 4", "state same 0",
@@ -2539,7 +2644,7 @@ internal static class CmdConsoleTests
             Equal(model.SettingsHistory.Count, 0);
 
             // The real app hands the same history to the console.
-            var main = new MainWindow();
+            var main = English(new MainWindow());
             ICmdHost app = main;
             Assert(app.LastChange is null && app.Songs.Count == 0 && app.LoadedId is null && !app.SettingsOpen, "Fresh app host");
             Assert(app.ApplySettings(app.Settings with { NoteTravelTimeMs = 750 }) is null && app.LastChange is not null, "Applied through the host");

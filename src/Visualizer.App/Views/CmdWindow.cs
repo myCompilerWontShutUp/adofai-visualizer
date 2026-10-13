@@ -6,6 +6,7 @@ using System.Windows.Media;
 using Visualizer.App.Commands;
 using Visualizer.App.Input;
 using Visualizer.App.Themes;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Views;
 
@@ -91,7 +92,7 @@ public sealed class CmdWindow : Window
     public CmdWindow(CmdSession session, string theme)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
-        Title = "Visualizer Console";
+        Title = T("ConsoleTitle");
         // Roomy enough to show whoami's art (72 columns) in full when it opens, with room to spare.
         Width = 990;
         Height = 624;

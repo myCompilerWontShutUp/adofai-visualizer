@@ -4,6 +4,7 @@ using Visualizer.App.Themes;
 using Visualizer.Core.Localization;
 using Visualizer.Core.Settings;
 using static Visualizer.App.Commands.SettingKind;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Commands;
 
@@ -28,20 +29,12 @@ public static class SettingPaths
 {
     public const string ExperimentalSection = "experimental";
 
-    /// <summary>Sections in the order of the settings window, each with the line property shows for it.</summary>
-    public static IReadOnlyList<(string Name, string About)> Sections { get; } =
-    [
-        ("general", "Language, theme and what the main screen shows."),
-        ("songs", "The song list: order and group."),
-        ("keys", "Control keys and the eight lane keys."),
-        ("tiles", "Key counts, the boundaries between them and the tile patterns."),
-        ("timing", "Playback speed, chord window and chord rules, start delay and calibration."),
-        ("magic", "The magic circle judgment line."),
-        ("display", "Note travel, sizes, offset and effects."),
-        ("colors", "Colors of the note field."),
-        ("advanced", "Experiments, side lanes, tile order, chord lanes, speed on load and folders."),
-        (ExperimentalSection, "Note placement rules still being tried out.")
-    ];
+    /// <summary>The sections in the order of the settings window.</summary>
+    private static readonly string[] SectionNames =
+        ["general", "songs", "keys", "tiles", "timing", "magic", "display", "colors", "advanced", ExperimentalSection];
+
+    /// <summary>Sections in the order of the settings window, each with the line property shows for it, in the console's language.</summary>
+    public static IReadOnlyList<(string Name, string About)> Sections => SectionNames.Select(name => (name, T("Section." + name))).ToArray();
 
     public static IReadOnlyList<SettingPath> All { get; } = Build();
 
@@ -224,19 +217,19 @@ public static class SettingPaths
     /// <summary>What property says a free value looks like.</summary>
     public static string Describe(SettingPath path) => path.Kind switch
     {
-        Number => $"a number in {Unit(path)}",
-        Whole => $"a whole number of {path.Unit}",
-        Key => "a key name, such as R, F5, Back, Space, [ or -",
-        OptionalKey => "a key name, such as R, F5 or -, or none",
-        Color => "a color as R, G, B or #RRGGBB",
-        Tiles => "tile numbers 1 to 8 with spaces between, as in 3 4 5 6",
-        Folder => "a full folder path",
-        DataFolder => "a full folder path, or auto for the default store",
-        Text => "any text",
-        _ => "one of the values above"
+        Number => T("TakesNumberIn", Unit(path)),
+        Whole => T("TakesWholeOf", path.Unit),
+        Key => T("TakesKey"),
+        OptionalKey => T("TakesOptionalKey"),
+        Color => T("TakesColor"),
+        Tiles => T("TakesTiles"),
+        Folder => T("TakesFolder"),
+        DataFolder => T("TakesDataFolder"),
+        Text => T("TakesText"),
+        _ => T("TakesAbove")
     };
 
-    private static string Unit(SettingPath path) => path.Unit switch { "x" => "times the normal size", "%" => "percent", _ => path.Unit };
+    private static string Unit(SettingPath path) => path.Unit switch { "x" => T("UnitTimes"), "%" => T("UnitPercent"), _ => path.Unit };
 
     /// <summary>
     /// Reads what set was given. The result still has to pass the settings' own checks; this only turns the text into the
@@ -250,7 +243,7 @@ public static class SettingPaths
         var input = (text ?? "").Trim();
         if (input.Length == 0 && path.Kind is not (Text or Folder))
         {
-            error = "A value is needed. Type property " + path.Name + " to see what it takes.";
+            error = T("ValueNeededTyped", path.Name);
             return false;
         }
         switch (path.Kind)
@@ -259,29 +252,29 @@ public static class SettingPaths
                 // get always shows true or false; set takes the other usual words as well.
                 if (input.ToLowerInvariant() is "true" or "1" or "on" or "able" or "enable") value = true;
                 else if (input.ToLowerInvariant() is "false" or "0" or "off" or "disable") value = false;
-                else error = "Use true or false (or on/off, 1/0, able/disable).";
+                else error = T("UseToggle");
                 break;
             case Choice:
                 var choice = Choices(path, settings).FirstOrDefault(option => option.Equals(input, StringComparison.OrdinalIgnoreCase));
-                if (choice is null) error = "Use one of: " + string.Join(", ", Choices(path, settings)) + ".";
+                if (choice is null) error = T("UseOneOf", string.Join(", ", Choices(path, settings)));
                 else value = Store(path, choice);
                 break;
             case Number:
                 if (double.TryParse(input, NumberStyles.Float, CultureInfo.InvariantCulture, out var number) && double.IsFinite(number)) value = number;
-                else error = $"Use a number in {Unit(path)}.";
+                else error = T("UseNumberIn", Unit(path));
                 break;
             case Whole:
                 if (int.TryParse(input, NumberStyles.Integer, CultureInfo.InvariantCulture, out var whole)) value = whole;
-                else error = "Use a whole number.";
+                else error = T("UseWhole");
                 break;
             case Key or OptionalKey:
                 if (path.Kind == OptionalKey && input.Equals("none", StringComparison.OrdinalIgnoreCase)) value = null;
                 else if (KeyNames.TryParse(input, out var key) && KeyNames.IsSupported(key)) value = KeyNames.Token(key);
-                else error = $"'{input}' is not a key the app can use. Use a name such as R, F5, Back, Space, [ or -.";
+                else error = T("NotAKey", input);
                 break;
             case Color:
                 if (ColorText.NormalizeRgb(input) is { } color) value = color;
-                else error = "Use a color as R, G, B or #RRGGBB.";
+                else error = T("UseColor");
                 break;
             case Tiles:
                 var spaced = string.Join(' ', input.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
@@ -318,29 +311,29 @@ public static class SettingPaths
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(settings);
-        if (!IsOpen(path.Section, settings)) return "Experimental settings open while advanced.experimental is true.";
+        if (!IsOpen(path.Section, settings)) return T("ExperimentalClosed");
         return path.Property switch
         {
             nameof(VisualizerSettings.EightKeyBoundaryMs) => Threshold(8),
             nameof(VisualizerSettings.SixKeyBoundaryMs) => Threshold(6),
             nameof(VisualizerSettings.FourKeyBoundaryMs) => Threshold(4),
             nameof(VisualizerSettings.TwoKeyBoundaryMs) => Threshold(2),
-            nameof(VisualizerSettings.DownshiftNoteCount) => settings.ImmediateDownshift ? null : "Locked while tiles.instant-down is false.",
+            nameof(VisualizerSettings.DownshiftNoteCount) => settings.ImmediateDownshift ? null : T("LockedInstantDown"),
             nameof(VisualizerSettings.MagicCircleNoteCount) or nameof(VisualizerSettings.MagicCircleMaxIntervalMs)
                 or nameof(VisualizerSettings.MagicCircleFadeInMs) or nameof(VisualizerSettings.MagicCircleLeadMs)
                 or nameof(VisualizerSettings.MagicCircleFadeOutMs) or nameof(VisualizerSettings.MagicCircleFixedTiles)
                 or nameof(VisualizerSettings.MagicCircleChords) =>
-                settings.MagicCircleJudgmentLine ? null : "Locked while magic.line is false.",
-            nameof(VisualizerSettings.MagicCircleTileCount) => settings.UseMagicCircleTiles ? null : "Locked while magic.line or magic.fixed is false.",
-            nameof(VisualizerSettings.ExtraLanes) => settings.CanUseExtraLanes ? null : "Locked: side lanes work only while tiles.max is 2, 4 or 6.",
+                settings.MagicCircleJudgmentLine ? null : T("LockedMagicLine"),
+            nameof(VisualizerSettings.MagicCircleTileCount) => settings.UseMagicCircleTiles ? null : T("LockedMagicFixed"),
+            nameof(VisualizerSettings.ExtraLanes) => settings.CanUseExtraLanes ? null : T("LockedSideLanes"),
             nameof(VisualizerSettings.EightKeyOrder) or nameof(VisualizerSettings.SixKeyOrder)
                 or nameof(VisualizerSettings.FourKeyOrder) or nameof(VisualizerSettings.TwoKeyOrder) =>
-                settings.EnableTilePreference ? null : "Locked while advanced.tile-order is false.",
+                settings.EnableTilePreference ? null : T("LockedTileOrder"),
             _ => null
         };
 
         string? Threshold(int mode) => settings.IsThresholdEnabled(mode) ? null
-            : "Locked: this boundary is not used with the current tiles.dynamic, tiles.max and tiles.min.";
+            : T("LockedBoundary");
     }
 
     /// <summary>The stored form of a list value: enum names for the song list, "None" for no chord side, numbers as int.</summary>

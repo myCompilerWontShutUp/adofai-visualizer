@@ -467,11 +467,25 @@ public sealed partial class MainViewModel
     /// Loads another version of the song on screen, or the same one saved again from the editor. It is the same song, so
     /// the practice tile stays where it was instead of going back to the start (user rule).
     /// </summary>
-    public void Reload(MapCacheEntry entry)
+    /// <param name="saved">The editor saved this version: its tiles changed although it is the same slot.</param>
+    public void Reload(MapCacheEntry entry, bool saved = false)
     {
         var section = _sectionText;
+        var before = SelectedSlot;
         LoadEntry(entry);
+        var after = SelectedSlot;
+        // The tiles of the song on screen changed, and the message says how (user rule): from one version to another, or
+        // the version the editor just saved. A load that did not prepare keeps its own words.
+        var loaded = Text["Loaded"];
+        var changed = Playback.Timeline is not null && Message.EndsWith(loaded, StringComparison.Ordinal) && (before != after || saved);
+        var notices = changed ? Message[..^loaded.Length] : "";
+        var loadedMessage = Message;
         if (section.Length > 0) SectionText = section;
+        if (!changed) return;
+        string Name(int slot) => slot == 0 ? Text["SlotOrigin"] : Text.Format("SlotNumber", slot);
+        var tiles = notices + Text.Format("TilesChanged", before == after ? Text.Format("TilesSaved", Name(after)) : $"{Name(before)} → {Name(after)}");
+        // The practice tile prepared again says where it starts and with which key, so that stays after the tiles.
+        SetMessage(Message == loadedMessage ? tiles : tiles + " · " + Message);
     }
 
     /// <summary>

@@ -67,6 +67,7 @@ public partial class MainWindow : Window, ICmdHost
     {
         InitializeComponent();
         LoadStoredSettings();
+        SpeakConsole();
         _model.ForgetSettingsHistory();
         _model.SettingsCommitted += SettingsCommitted;
         ApplyTheme();
@@ -676,7 +677,7 @@ public partial class MainWindow : Window, ICmdHost
                 _model.MarkRecentEdit(saved.Id);
             _model.ReportSync([report]);
             if (reloadId is not null && _model.LoadedEntry?.Id == reloadId && _model.AllSongs.FirstOrDefault(song => song.Id == reloadId) is { } fresh)
-                _model.Reload(fresh);
+                _model.Reload(fresh, saved: true);
         }
         catch (Exception error) when (IsExpectedError(error)) { _model.SetMessage(_model.Text.Format("SyncFailed", error.Message)); }
     }
@@ -1097,8 +1098,15 @@ public partial class MainWindow : Window, ICmdHost
     /// Every applied change ends here, whatever made it (the settings window, the console, a forced lane change, rollback):
     /// the key bindings follow and the settings are saved.
     /// </summary>
+    /// <summary>
+    /// The console speaks the app's language (user rule), and so do the reasons kept for it between commands (a link
+    /// note, an inspect stop), which are written before anyone types.
+    /// </summary>
+    private void SpeakConsole() => ConsoleText.Language = Languages.Resolve(_model.Settings.Language) ?? Languages.English;
+
     private void SettingsCommitted()
     {
+        SpeakConsole();
         UpdateBindings();
         SaveSettings(_model.Settings);
         PrepareSettings();

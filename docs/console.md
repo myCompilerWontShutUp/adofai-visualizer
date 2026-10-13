@@ -3,7 +3,7 @@
 Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**를 지금 동작 그대로 적은 문서입니다. 명령 체계를 바꿀 때의 기준 문서이며, 이력은 적지 않습니다(이력은 `docs/handoff-history.md`).
 
 - **원본 코드**: `src/Visualizer.App/Commands/` — `CmdCatalog.cs`(명령 표·옵션·키워드·파서), `CmdSession.cs`(동작·질문·Tab 후보), `SettingPaths.cs`(설정 이름). 이 문서의 표는 그 코드에서 뽑았습니다. 코드와 다르면 코드가 맞고, 이 문서를 고칩니다.
-- **콘솔 문구는 언제나 영어**입니다(앱 언어와 무관). 곡 제목과 메모 본문은 데이터라 그대로 나옵니다.
+- **콘솔은 앱 언어를 따릅니다**(설정의 언어, 사용자 요청). 문구는 언어 파일(`Languages/*.json`)의 `console` 묶음에 있고 `ConsoleText.T(키)`로 읽습니다. 언어를 추가하면 파일 하나에 창 문구와 콘솔 문구가 함께 들어갑니다. 명령·옵션·키워드 이름, `<id>` 같은 인자 이름, 설정 경로(`timing.speed`), 설정 값(`true`·`none`), 곡 종류(`base`·`custom`·`edited`), 메모 상태(`open`·`done`·`asked`), `[Y/n]`은 입력하는 그대로 둡니다. 곡 제목·경로·메모 본문은 데이터라 그대로 나옵니다. `update.ps1` 자체가 찍는 문장(네트워크 실패 등)은 스크립트의 말이라 영어로 나옵니다.
 - **콘솔에 없는 것**: 지우기(언인스톨)는 콘솔에서 하지 않습니다. `uninstall`이나 `help uninstall`을 치면 "Uninstalling is not done from inside the visualizer: close it and run .\uninstall.ps1 in PowerShell, in its folder."만 답합니다(사용자 규칙). 저장소에 올리는 명령도 없습니다(편집기의 git으로 올림).
 
 ---
@@ -40,7 +40,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 1. 그 명령 안에서만 뜻이 섭니다. 같은 낱말이 명령마다 달라도 됩니다.
 2. 낱말 전체가 일치할 때만 키워드로 읽습니다(자유 글자 인자를 지키기 위해).
-3. 명령 이름과 같은 낱말을 쓰지 않습니다(`CmdCatalog.NameClash()`가 검사). 그래서 곡 이름을 바꾸는 명령은 `retitle`이고 `rename`은 `report`의 키워드입니다.
+3. 명령 이름과 같은 낱말을 쓰지 않습니다(`CmdCatalog.NameClash()`가 검사). 그래서 곡 이름을 바꾸는 명령은 `retitle`이고 `rename`은 `report`의 키워드입니다. 예외는 곡 낱말 `link` 하나입니다(사용자 요청 — `load link`처럼 링크가 플레이 중인 곡을 가리키므로 `link` 명령과 같은 대상, `CmdCatalog.SharedNames`).
 4. **`list`는 나열해 보여 달라**(`help` `option` `keyword` `prompt` `report` `checkpoint`), **`all`은 전부를 대상으로**(`playlist` `id` `title`의 곡, `note`의 노트, `scannow`·`install`의 영역)입니다. `*`는 `all`만 대신합니다. 예외로 `pin all`은 그 곡의 핀을 나열합니다(7절의 통합 계획에 맞춘 것).
 5. 상태를 바꾸는 동작은 키워드입니다(`sync rebuild`, `link follow`, `checkpoint next`).
 6. **기본 키워드**: 인자 없이 쳤을 때의 뜻이 키워드 하나와 같으면 그 낱말이 기본 키워드이고, 표에 `*`를 붙여 적고(`"list*, last"`) 도움말은 `[list]`처럼 대괄호로 보여 줍니다(글로 쓰지 않음). 기본 키워드는 하나뿐입니다.
@@ -59,16 +59,16 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | | `help [<cmd>]` | -copy | `[list]`, last | 명령 설명(인자 없으면 전부, `last`는 바로 앞 명령) |
 | | `option [<cmd>]` | -keywords, -copy | `[list]`, last | 옵션 표 또는 그 명령의 옵션 |
 | | `keyword [<cmd>]` | -options, -copy | `[list]`, last | 키워드 표 또는 그 명령의 키워드(키워드 낱말 하나를 주면 그 뜻) |
-| | `version` | -number, -copy | | 앱 버전·적용 날짜·빌드 시각·최신 여부 |
+| | `version` | -number \| -check, -copy | | 앱 버전(-check: 적용 날짜·빌드 시각·최신 여부) |
 | | `fps` | -restart, -copy | | 앱 자신의 프레임 진단 |
-| | `link [<what>]` | -proceed / -copy | start, stop, tiles, follow, unfollow, again, auto, manual, inspect, uninspect | 게임 링크 상태와 조작 |
+| | `link [<what>]` | -proceed / -copy / -inspect | start, stop, tiles, follow, unfollow, again, auto, manual | 게임 링크 상태와 조작 |
 | | `install <what>[, …]` | -reinstall, -proceed | all, app, source, linker, maps, edits, data | 링커 설치, 이 버전 부분 재설치 |
 | | `scannow [<area>, …]` | -copy | `[all]`, app, source, linker, maps, edits, data | 무결성 검사(결과만) |
 | 곡 | `song` | -id \| -title, -copy | | 불러온 곡 정보 |
-| | `info <id>` | -title, -copy | now | 곡 정보 |
-| | `id [<string>]` | -title, -copy | base, custom, edited, main, `[now]`, family, origin, all | 곡 id |
+| | `info <id>` | -title, -copy | now, link | 곡 정보 |
+| | `id [<string>]` | -title, -copy | base, custom, edited, main, `[now]`, link, family, origin, all | 곡 id |
 | | `title [<string>]` | -id, -copy | 위와 같음, 기본 `[now]` | 곡 제목 |
-| | `load <title>` | -id \| -origin \| -slot, -speed, -hidden, -force | origin, edited | 곡 불러오기 |
+| | `load <title>` | -id \| -origin \| -slot, -speed, -hidden, -force | origin, edited, link | 곡 불러오기 |
 | | `playlist [<string>]` | -id \| -title, -hidden \| -shown, -copy | 위 곡 낱말, 기본 `[all]` | 곡 목록 |
 | | `checkpoint [<number>]` | -copy | list, first, next, previous, last | 체크포인트로 시작 위치 옮기기 |
 | | `go <tile>` | | | 타일 번호로 시작 위치 옮기기(Tab = 핀) |
@@ -106,7 +106,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 ## 4. 명령별 상세
 
-각 항목의 첫 줄은 콘솔 `help`가 보여 주는 영어 설명을 줄인 것이고, 그 아래가 동작 규칙입니다.
+각 항목의 첫 줄은 콘솔 `help`가 보여 주는 설명을 줄인 것이고, 그 아래가 동작 규칙입니다.
 
 ### 도움말
 
@@ -114,9 +114,9 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`help [<cmd>]`** — 명령의 사용법·긴 설명·옵션(뜻 포함)·키워드(뜻 포함, 기본은 대괄호). 인자가 없거나 `list`면 모든 명령, `last`는 바로 앞에 친 명령.
 - **`option [<cmd>]`** — 인자가 없거나 `list`면 옵션 표를 한 번(명령마다가 아님), 명령을 주면 그 명령의 옵션. `-keywords`면 키워드까지.
 - **`keyword [<cmd>]`** — 인자가 없거나 `list`면 키워드와 그것을 받는 명령의 표, 명령을 주면 그 명령의 키워드, **키워드 낱말 하나**를 주면 그 뜻과 받는 명령(명령마다 뜻이 다르면 줄마다). `-options`면 옵션까지.
-- **`version`** — 앱 버전, 적용 날짜, 빌드 시각(실행 파일의 시각), 그리고 저장소에 물어 **최신인지**. `-number`는 숫자만 찍고 묻지 않습니다. 적용 날짜는 빌드에 적힌 릴리스 날짜이며 맵 캐시의 갱신 시각이 아닙니다. 파서가 바뀐 릴리스는 최신 앱에서도 Map Sync 후 곡을 다시 불러와야 새 타이밍을 씁니다.
+- **`version`** — 앱 버전만 **바로** 찍습니다(`Visualizer 1.0.5`, 사용자 규칙: 저장소에 묻느라 기다리지 않게). `-check`는 예전 동작으로, 적용 날짜·빌드 시각(실행 파일의 시각)을 더하고 저장소에 물어 **최신인지** 알립니다(`update.ps1 -Check`의 `git fetch`라 잠시 걸림). `-number`는 숫자만 찍고 묻지 않습니다. `-number`와 `-check`는 함께 쓸 수 없습니다. 적용 날짜는 빌드에 적힌 릴리스 날짜이며 맵 캐시의 갱신 시각이 아닙니다. 파서가 바뀐 릴리스는 최신 앱에서도 Map Sync 후 곡을 다시 불러와야 새 타이밍을 씁니다.
 - **`fps`** — 앱이 자기 프레임만 재는 진단: 도착 간격과 합성기 간격, 앱이 한 프레임에 쓴 시간, GC 횟수, 렌더 티어, 원인을 짚는 마지막 줄(MMCSS·GC 지연 모드 상태 포함). `-restart`는 찍은 뒤 측정을 새로 시작합니다. 게임이나 시스템에서 읽는 값은 없습니다.
-- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. `inspect`(측정 전용, 늘 [Y/n]): link auto 꺼짐·같은 곡·게임의 실패 방지 모드 켜짐일 때만, 비주얼라이저 노트가 판정선에 닿는 순간 그 레인 키를 게임에 누르고 게임의 판정을 기록 · `uninspect`·Esc로 멈춤(규칙이 깨지면 스스로 멈춤). 자세한 원칙은 AGENTS 안전 규칙 6.
+- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. `-inspect start`(측정 전용, 늘 [Y/n]): link auto 꺼짐·같은 곡·게임의 실패 방지 모드 켜짐일 때만, 비주얼라이저 노트가 판정선에 닿는 순간 그 레인 키를 게임에 누르고 게임의 판정을 기록 · `-inspect stop`·Esc로 멈춤, `-inspect`는 start·stop 말고는 받지 않음(규칙이 깨지면 스스로 멈춤). 자세한 원칙은 AGENTS 안전 규칙 6.
 - **`install <what>[, …]`** — `install linker`는 앱에 들어 있는 링커(앱 옆 `plugins\linker\`)를 게임의 `Mods\AdofaiVisualizerSync\`에 씁니다. Unity Mod Manager가 있는 게임 폴더에서만, **어느 폴더에 쓸지 적고 [Y/n]**을 묻고, 두 파일만 쓰며, 같은 버전이 있으면 그대로 둡니다(다른 버전이면 바꿀지 물음). **`-reinstall`**은 이 버전대로 다시 씁니다: `source`(저장소 파일을 이 버전으로 되돌림 — 바뀔 파일 목록을 먼저 보여 주고 **언제나 묻고 `-proceed` 불가**) · `app`(Release 다시 빌드) · `linker`(링커를 다시 씀, 빌드 없음, 앱은 그대로) · `maps`(= `sync rebuild`) · `all`·`*`(source·app·설치된 링커). `source`·`app`은 앱을 닫고 `update.ps1 -Reinstall`이 한 뒤 다시 엽니다. **`edits`·`data`는 사용자의 것이라 재설치하지 않고** 무엇을 쓰면 되는지만 알려 줍니다. 링커가 없는데 `-reinstall linker`면 `install linker`부터 하라고 합니다. 키워드 없이 오면 받는 낱말만 알려 줍니다.
 - **`scannow [<area>, …]`** — 영역마다 온전한지 검사해 **결과만** 찍고 아무것도 바꾸지 않습니다. `app` 이 빌드와 그 소스·언어·테마 파일 · `source` 저장소 파일 대 이 버전(`update.ps1 -Scan`, git status) · `linker` 설치된 링커 대 이 버전 · `maps` 맵 사본 대 곡 목록 · `edits` 모든 수정본(사본·레인·원본 해시) · `data` 설정과 곡 목록·id·표시·메모·핀 파일. 기본 `all`. 링커가 설치되지 않았으면, 콕 집었을 때는 `install linker`부터 하라고, 전체 검사에서는 한 줄로 알립니다. 문제가 있으면 맨 끝에 `install -reinstall …`을 권합니다.
 
@@ -125,11 +125,11 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`song`** — 불러온 곡 정보(`info now`와 같음). `-id`·`-title`은 그것만.
 - **`info <id>`** — id·제목·아티스트·제작자·종류·길이·노트 수(누르는 노트)·롱노트·자동 노트·난이도·체크포인트 수·슬롯(원곡은 origin)·숨김·경로.
 - **`id [<string>]`·`title [<string>]`** — 곡 묶음의 id·제목. 수정본은 슬롯을 붙입니다. 기본 `now`. `id -title`·`title -id`는 둘 다.
-- **곡 묶음 낱말**: `base` 기본 맵 · `custom` 커스텀 · `edited` 수정본 · `main` 메인 화면 목록(그 순서) · `now` 불러온 곡 · `family` 불러온 곡의 원곡과 모든 수정본 · `origin` 불러온 곡의 원곡 · `all` 모든 곡.
+- **곡 묶음 낱말**: `base` 기본 맵 · `custom` 커스텀 · `edited` 수정본 · `main` 메인 화면 목록(그 순서) · `now` 불러온 곡 · `link` 게임에서 플레이 중인 곡(링크가 켜져 있고 링커가 연결됐을 때만, `link auto`처럼 원곡 우선 — 아니면 이유를 알리고 멈춤) · `family` 불러온 곡의 원곡과 모든 수정본 · `origin` 불러온 곡의 원곡 · `all` 모든 곡.
 - **`load <title>`** — 5절.
 - **`playlist [<string>]`** — 곡 묶음의 `id · 종류 · 제목`. 기본 `all`. `-hidden`은 숨긴 곡만, `-shown`은 보이는 곡만, `-id`·`-title`은 그것만.
 - **`checkpoint [<number>]`** — 불러온 곡의 시작 위치를 체크포인트로 옮깁니다(메인 화면 목록에서 고른 것과 같음: 정지 상태로 다시 준비, 구간 칸은 비움, 게임 따라가기는 끝남). 번호는 **메인 화면이 붙이는 번호 그대로**(곡 처음은 번호가 아니라 "the beginning"). `first` 곡 처음 · `last` 마지막 · `next`·`previous` 한 칸씩, **양 끝에서 순환**. 인자 없으면 지금 자리(`… starts at checkpoint 2 (tile 120), of 6.`), `list`는 목록(쓰는 자리에 `>`). 곡이 없거나 체크포인트가 없는 맵이면 이유만.
-- **`go <tile>`** — 불러온 곡을 그 타일부터 준비합니다(구간 칸과 같은 규칙: 그 타일 이후 첫 노트부터, 배치는 곡 처음부터 만든 것을 잘라 씀). 1 이상의 정수만 받고, 그 곡에 없는 타일·중간 회전 타일·롱노트 도중이면 거절합니다(파서의 한국어 예외 대신 콘솔이 같은 검사를 영어로). **Tab은 그 곡의 핀 타일**을 내놓습니다. 처음으로 돌아가려면 `checkpoint first`.
+- **`go <tile>`** — 불러온 곡을 그 타일부터 준비합니다(구간 칸과 같은 규칙: 그 타일 이후 첫 노트부터, 배치는 곡 처음부터 만든 것을 잘라 씀). 1 이상의 정수만 받고, 그 곡에 없는 타일·중간 회전 타일·롱노트 도중이면 거절합니다(파서의 예외 대신 콘솔이 같은 검사를 콘솔 문구로). **Tab은 그 곡의 핀 타일**을 내놓습니다. 처음으로 돌아가려면 `checkpoint first`.
 - **`pin [<id>] <tile>`** — 곡의 타일에 핀을 꽂아 `go`의 Tab 후보로 둡니다. **핀은 곡 묶음(family)에 속합니다**: 원곡에 꽂든 수정본에 꽂든 원곡과 모든 수정본이 같은 핀을 봅니다(사용자 규칙). 타일 순서로 정렬되고, `go`가 받을 수 있는 타일만 꽂힙니다. 기본 `now`. `pin all`(또는 `pin <id> all`)은 `pin 1 · tile 120`처럼 번호를 붙여 나열합니다. 이미 있는 타일이면 그렇다고만. 앱 데이터 폴더의 `pins.json`에 저장되며 수정 창이 열려 있어도 됩니다(노트를 준비하지 않으므로).
 - **`unpin [<id>] <tile>`** — 그 곡 묶음에서 핀을 뺍니다. 기본 `now`. Tab은 그 곡의 핀(곡 id를 앞에 주면 그 곡의 핀).
 - **`hide <id>`·`show <id>`** — 곡 목록에서 숨기기·되돌리기(`songs.json`에 저장).
@@ -173,7 +173,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 ## 5. load
 
 - 제목의 **어느 부분이든** 맞으면 됩니다(대소문자 무관). 대상은 원곡(기본·커스텀)이며, 맞는 원곡마다 그 **수정본을 바로 아래에** 붙여 한 목록으로 보여 주고 번호로 고릅니다. 원곡 하나만 맞고 수정본이 없으면 바로 불러옵니다. 목록이 100개 이상이면 출력하지 않고 제목을 더 적어 달라고 합니다.
-- `*`는 모든 곡, `.`은 불러온 곡(다시 불러오거나 옵션과 함께 쓸 때).
+- `*`는 모든 곡, `.`은 불러온 곡(다시 불러오거나 옵션과 함께 쓸 때), `link`는 게임에서 플레이 중인 곡의 원곡(원곡이 목록에 없으면 수정본, 링크가 켜져 있을 때만). `load -slot:<n> link`는 그 곡의 n번 수정본, `-origin`·`-slot`은 `.`과 같이 씁니다(옵션은 제목 앞에).
 - 수정본은 목록 제목 그대로(`1*Plum - R`) 정확히 치면 바로 불러옵니다(자동완성에는 없음).
 - `-origin` 원곡만, `-slot` 제목이 맞는 수정본만(원곡이 사라진 수정본 포함), `-slot:<n>` 그 슬롯의 수정본만. 하나면 바로, 여럿이면 목록.
 - `-id <id>`: 8자 id가 정확히 같아야 합니다(두 번째 단어는 받지 않음). 제목에 맞는 곡이 없고 친 글자가 id 모양(8자, 첫 자리 0–2)이면 id로도 찾아봅니다.
@@ -237,6 +237,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `-keywords` | `-k` | | 키워드도 | option |
 | `-options` | `-o` | | 옵션도 | keyword |
 | `-number` | `-n` | | 숫자만 | version |
+| `-check` | | | 저장소에도 물어 최신인지 확인(적용·빌드 시각 포함, 잠시 걸림) | version |
 | `-restart` | `-r` | | 찍은 뒤 측정 새로 | fps |
 | `-keep` | `-m` | | 다음에 열 때 화면을 남김 | exit |
 | `-json` | | | JSON으로 | note |

@@ -41,6 +41,17 @@ public static class WindowsForegroundObserver
         return window != 0 && GetWindowThreadProcessId(window, out var id) != 0 ? id : 0;
     }
 
+    /// <summary>The image name of a process, or null. Keeps no cache, so any thread may ask.</summary>
+    public static string? ProcessName(uint processId) => processId == 0 ? null : QueryProcessName(processId);
+
+    /// <summary>The id of a running process with this name, 0 when there is none. Lists processes, so never on a hot path.</summary>
+    public static uint FindProcess(string processName)
+    {
+        var found = Process.GetProcessesByName(NormalizeProcessName(processName));
+        try { return found.Length > 0 ? (uint)found[0].Id : 0; }
+        finally { foreach (var process in found) process.Dispose(); }
+    }
+
     public static string NormalizeProcessName(string processName) =>
         processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? processName[..^4] : processName;
 

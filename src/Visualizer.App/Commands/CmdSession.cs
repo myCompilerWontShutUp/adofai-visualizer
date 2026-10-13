@@ -11,6 +11,7 @@ using Visualizer.Core.Localization;
 using Visualizer.Core.Maps;
 using Visualizer.Core.Settings;
 using Visualizer.Core.Visualization;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Commands;
 
@@ -83,7 +84,7 @@ public sealed record CmdNote(string Title, string Version, string Done, int Line
 /// </summary>
 public sealed record LinkerPlace(string? GameDirectory, string? Source, string? SourceVersion, string? Installed, string Target);
 
-/// <summary>What the console reads and changes in the app. Every reason handed back is English (<see cref="CmdSession.Language"/>).</summary>
+/// <summary>What the console reads and changes in the app. Every reason handed back is in the console's language (<see cref="ConsoleText"/>).</summary>
 public interface ICmdHost
 {
     /// <summary>The loaded song's timeline; null before a song is loaded.</summary>
@@ -134,7 +135,7 @@ public interface ICmdHost
     /// <summary>
     /// link inspect (measurement only): presses the visualizer's notes into the game while every rule of it holds, or stops.
     /// </summary>
-    IReadOnlyList<string> GameSyncInspect(bool on) => ["link inspect is not available here."];
+    IReadOnlyList<string> GameSyncInspect(bool on) => [T("InspectNotHere")];
     /// <summary>The lines of the last <paramref name="count"/> inspect runs (every run for 0), or null when none is kept.</summary>
     IReadOnlyList<string>? InspectLines(int count) => null;
 
@@ -148,6 +149,8 @@ public interface ICmdHost
     string? InstallLinker(LinkerPlace place, IProgress<double> progress);
     /// <summary>The applied settings.</summary>
     VisualizerSettings Settings { get; }
+    /// <summary>The language the console speaks: the app's own (user rule).</summary>
+    string Language => Settings.Language;
     bool SettingsOpen { get; }
     /// <summary>Whether the note editor is open; commands that would work behind it are refused while it is.</summary>
     bool EditorOpen => false;
@@ -162,7 +165,7 @@ public interface ICmdHost
     /// Puts the lanes of the open editor's notes where the JSON says, as note -json prints them. Null when done, otherwise
     /// why not. Nothing is changed unless every line passes.
     /// </summary>
-    string? OverrideNotes(string json) => "The note editor is not open.";
+    string? OverrideNotes(string json) => T("EditorNotOpen");
     /// <summary>Whether the open settings hold changes that are not applied.</summary>
     bool HasUnappliedSettings { get; }
     /// <summary>Applies those changes and keeps the window open: null on success, otherwise the reason.</summary>
@@ -177,16 +180,16 @@ public interface ICmdHost
     /// </summary>
     int Checkpoint => 1;
     /// <summary>Prepares the song from that checkpoint, as the main window's list does. Null when it moved, otherwise why not.</summary>
-    string? MoveCheckpoint(int checkpoint) => "No song is loaded.";
+    string? MoveCheckpoint(int checkpoint) => T("NoSongLoaded");
     /// <summary>
     /// Prepares the song from a practice tile, as the section box does. Null when it moved, otherwise why not; the tile is
     /// checked here so the reason is in English rather than the timeline's own.
     /// </summary>
-    string? StartAtTile(int tile) => "No song is loaded.";
+    string? StartAtTile(int tile) => T("NoSongLoaded");
     /// <summary>The tiles pinned on a song family (an original and its edits share them), in order.</summary>
     IReadOnlyList<int> PinsOf(string family) => [];
     /// <summary>Keeps a family's pins; null when kept, otherwise why not.</summary>
-    string? SetPins(string family, IReadOnlyList<int> tiles) => "Pins are not kept here.";
+    string? SetPins(string family, IReadOnlyList<int> tiles) => T("PinsNotHere");
 
     /// <summary>Every synced song, hidden ones included.</summary>
     IReadOnlyList<CmdSong> Songs { get; }
@@ -194,6 +197,11 @@ public interface ICmdHost
     IReadOnlyList<string> CurrentIds { get; }
     /// <summary>The id of the loaded song; null when none is loaded or it is not in the list (the example, the preview).</summary>
     string? LoadedId { get; }
+    /// <summary>
+    /// The id of the song the game is playing, found in the song list as link auto finds it (its original first). Null with
+    /// the reason when the link is off, the linker is not connected or the song is not in the list.
+    /// </summary>
+    string? GameSongId(out string? problem) { problem = T("LinkNotHere"); return null; }
     string? SetHidden(string id, bool hidden);
     /// <summary>Opens the song list window; true when it was confirmed (its changes are then applied and saved).</summary>
     bool OpenPlaylist();
@@ -206,18 +214,18 @@ public interface ICmdHost
     /// <summary>Those notes with the version they were written for and whether they are done (report -ls).</summary>
     IReadOnlyList<CmdNote> ReportNotes() => [];
     /// <summary>The lines of one note, null when there is none; <paramref name="problem"/> says why it could not be read.</summary>
-    IReadOnlyList<string>? ReadReport(string title, out string? problem) { problem = "Notes are not kept here."; return null; }
+    IReadOnlyList<string>? ReadReport(string title, out string? problem) { problem = T("NotesNotHere"); return null; }
     /// <summary>Writes a note; null when written, otherwise why not.</summary>
-    string? WriteReport(string title, IReadOnlyList<string> lines) => "Notes are not kept here.";
+    string? WriteReport(string title, IReadOnlyList<string> lines) => T("NotesNotHere");
     /// <summary>Removes a note; true when one was there. <paramref name="problem"/> says why it could not be removed.</summary>
-    bool DeleteReport(string title, out string? problem) { problem = "Notes are not kept here."; return false; }
+    bool DeleteReport(string title, out string? problem) { problem = T("NotesNotHere"); return false; }
     /// <summary>
     /// Writes where a note stands: "done" with this version, "asked" with what is still needed, or "open" to clear it.
     /// The reason is written in the language the settings are set to, since the user is who reads it. Null when it went through.
     /// </summary>
-    string? MarkReport(string title, string state, string? why) => "Notes are not kept here.";
+    string? MarkReport(string title, string state, string? why) => T("NotesNotHere");
     /// <summary>Gives a note another title; null when it went through, otherwise why not.</summary>
-    string? RenameReport(string title, string name) => "Notes are not kept here.";
+    string? RenameReport(string title, string name) => T("NotesNotHere");
     /// <summary>Removes every note already marked done and returns the titles that went.</summary>
     IReadOnlyList<string> ClearDoneReports() => [];
     /// <summary>Gives a song the name the list shows; an edit hands it to its original. Null when done, otherwise why not.</summary>
@@ -240,30 +248,30 @@ public interface ICmdHost
     string? RollBack();
     /// <summary>scannow: checks each area and says what is wrong in it. Nothing is changed.</summary>
     void ScanNow(IReadOnlyList<string> areas, IProgress<double> progress, Action<IReadOnlyList<ScanArea>> done) =>
-        done(areas.Select(area => new ScanArea(area, ["Checking is not set up here."])).ToArray());
+        done(areas.Select(area => new ScanArea(area, [T("ScanNotHere")])).ToArray());
 
     /// <summary>install -reinstall linker: writes this version's linker into the game again, with the app still open.</summary>
-    void ReinstallLinker(IProgress<double> progress, Action<IReadOnlyList<string>> done) => done(["Reinstalling is not set up here."]);
+    void ReinstallLinker(IProgress<double> progress, Action<IReadOnlyList<string>> done) => done([T("ReinstallNotHere")]);
 
     /// <summary>
     /// install -reinstall source and app: the app closes, update.ps1 puts the parts back and builds them, and opens it again
     /// (a running app holds its own files). Null when it is on its way, otherwise why not.
     /// </summary>
-    string? ReinstallAndRestart(IReadOnlyList<string> parts) => "Reinstalling is not set up here.";
+    string? ReinstallAndRestart(IReadOnlyList<string> parts) => T("ReinstallNotHere");
 
     /// <summary>
     /// update and version: asks the repository about the latest version, or <paramref name="version"/>, by running its own
     /// update.ps1 -Check. Nothing is changed.
     /// </summary>
     void CheckUpdate(string? version, IProgress<double> progress, Action<UpdateCheck> done) =>
-        done(UpdateCheck.Failed("Updating is not set up here."));
+        done(UpdateCheck.Failed(T("UpdateNotHere")));
 
     /// <summary>
     /// Takes it: the app closes and the script puts the version in place, builds it and starts it again, since a running
     /// app holds its own files. An installed linker is built and written with it (user rule). <paramref name="force"/>
     /// throws this copy's own changes away. Null when the update is on its way, otherwise why it could not start.
     /// </summary>
-    string? ApplyUpdate(bool force, string? version) => "Updating is not set up here.";
+    string? ApplyUpdate(bool force, string? version) => T("UpdateNotHere");
 
     /// <summary>Asks for a folder, starting at <paramref name="start"/>; null when none was picked.</summary>
     string? PickFolder(string start);
@@ -337,16 +345,16 @@ public sealed class CmdLog
 }
 
 /// <summary>
-/// A cmd-like console. Every line it prints is English whatever the app language (user rule), so it has no language file
-/// entries; song titles are data and show as they are.
+/// A cmd-like console. It speaks the app's language (user rule): every line it prints comes from the console part of the
+/// language files, while command, option and keyword names, setting paths, song titles and paths show as they are typed.
 /// </summary>
 public sealed class CmdSession
 {
     public const string PromptText = "Visualizer>";
     /// <summary>How wide a progress bar is drawn, in characters.</summary>
     private const int BarWidth = 24;
-    /// <summary>The language of reasons that come from the app's own messages (placement, settings, editor).</summary>
-    public const string Language = Languages.English;
+    /// <summary>The language of reasons that come from the app's own messages (placement, settings, editor): the console's.</summary>
+    public static string Language => ConsoleText.Language;
     private const string AnswerPrompt = "[Y/n]";
     /// <summary>The same question with a third answer that prints everything before deciding (user rule).</summary>
     private const string DetailPrompt = "[Y/n/detail]";
@@ -376,8 +384,15 @@ public sealed class CmdSession
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         Log = log ?? CmdLog.Shared;
-        if (!Log.Started) Log.Start([$"Visualizer Console [Version {AppInfo.Version}]", "Type 'cmd' to see the commands.", ""]);
+        Speak();
+        if (!Log.Started) Log.Start([T("Banner", AppInfo.Version), T("BannerHint"), ""]);
     }
+
+    /// <summary>
+    /// The console speaks the app's language (user rule), read again before every line it handles so a language set a
+    /// moment ago is the one the next answer comes in.
+    /// </summary>
+    private void Speak() => ConsoleText.Language = Languages.Resolve(_host.Language) ?? Languages.English;
 
     public CmdLog Log { get; }
     public bool IsAsking => _question is not null || _choice is not null;
@@ -412,7 +427,7 @@ public sealed class CmdSession
     /// </summary>
     private void RunJob(string label, Action<IProgress<double>, Action<IReadOnlyList<string>>> start)
     {
-        if (Busy) { Write("Another command is still running."); return; }
+        if (Busy) { Write(T("JobRunning")); return; }
         Job = (label, 0);
         Log.Refresh();
         // Reported straight through, not through Progress<T>: the host already steps on the UI thread (its own
@@ -446,6 +461,7 @@ public sealed class CmdSession
         // Nothing is taken while a long command runs: the screen shows its bar in place of the prompt and types nothing,
         // so an input that gets here anyway is dropped rather than queued (user request).
         if (Busy) return;
+        Speak();
         var line = (input ?? "").Trim();
         if (_choice is { } choice)
         {
@@ -466,7 +482,7 @@ public sealed class CmdSession
             else
             {
                 _choice = null;
-                Write("Cancelled.");
+                Write(T("Cancelled"));
             }
             if (!IsAsking) Log.Write([""]);
             return;
@@ -531,7 +547,7 @@ public sealed class CmdSession
         var yes = line.Has("-p");
         if (_host.EditorOpen && NotWhileEditing.Contains(line.Command.Name))
         {
-            Write($"The note editor is open, so {line.Command.Name} cannot run. Save or close the editor first.");
+            Write(T("EditorBlocks", line.Command.Name));
             return true;
         }
         switch (line.Command.Name)
@@ -564,9 +580,9 @@ public sealed class CmdSession
                 Log.Write(Whoami);
                 break;
             case "date":
-                // This computer's clock, printed like the rest of the console: English and invariant.
+                // This computer's clock, with the weekday in the console's language.
                 if (NoArguments(line))
-                    Show([DateTime.Now.ToString("yyyy-MM-dd dddd HH:mm:ss", CultureInfo.InvariantCulture)], copy);
+                    Show([DateTime.Now.ToString("yyyy-MM-dd dddd HH:mm:ss", DateCulture())], copy);
                 break;
             case "cmd":
                 if (NoArguments(line)) Show(CommandList(), copy);
@@ -591,7 +607,7 @@ public sealed class CmdSession
             case "version":
                 if (!NoArguments(line)) break;
                 if (line.Has("-number")) Show([AppInfo.Version], copy);
-                else Version(copy);
+                else Version(copy, line.Has("-check"));
                 break;
             case "fps":
                 // Measured by the app on itself; nothing is read from the game or the system beyond its own frames.
@@ -658,20 +674,20 @@ public sealed class CmdSession
                 var rebuild = line.Rest.Trim();
                 if (rebuild.Length > 0 && !rebuild.Equals("rebuild", StringComparison.OrdinalIgnoreCase))
                 {
-                    Write($"sync takes rebuild or nothing, not '{rebuild}'.");
+                    Write(T("SyncTakes", rebuild));
                     break;
                 }
                 if (rebuild.Length == 0)
                 {
-                    RunJob("Map sync", (progress, done) =>
-                        _host.SyncMaps(progress, count => done([$"Map sync finished. {count} songs in the library."])));
+                    RunJob(T("JobMapSync"), (progress, done) =>
+                        _host.SyncMaps(progress, count => done([T("MapSyncDone", count)])));
                     break;
                 }
-                Confirm(yes, "Rebuild the custom maps from the map folder? Songs no longer there leave the list.", answer =>
+                Confirm(yes, T("AskRebuild"), answer =>
                 {
-                    if (!answer) { Write("Cancelled."); return; }
-                    RunJob("Map rebuild", (progress, done) =>
-                        _host.Resync(progress, count => done([$"Map rebuild finished. {count} songs in the library."])));
+                    if (!answer) { Write(T("Cancelled")); return; }
+                    RunJob(T("JobMapRebuild"), (progress, done) =>
+                        _host.Resync(progress, count => done([T("MapRebuildDone", count)])));
                 });
                 break;
             case "remove":
@@ -725,17 +741,17 @@ public sealed class CmdSession
         var lines = new List<string>();
         foreach (var group in CmdCatalog.Groups)
         {
-            lines.Add(group);
+            lines.Add(T("Group." + group));
             lines.AddRange(CmdCatalog.Visible.Where(command => command.Group == group).Select(command => $"  {command.Usage,-34}{command.Summary}"));
         }
         lines.Add("");
         // Short lines, so they fit the console's default width without wrapping.
-        lines.Add("Options go before or after the words: playlist -id base.");
-        lines.Add("<id>: an 8-character id or now.   <cmd>: a command, list or last.");
-        lines.Add("<string>: " + string.Join(", ", CmdCatalog.SongGroups.SkipLast(1)) + " or all.");
-        lines.Add("<title>: any part of a title, origin or edited.");
-        lines.Add("help <cmd> shows a command's options and keywords.");
-        lines.Add("Tab completes commands, words and settings.");
+        lines.Add(T("CmdHintOptions"));
+        lines.Add(T("CmdHintId"));
+        lines.Add(T("CmdHintString", string.Join(", ", CmdCatalog.SongGroups.SkipLast(1))));
+        lines.Add(T("CmdHintTitle"));
+        lines.Add(T("CmdHintHelp"));
+        lines.Add(T("CmdHintTab"));
         return lines;
     }
 
@@ -750,13 +766,13 @@ public sealed class CmdSession
         yield return "  " + command.Help;
         if (command.OptionGroups.Count > 0)
         {
-            yield return "  Options: " + command.OptionsText;
+            yield return "  " + T("HelpOptions", command.OptionsText);
             foreach (var line in OptionLines(command)) yield return "  " + line;
         }
         if (command.KeywordNames.Count > 0)
         {
             // The default one stands in brackets, so it is seen rather than read about (user rule).
-            yield return "  Keywords: " + string.Join(", ", command.KeywordNames.Select(command.KeywordText));
+            yield return "  " + T("HelpKeywords", string.Join(", ", command.KeywordNames.Select(command.KeywordText)));
             foreach (var line in KeywordLines(command)) yield return "  " + line;
         }
     }
@@ -781,9 +797,8 @@ public sealed class CmdSession
     private static IReadOnlyList<string> AllOptions(bool keywords)
     {
         var lines = CmdCatalog.OptionHelp.Select(option => $"  {option.Key,-11}{option.Value}").ToList();
-        if (keywords) lines.AddRange(["", "Keywords:", .. KeywordTable()]);
-        lines.AddRange(["", keywords ? "To see a command's options and keywords, type option -keywords <cmd>, as in option -keywords playlist."
-            : "To see which options a command takes, type option <cmd>, as in option playlist."]);
+        if (keywords) lines.AddRange(["", T("KeywordsHeading"), .. KeywordTable()]);
+        lines.AddRange(["", keywords ? T("OptionsHintBoth") : T("OptionsHint")]);
         return lines;
     }
 
@@ -791,9 +806,8 @@ public sealed class CmdSession
     private static IReadOnlyList<string> AllKeywords(bool options)
     {
         var lines = KeywordTable().ToList();
-        if (options) lines.AddRange(["", "Options:", .. CmdCatalog.OptionHelp.Select(option => $"  {option.Key,-11}{option.Value}")]);
-        lines.AddRange(["", options ? "To see a command's keywords and options, type keyword -options <cmd>, as in keyword -options playlist."
-            : "To see which keywords a command takes, type keyword <cmd>, as in keyword playlist."]);
+        if (options) lines.AddRange(["", T("OptionsHeading"), .. CmdCatalog.OptionHelp.Select(option => $"  {option.Key,-11}{option.Value}")]);
+        lines.AddRange(["", options ? T("KeywordsHintBoth") : T("KeywordsHint")]);
         return lines;
     }
 
@@ -808,7 +822,7 @@ public sealed class CmdSession
     private static IEnumerable<string> OptionsOf(CmdCommand command, bool keywords)
     {
         var lines = new List<string>();
-        if (command.OptionGroups.Count == 0) lines.Add($"{command.Name} has no options.");
+        if (command.OptionGroups.Count == 0) lines.Add(T("NoOptions", command.Name));
         else lines.AddRange([$"{command.Name}: {command.OptionsText}", .. OptionLines(command)]);
         if (keywords) lines.AddRange(KeywordPart(command));
         return lines;
@@ -819,15 +833,15 @@ public sealed class CmdSession
     {
         var lines = KeywordPart(command).ToList();
         if (!options) return lines;
-        if (command.OptionGroups.Count == 0) lines.Add($"{command.Name} has no options.");
-        else lines.AddRange([$"{command.Name} options: {command.OptionsText}", .. OptionLines(command)]);
+        if (command.OptionGroups.Count == 0) lines.Add(T("NoOptions", command.Name));
+        else lines.AddRange([T("CommandOptions", command.Name, command.OptionsText), .. OptionLines(command)]);
         return lines;
     }
 
     /// <summary>One keyword on its own: what it means and the commands that take it, with a line each where they differ.</summary>
     private static IReadOnlyList<string> WordLines(string keyword, (string Meaning, IReadOnlyList<string> Commands) known)
     {
-        var lines = new List<string> { $"{keyword} is a keyword of {string.Join(", ", known.Commands)}." };
+        var lines = new List<string> { T("KeywordOf", keyword, string.Join(", ", known.Commands)) };
         if (known.Meaning.Length > 0) lines.Add("  " + known.Meaning);
         foreach (var name in known.Commands)
         {
@@ -838,8 +852,8 @@ public sealed class CmdSession
         return lines;
     }
 
-    private static IEnumerable<string> KeywordPart(CmdCommand command) => command.KeywordNames.Count == 0 ? [$"{command.Name} has no keywords."]
-        : [$"{command.Name} keywords: {string.Join(", ", command.KeywordNames.Select(command.KeywordText))}", .. KeywordLines(command)];
+    private static IEnumerable<string> KeywordPart(CmdCommand command) => command.KeywordNames.Count == 0 ? [T("NoKeywords", command.Name)]
+        : [T("CommandKeywords", command.Name, string.Join(", ", command.KeywordNames.Select(command.KeywordText))), .. KeywordLines(command)];
 
     /// <summary>The commands a &lt;cmd&gt; names: all when left out, last for the one run before this.</summary>
     private IReadOnlyList<CmdCommand>? CommandsFor(CmdLine line)
@@ -854,7 +868,7 @@ public sealed class CmdSession
             var history = Log.History;
             if (history.Count < 2)
             {
-                Write("There is no command before this one.");
+                Write(T("NoCommandBefore"));
                 return null;
             }
             word = CmdCatalog.Words(history[^2]).FirstOrDefault().Word ?? "";
@@ -865,7 +879,7 @@ public sealed class CmdSession
             Write(CmdCatalog.UninstallNote);
             return null;
         }
-        Write($"'{word}' is not a command. Type cmd to see them.");
+        Write(T("NotACommandHere", word));
         return null;
     }
 
@@ -876,7 +890,15 @@ public sealed class CmdSession
     private CmdSong? LoadedSong()
     {
         if (_host.LoadedId is { } id && Song(id) is { } song) return song;
-        Write(_host.LoadedSongName is { Length: > 0 } name ? $"{name} is not in the song list, so it has no id." : "No song is loaded.");
+        Write(_host.LoadedSongName is { Length: > 0 } name ? T("NotInListNoId", name) : T("NoSongLoaded"));
+        return null;
+    }
+
+    /// <summary>The song the game is playing (user rule: only while the linker is on), or null with the reason written.</summary>
+    private CmdSong? GameSong()
+    {
+        if (_host.GameSongId(out var problem) is { } id && Song(id) is { } song) return song;
+        Write(problem ?? T("GameSongNotListed"));
         return null;
     }
 
@@ -889,10 +911,10 @@ public sealed class CmdSession
             ? song.Title[(slot.ToString(CultureInfo.InvariantCulture).Length + 1)..] : song.Title;
 
     /// <summary>What id prints: the id, and an edit's slot.</summary>
-    private static string IdText(CmdSong song) => song.Slot is { } slot ? $"{song.Id} (slot {slot})" : song.Id;
+    private static string IdText(CmdSong song) => song.Slot is { } slot ? T("WithSlot", song.Id, slot) : song.Id;
 
     /// <summary>What title prints: the title, and an edit's slot.</summary>
-    private static string TitleText(CmdSong song) => song.Slot is { } slot ? $"{BaseTitle(song)} (slot {slot})" : song.Title;
+    private static string TitleText(CmdSong song) => song.Slot is { } slot ? T("WithSlot", BaseTitle(song), slot) : song.Title;
 
     /// <summary>The loaded song's original and its edits, the original first and the edits by slot.</summary>
     private IReadOnlyList<CmdSong> Family(CmdSong song) => _host.Songs.Where(each => each.Family == song.Family)
@@ -910,14 +932,15 @@ public sealed class CmdSession
         {
             // Some commands take the loaded song when nothing is named; the rest say what they need.
             if (fallback is not null) return LoadedSong();
-            Write($"An id is needed: an 8-character id or now. Usage: {line.Command.Usage}");
+            Write(T("IdNeeded", line.Command.Usage));
             return null;
         }
         if (line.Arguments.Count > 1) return Syntax<CmdSong>(line);
         var id = line.Arguments[0];
         if (id.Equals("now", StringComparison.OrdinalIgnoreCase)) return LoadedSong();
+        if (id.Equals("link", StringComparison.OrdinalIgnoreCase)) return GameSong();
         if (Song(id) is { } song) return song;
-        Write($"No song has the id {id}. playlist shows the ids.");
+        Write(T("NoSongWithId", id));
         return null;
     }
 
@@ -927,26 +950,28 @@ public sealed class CmdSession
         var timeline = entry.Timeline;
         var rows = new List<(string Name, string Value)>
         {
-            ("id", song.Id),
-            ("title", song.Title),
-            ("artist", entry.Info?.Artist is { Length: > 0 } artist ? artist : "-"),
-            ("author", entry.Info?.Author is { Length: > 0 } author ? author : "-"),
-            ("kind", song.Kind),
-            ("length", timeline is { HitTimesMs.Count: > 0 } timed ? Length(timed.HitTimesMs[^1]) : "-"),
+            (T("Row.id"), song.Id),
+            (T("Row.title"), song.Title),
+            (T("Row.artist"), entry.Info?.Artist is { Length: > 0 } artist ? artist : "-"),
+            (T("Row.author"), entry.Info?.Author is { Length: > 0 } author ? author : "-"),
+            (T("Row.kind"), song.Kind),
+            (T("Row.length"), timeline is { HitTimesMs.Count: > 0 } timed ? Length(timed.HitTimesMs[^1]) : "-"),
             // Only the notes pressed; long notes and auto tiles have rows of their own, 0 included.
-            ("notes", timeline?.CountPressedHits().ToString(CultureInfo.InvariantCulture) ?? "-"),
-            ("longnotes", timeline is null ? "-"
+            (T("Row.notes"), timeline?.CountPressedHits().ToString(CultureInfo.InvariantCulture) ?? "-"),
+            (T("Row.longnotes"), timeline is null ? "-"
                 : (timeline.CountHits(HitKind.HoldStart) + timeline.CountHits(HitKind.HoldChain)).ToString(CultureInfo.InvariantCulture)),
-            ("autonotes", timeline?.CountHits(HitKind.Auto).ToString(CultureInfo.InvariantCulture) ?? "-"),
-            ("difficulty", entry.Info?.Difficulty?.ToString(CultureInfo.InvariantCulture) ?? "-"),
-            ("checkpoints", timeline is { CheckpointsVerified: true } marked ? marked.CheckpointCount.ToString(CultureInfo.InvariantCulture) : "-")
+            (T("Row.autonotes"), timeline?.CountHits(HitKind.Auto).ToString(CultureInfo.InvariantCulture) ?? "-"),
+            (T("Row.difficulty"), entry.Info?.Difficulty?.ToString(CultureInfo.InvariantCulture) ?? "-"),
+            (T("Row.checkpoints"), timeline is { CheckpointsVerified: true } marked ? marked.CheckpointCount.ToString(CultureInfo.InvariantCulture) : "-")
         };
         // Every song has the row: an edit's slot, or origin for the song it was made from.
-        rows.Add(("slot", song.Slot?.ToString(CultureInfo.InvariantCulture) ?? "origin"));
-        rows.Add(("hidden", song.Hidden ? "yes" : "no"));
-        rows.Add(("status", entry.Status.ToString().ToLowerInvariant()));
-        rows.Add(("path", Path.Combine(entry.RootDirectory, entry.RelativePath)));
-        return rows.Select(row => $"{row.Name,-13}{row.Value}").ToArray();
+        rows.Add((T("Row.slot"), song.Slot?.ToString(CultureInfo.InvariantCulture) ?? "origin"));
+        rows.Add((T("Row.hidden"), song.Hidden ? T("Yes") : T("No")));
+        rows.Add((T("Row.status"), entry.Status.ToString().ToLowerInvariant()));
+        rows.Add((T("Row.path"), Path.Combine(entry.RootDirectory, entry.RelativePath)));
+        // Hangul is twice as wide as a letter in the console's font, so the column is counted in letter widths.
+        var width = rows.Max(row => Wide(row.Name)) + 2;
+        return rows.Select(row => row.Name + new string(' ', width - Wide(row.Name)) + row.Value).ToArray();
 
         static string Length(double ms) => TimeSpan.FromMilliseconds(ms).ToString(ms >= 3_600_000 ? @"h\:mm\:ss" : @"m\:ss", CultureInfo.InvariantCulture);
     }
@@ -961,7 +986,7 @@ public sealed class CmdSession
         var word = line.Arguments.Count == 0 ? fallback : line.Arguments[0].ToLowerInvariant();
         if (!CmdCatalog.SongGroups.Contains(word))
         {
-            Write("Use " + string.Join(", ", CmdCatalog.SongGroups.SkipLast(1)) + " or all.");
+            Write(T("UseSongWords", string.Join(", ", CmdCatalog.SongGroups.SkipLast(1))));
             return null;
         }
         switch (word)
@@ -970,12 +995,14 @@ public sealed class CmdSession
                 return _host.CurrentIds.Select(Song).OfType<CmdSong>().ToArray();
             case "now":
                 return LoadedSong() is { } loaded ? [loaded] : null;
+            case "link":
+                return GameSong() is { } played ? [played] : null;
             case "family":
                 return LoadedSong() is { } song ? Family(song) : null;
             case "origin":
                 if (LoadedSong() is not { } edit) return null;
                 if (OriginOf(edit) is { } origin) return [origin];
-                Write($"The original of {edit.Title} is not in the song list.");
+                Write(T("OriginalNotListed", edit.Title));
                 return null;
         }
         IEnumerable<CmdSong> songs = _host.Songs;
@@ -990,7 +1017,7 @@ public sealed class CmdSession
         if (line.Has("-s")) songs = songs.Where(song => !song.Hidden).ToArray();
         if (songs.Count == 0)
         {
-            Write("No songs match.");
+            Write(T("NoSongsMatch"));
             return;
         }
         Show(songs.Select(song => column switch
@@ -1004,7 +1031,7 @@ public sealed class CmdSession
     }
 
     /// <summary>A song as list shows it: id, folder and title as the song list names it.</summary>
-    private static string Row(CmdSong song) => $"{song.Id}  {song.Kind,-6}  {song.Title}{(song.Hidden ? "  [hidden]" : "")}";
+    private static string Row(CmdSong song) => $"{song.Id}  {song.Kind,-6}  {song.Title}{(song.Hidden ? "  " + T("HiddenMark") : "")}";
 
     // ---- load ------------------------------------------------------------------------------------------------------
 
@@ -1021,7 +1048,7 @@ public sealed class CmdSession
         var force = line.Has("-force");
         if (text.Length == 0)
         {
-            Write("A title is needed: any part of it, *, ., origin or edited.", $"Usage: {line.Command.Usage}");
+            Write(T("TitleNeeded"), T("Usage", line.Command.Usage));
             return;
         }
         // "." is the loaded song, so it can be loaded again or taken with an option; a title is never just a dot.
@@ -1036,13 +1063,25 @@ public sealed class CmdSession
                 return;
             }
         }
+        // "link" is the song the game is playing (user rule), its original as link auto takes it; an option picks from its family.
+        if (text.Equals("link", StringComparison.OrdinalIgnoreCase))
+        {
+            if (GameSong() is not { } played) return;
+            if (line.Has("-origin") || line.Has("-slot") || line.Number is not null)
+                text = BaseTitle(played);
+            else
+            {
+                LoadOne(played, keepSpeed, force);
+                return;
+            }
+        }
         // "*" is every song, which is the empty text every title contains.
         if (text == "*") text = "";
         if (line.Has("-id"))
         {
-            if (line.Arguments.Count > 1) Write("-id takes one id, all 8 characters of it.");
+            if (line.Arguments.Count > 1) Write(T("IdTakesOne"));
             else if (Song(text) is { } byId) LoadOne(byId, keepSpeed, force);
-            else Write($"No song has the id {text}. An id must be given in full, as playlist -id shows it.");
+            else Write(T("NoSongWithFullId", text));
             return;
         }
         var slot = line.Number;
@@ -1075,7 +1114,7 @@ public sealed class CmdSession
                 LoadOne(byId, keepSpeed, force);
                 return;
             }
-            Write($"No {(editsOnly ? "edit" : "song")} title has '{text}'{(id ? $", and no song has the id {text}" : "")}.");
+            Write(T(id ? editsOnly ? "NoEditTitleOrId" : "NoSongTitleOrId" : editsOnly ? "NoEditTitle" : "NoSongTitle", text));
             return;
         }
         if (matches.Count == 1)
@@ -1085,7 +1124,7 @@ public sealed class CmdSession
         }
         if (matches.Count > CmdCatalog.MaximumPicks)
         {
-            Write($"{matches.Count} songs match. Type more of the title.");
+            Write(T("TooManyMatches", matches.Count));
             return;
         }
         AskChoice(matches.Select(Row).ToArray(), number => LoadOne(matches[number - 1], keepSpeed, force));
@@ -1110,38 +1149,38 @@ public sealed class CmdSession
         {
             if (line.Has("-sl") || slot is not null)
             {
-                Write("-sl goes with edited: origin loads the original.");
+                Write(T("SlotGoesWithEdited"));
                 return;
             }
             if (loaded.Slot is null)
             {
                 // Pointing the other way helps only when there is an edit to go to (user rule).
-                Write($"{loaded.Title} is already the original." + (edits.Count > 0 ? " load edited loads its edits." : ""));
+                Write(T(edits.Count > 0 ? "AlreadyOriginalWithEdits" : "AlreadyOriginal", loaded.Title));
                 return;
             }
             if (OriginOf(loaded) is { } origin) LoadOne(origin, keepSpeed, force);
-            else Write($"The original of {loaded.Title} is not in the song list.");
+            else Write(T("OriginalNotListed", loaded.Title));
             return;
         }
         if (line.Has("-og"))
         {
-            Write("-og goes with origin: edited loads an edit.");
+            Write(T("OriginGoesWithOrigin"));
             return;
         }
         if (loaded.Slot is not null)
         {
-            Write($"{loaded.Title} is an edit. load origin loads its original.");
+            Write(T("IsAnEdit", loaded.Title));
             return;
         }
         if (edits.Count == 0)
         {
-            Write($"{loaded.Title} has no edits.");
+            Write(T("HasNoEdits", loaded.Title));
             return;
         }
         if (slot is not null)
         {
             if (edits.FirstOrDefault(edit => edit.Slot == slot) is { } inSlot) LoadOne(inSlot, keepSpeed, force);
-            else Write($"{loaded.Title} has no edit in slot {slot}.");
+            else Write(T("NoEditInSlot", loaded.Title, slot));
             return;
         }
         if (edits.Count == 1) LoadOne(edits[0], keepSpeed, force);
@@ -1157,15 +1196,15 @@ public sealed class CmdSession
     {
         if (force && song.Entry.Status == MapParseStatus.Unsupported)
         {
-            Confirm(false, $"{song.Title} is unsupported. Force it, reading it as an older verified format version whose timing may differ from the game?",
+            Confirm(false, T("AskForce", song.Title),
                 answer =>
                 {
                     if (answer) LoadWith(song, () => _host.ForceLoadSongById(song.Id, keepSpeed), forced: true);
-                    else Write("Cancelled.");
+                    else Write(T("Cancelled"));
                 });
             return;
         }
-        if (force) Write($"-force is only for unsupported songs, and {song.Title} is not one, so it loads as it is.");
+        if (force) Write(T("ForceNotNeeded", song.Title));
         LoadWith(song, () => _host.LoadSongById(song.Id, keepSpeed), forced: false);
     }
 
@@ -1180,11 +1219,11 @@ public sealed class CmdSession
                 Write($"{song.Id} {song.Title}: {reason}");
                 return;
             }
-            Write($"Loaded {song.Id} {song.Title}.");
+            Write(T("Loaded", song.Id, song.Title));
             if (forced && _host.Songs.FirstOrDefault(listed => listed.Id == song.Id)?.Entry.ForcedFormatVersion is { } format)
-                Write($"Forced: read as format version {format}. Its timing may differ from the game; the song list marks it forced.");
+                Write(T("ForcedAs", format));
             if (SettingPaths.Format(speed, _host.Settings) is var after && after != before)
-                Write($"{speed.Name}: {before} → {after}. rollback undoes it; load -speed keeps the speed.");
+                Write(T("SpeedReset", speed.Name, before, after));
         });
     }
 
@@ -1192,7 +1231,7 @@ public sealed class CmdSession
     private void AskChoice(IReadOnlyList<string> lines, Action<int> take)
     {
         Log.Write(lines.Select((text, index) => (index + 1).ToString("00", CultureInfo.InvariantCulture) + "  " + text).ToArray());
-        var prompt = $"Pick 1-{lines.Count}:";
+        var prompt = T("Pick", lines.Count);
         _choice = new Choice(prompt, lines.Count, take, false);
         Log.Write([prompt]);
     }
@@ -1203,13 +1242,13 @@ public sealed class CmdSession
     /// </summary>
     private void Checkpoint(CmdLine line, bool copy)
     {
-        if (_host.Timeline is not { } timeline) { Write("No song is loaded."); return; }
-        var song = _host.LoadedSongName ?? "The loaded song";
+        if (_host.Timeline is not { } timeline) { Write(T("NoSongLoaded")); return; }
+        var song = _host.LoadedSongName ?? T("TheLoadedSong");
         var marks = timeline.CheckpointsVerified ? timeline.Checkpoints : [];
-        if (marks.Count <= 1) { Write($"{song} has no checkpoints."); return; }
-        string Name(int number) => number <= 1 ? "the beginning"
+        if (marks.Count <= 1) { Write(T("NoCheckpoints", song)); return; }
+        string Name(int number) => number <= 1 ? T("TheBeginning")
             : marks.FirstOrDefault(mark => mark.Number == number) is { SourceFloor: int floor }
-                ? $"checkpoint {number - 1} (tile {floor})" : $"checkpoint {number - 1}";
+                ? T("CheckpointAtTile", number - 1, floor) : T("CheckpointNumber", number - 1);
         var word = line.Rest.Trim();
         // Listing is all everywhere in this console; -list says the same thing (user rule: two ways, one meaning).
         if (word.Equals("list", StringComparison.OrdinalIgnoreCase))
@@ -1217,7 +1256,7 @@ public sealed class CmdSession
             Show([.. marks.Select(mark => (mark.Number == _host.Checkpoint ? "> " : "  ") + Name(mark.Number))], copy);
             return;
         }
-        if (word.Length == 0) { Show([$"{song} starts at {Name(_host.Checkpoint)}, of {marks.Count - 1}."], copy); return; }
+        if (word.Length == 0) { Show([T("StartsAt", song, Name(_host.Checkpoint), marks.Count - 1)], copy); return; }
         // The ends wrap around, as the main window's arrows do (user rule).
         var wanted = word.ToLowerInvariant() switch
         {
@@ -1229,31 +1268,31 @@ public sealed class CmdSession
         };
         if (wanted < 0)
         {
-            Write($"'{word}' is not a checkpoint. Use a number from 1 to {marks.Count - 1}, or first, next, previous or last.");
+            Write(T("NotACheckpoint", word, marks.Count - 1));
             return;
         }
-        if (wanted > marks.Count) { Write($"{song} has {marks.Count - 1} checkpoints."); return; }
+        if (wanted > marks.Count) { Write(T("HasCheckpoints", song, marks.Count - 1)); return; }
         WithSettingsClosed(false, () =>
         {
             if (_host.MoveCheckpoint(wanted) is { } reason) Write(reason);
-            else Show([$"{song} starts at {Name(wanted)}."], copy);
+            else Show([T("NowStartsAt", song, Name(wanted))], copy);
         });
     }
 
     /// <summary>
     /// Why a tile cannot be started from, or null when it can: the checks ParsedTimeline.GetStartIndexForTile makes, said in
-    /// English the console's way. go and pin both use it, so a pin is always a tile go can take.
+    /// the console's words. go and pin both use it, so a pin is always a tile go can take.
     /// </summary>
     public static string? TileProblem(ParsedTimeline timeline, int tile, string song)
     {
         ArgumentNullException.ThrowIfNull(timeline);
-        if (timeline.HitFloors is not { Count: > 0 } floors) return "The song has no tile numbers. Sync the maps and load it again.";
-        if (tile >= floors[^1]) return $"{song} has tiles 1 to {floors[^1] - 1}.";
+        if (timeline.HitFloors is not { Count: > 0 } floors) return T("NoTileNumbers");
+        if (tile >= floors[^1]) return T("TileRange", song, floors[^1] - 1);
         var index = floors.ToList().BinarySearch(tile);
-        if (index < 0) return $"Tile {tile} is a midspin tile, so starting there is not verified.";
+        if (index < 0) return T("MidspinTile", tile);
         // Play begins at the hit after that tile; if that one only releases a long note, there is nothing to press first.
         if (index + 1 < floors.Count && ParsedTimeline.Closes(timeline.KindOf(index + 1)))
-            return $"Tile {tile} is inside a long note, so starting there is not verified.";
+            return T("InsideLongNote", tile);
         return null;
     }
 
@@ -1265,46 +1304,45 @@ public sealed class CmdSession
     {
         if (line.Arguments.Count is 0 or > 2)
         {
-            Write(add ? "pin takes a tile, or all to list the pins, as in pin 120." : "unpin takes a pinned tile, as in unpin 120; Tab offers them.",
-                $"Usage: {line.Command.Usage}");
+            Write(add ? T("PinTakes") : T("UnpinTakes"), T("Usage", line.Command.Usage));
             return;
         }
         var named = line.Arguments.Count == 2 ? line.Arguments[0] : "now";
         CmdSong? song;
         if (named.Equals("now", StringComparison.OrdinalIgnoreCase)) song = LoadedSong();
-        else if ((song = Song(named)) is null) Write($"No song has the id {named}. playlist shows the ids.");
+        else if ((song = Song(named)) is null) Write(T("NoSongWithId", named));
         if (song is null) return;
         var title = BaseTitle(song);
         var pins = _host.PinsOf(song.Family);
         var word = line.Arguments[^1];
         if (add && word.Equals("all", StringComparison.OrdinalIgnoreCase))
         {
-            if (pins.Count == 0) Write($"{title} has no pins. pin <tile> adds one.");
-            else Show([.. pins.Select((tile, at) => $"pin {at + 1} · tile {tile}")], copy);
+            if (pins.Count == 0) Write(T("NoPins", title));
+            else Show([.. pins.Select((tile, at) => T("PinLine", at + 1, tile))], copy);
             return;
         }
         if (!int.TryParse(word, NumberStyles.None, CultureInfo.InvariantCulture, out var tile) || tile < 1)
         {
-            Write($"'{word}' is not a tile. A tile is a whole number of 1 or more.");
+            Write(T("NotATile", word));
             return;
         }
         if (!add)
         {
-            if (!pins.Contains(tile)) { Write($"Tile {tile} of {title} is not pinned. pin all lists the pins."); return; }
+            if (!pins.Contains(tile)) { Write(T("NotPinned", tile, title)); return; }
             if (_host.SetPins(song.Family, pins.Where(each => each != tile).ToArray()) is { } failed) { Write(failed); return; }
-            Write($"Unpinned tile {tile} of {title} and its edits.");
+            Write(T("Unpinned", tile, title));
             return;
         }
-        if (pins.Contains(tile)) { Write($"Tile {tile} of {title} is already pinned."); return; }
+        if (pins.Contains(tile)) { Write(T("AlreadyPinned", tile, title)); return; }
         if (song.Entry.Status != MapParseStatus.Supported || song.Entry.Timeline is not { } timeline)
         {
-            Write($"{song.Title} cannot be read, so it has no tiles to pin.");
+            Write(T("NoTilesToPin", song.Title));
             return;
         }
         if (TileProblem(timeline, tile, title) is { } problem) { Write(problem); return; }
         var next = pins.Append(tile).Order().ToArray();
         if (_host.SetPins(song.Family, next) is { } reason) { Write(reason); return; }
-        Write($"Pinned tile {tile} of {title} and its edits: pin {Array.IndexOf(next, tile) + 1} of {next.Length}.");
+        Write(T("Pinned", tile, title, Array.IndexOf(next, tile) + 1, next.Length));
     }
 
     /// <summary>The pins of the song a line names by id, or of the loaded song, as Tab offers them.</summary>
@@ -1320,29 +1358,36 @@ public sealed class CmdSession
     private void Go(CmdLine line)
     {
         var word = line.Rest.Trim();
-        if (word.Length == 0) { Write("go takes a tile number, as in go 120; Tab offers the song's pins."); return; }
+        if (word.Length == 0) { Write(T("GoTakes")); return; }
         if (!int.TryParse(word, NumberStyles.None, CultureInfo.InvariantCulture, out var tile) || tile < 1)
         {
-            Write($"'{word}' is not a tile. A tile is a whole number of 1 or more.");
+            Write(T("NotATile", word));
             return;
         }
         WithSettingsClosed(false, () =>
-            Write(_host.StartAtTile(tile) is { } reason ? reason : $"Starting from tile {tile}."));
+            Write(_host.StartAtTile(tile) is { } reason ? reason : T("StartingFromTile", tile)));
     }
 
     /// <summary>
     /// update: looks first and says what it found, and only then asks. Taking it closes the app, so nothing may happen
     /// behind the user's back (user rule for anything that reaches out).
     /// </summary>
-    /// <summary>version: this build, and whether it is the latest one (user request), which means asking the repository.</summary>
-    private void Version(bool copy)
+    /// <summary>
+    /// version: the version at once (user rule). -check adds when this copy was applied and built and asks the repository
+    /// whether it is the latest, which is what takes the time.
+    /// </summary>
+    private void Version(bool copy, bool check)
     {
-        IReadOnlyList<string> about = [$"Visualizer {AppInfo.Version}", $"Applied {AppInfo.VersionDate}", $"Built   {AppInfo.BuildTime}"];
-        RunJob("Version", (progress, done) => _host.CheckUpdate(null, progress, check =>
+        if (!check)
         {
-            var latest = check.Problems.Count > 0 ? "Latest  could not be checked: " + check.Problems[0]
-                : check.Behind == 0 ? "Latest  yes, this is the latest version"
-                : $"Latest  no, {check.Target} is waiting; update takes it";
+            Show([T("VersionLine", AppInfo.Version)], copy);
+            return;
+        }
+        IReadOnlyList<string> about = [T("VersionLine", AppInfo.Version), T("VersionApplied", AppInfo.VersionDate), T("VersionBuilt", AppInfo.BuildTime)];
+        RunJob(T("JobVersion"), (progress, done) => _host.CheckUpdate(null, progress, check =>
+        {
+            var latest = check.Problems.Count > 0 ? T("LatestUnknown", check.Problems[0])
+                : check.Behind == 0 ? T("LatestYes") : T("LatestNo", check.Target);
             done([]);
             Show([.. about, latest], copy);
         }));
@@ -1359,53 +1404,50 @@ public sealed class CmdSession
         var asked = line.Options.TryGetValue("-version", out var value) ? value : "latest";
         if (!force && asked != "latest")
         {
-            Write($"Going to a chosen version needs -force, as in update -force -version:{asked}.");
+            Write(T("ChosenNeedsForce", asked));
             return;
         }
         var linker = _host.FindLinker().Installed is not null;
-        var along = linker ? " The linker in the game is updated with it." : "";
-        RunJob("Update", (progress, done) => _host.CheckUpdate(asked == "latest" ? null : asked, progress, check =>
+        var along = linker ? T("LinkerAlong") : "";
+        RunJob(T("JobUpdate"), (progress, done) => _host.CheckUpdate(asked == "latest" ? null : asked, progress, check =>
         {
             if (check.Problems.Count > 0) { done(check.Problems); return; }
-            if (!check.Found) { done([$"There is no version {asked} on the repository."]); return; }
+            if (!check.Found) { done([T("NoSuchVersion", asked)]); return; }
             if (!force)
             {
-                if (check.Behind == 0) { done([$"This copy is already the latest version ({check.Mine})."]); return; }
+                if (check.Behind == 0) { done([T("AlreadyLatest", check.Mine)]); return; }
                 if (check.Changed > 0 || check.Unpublished > 0)
                 {
-                    done([$"Version {check.Target} is waiting, but this copy has its own {Own(check)}, so it was not updated.",
-                        "update -force takes it and throws them away."]);
+                    done([T("WaitingButOwn", check.Target, Own(check)), T("ForceTakesIt")]);
                     return;
                 }
-                done([$"Version {check.Target} is waiting; this copy is {check.Mine}."]);
-                Confirm(yes, $"Update to {check.Target}? The app closes and opens again on the new version.{along}", answer =>
+                done([T("VersionWaiting", check.Target, check.Mine)]);
+                Confirm(yes, T("AskUpdate", check.Target, along), answer =>
                 {
-                    if (!answer) { Write("Cancelled. This copy stays as it is."); return; }
-                    Write(_host.ApplyUpdate(false, null) is { } reason ? reason : "Closing to update. The app comes back on the new version.");
+                    if (!answer) { Write(T("CancelledStays")); return; }
+                    Write(_host.ApplyUpdate(false, null) is { } reason ? reason : T("ClosingToUpdate"));
                 });
                 return;
             }
             if (check.Same && check.Changed == 0)
             {
-                done([$"This copy is already {check.Target}."]);
+                done([T("AlreadyThat", check.Target)]);
                 return;
             }
             done([]);
             // -force always asks (user rule): the parser keeps -proceed away from it, so this question is never skipped.
-            var lost = check.Changed > 0 || check.Unpublished > 0 ? $" This copy's {Own(check)} are thrown away." : "";
-            Confirm(false, $"Go to {check.Target} by force? The risk is yours: an older version may not read what a newer one saved.{lost} "
-                + $"The app closes and opens again on {check.Target}.{along}", answer =>
+            var lost = check.Changed > 0 || check.Unpublished > 0 ? T("OwnLost", Own(check)) : "";
+            Confirm(false, T("AskForceUpdate", check.Target, lost, along), answer =>
             {
-                if (!answer) { Write("Cancelled. This copy stays as it is."); return; }
-                Write(_host.ApplyUpdate(true, asked == "latest" ? null : asked) is { } reason ? reason
-                    : $"Closing to go to {check.Target}. The app comes back on it.");
+                if (!answer) { Write(T("CancelledStays")); return; }
+                Write(_host.ApplyUpdate(true, asked == "latest" ? null : asked) is { } reason ? reason : T("ClosingToGo", check.Target));
             });
         }));
 
-        static string Own(UpdateCheck check) => string.Join(" and ", new[]
+        static string Own(UpdateCheck check) => string.Join(T("And"), new[]
         {
-            check.Changed > 0 ? $"{check.Changed} changed file(s)" : null,
-            check.Unpublished > 0 ? $"{check.Unpublished} commit(s) not on the repository" : null
+            check.Changed > 0 ? T("ChangedFiles", check.Changed) : null,
+            check.Unpublished > 0 ? T("UnpublishedCommits", check.Unpublished) : null
         }.OfType<string>());
     }
 
@@ -1414,11 +1456,11 @@ public sealed class CmdSession
         if (SongFor(line) is not { } song) return;
         if (song.Hidden == hide)
         {
-            Write($"{song.Id} {song.Title} is already {(hide ? "hidden" : "shown")}.");
+            Write(T(hide ? "AlreadyHidden" : "AlreadyShown", song.Id, song.Title));
             return;
         }
         WithSettingsClosed(false, () =>
-            Write(_host.SetHidden(song.Id, hide) is { } reason ? reason : $"{(hide ? "Hidden" : "Shown")}: {song.Id} {song.Title}."));
+            Write(_host.SetHidden(song.Id, hide) is { } reason ? reason : T(hide ? "HiddenSong" : "ShownSong", song.Id, song.Title)));
     }
 
     private void Edit(CmdLine line, bool yes)
@@ -1427,7 +1469,7 @@ public sealed class CmdSession
         if (SongFor(line, fallback: "now") is not { } song) return;
         WithSettingsClosed(yes, () =>
         {
-            Write($"Opening the editor for {song.Title}.");
+            Write(T("OpeningEditor", song.Title));
             if (_host.EditSong(song.Id) is { } reason) Write(reason);
         });
     }
@@ -1442,12 +1484,12 @@ public sealed class CmdSession
         var wanted = line.Rest.Trim();
         if (wanted.Length == 0)
         {
-            Write("A name is needed.", $"Usage: {line.Command.Usage}");
+            Write(T("NameNeeded"), T("Usage", line.Command.Usage));
             return;
         }
         if (!wanted.Any(char.IsLetterOrDigit))
         {
-            Write("A name needs a letter or a digit in it.");
+            Write(T("NameNeedsLetter"));
             return;
         }
         // The slot prefix is how the list marks an edit, so it is kept whatever is typed.
@@ -1456,15 +1498,15 @@ public sealed class CmdSession
         var next = prefix + wanted;
         if (string.Equals(next, song.Title, StringComparison.Ordinal))
         {
-            Write($"{song.Title} is already its name.");
+            Write(T("AlreadyItsName", song.Title));
             return;
         }
-        var family = song.Slot is null ? "" : " Its original and every edit under it are renamed with it.";
-        Confirm(yes, $"Rename \"{song.Title}\" to \"{next}\"?" + family, answer =>
+        var family = song.Slot is null ? "" : T("RenameFamily");
+        Confirm(yes, T("AskRename", song.Title, next) + family, answer =>
         {
-            if (!answer) { Write("Cancelled."); return; }
+            if (!answer) { Write(T("Cancelled")); return; }
             if (_host.RenameSong(song.Id, wanted) is { } reason) { Write(reason); return; }
-            Write($"{song.Id} is now \"{next}\".");
+            Write(T("Renamed", song.Id, next));
         });
     }
 
@@ -1476,19 +1518,19 @@ public sealed class CmdSession
     {
         if (!_host.EditorOpen)
         {
-            Write("The note editor is not open, so there is nothing to override.", "Open it with edit first.");
+            Write(T("NothingToOverride"), T("OpenWithEdit"));
             return;
         }
         var json = line.Rest.Trim();
         if (json.Length == 0)
         {
-            Write("JSON is needed.", $"Usage: {line.Command.Usage}", "note -json prints it in the shape override reads.");
+            Write(T("JsonNeeded"), T("Usage", line.Command.Usage), T("NoteJsonShape"));
             return;
         }
-        Confirm(yes, "Put these lanes into the editor? The editor's own undo takes it back.", answer =>
+        Confirm(yes, T("AskOverride"), answer =>
         {
-            if (!answer) { Write("Cancelled."); return; }
-            Write(_host.OverrideNotes(json) is { } reason ? "Nothing was changed. " + reason : "The lanes are in the editor.");
+            if (!answer) { Write(T("Cancelled")); return; }
+            Write(_host.OverrideNotes(json) is { } reason ? T("NothingChanged", reason) : T("LanesInEditor"));
         });
     }
 
@@ -1497,14 +1539,14 @@ public sealed class CmdSession
         if (SongFor(line) is not { } song) return;
         if (song.Kind != "edited")
         {
-            Write("Only edited songs can be removed. delete removes any song for good.");
+            Write(T("OnlyEditsRemoved"));
             return;
         }
-        var note = _host.HeldSong is { } held ? $" restore will bring this one back instead of {held}." : " restore can bring it back.";
-        Confirm(yes, $"Remove {song.Title}?{note}", answer =>
+        var note = _host.HeldSong is { } held ? T("RestoreInstead", held) : T("RestoreCan");
+        Confirm(yes, T("AskRemove", song.Title, note), answer =>
         {
-            if (!answer) { Write("Cancelled."); return; }
-            Write(_host.RemoveEdit(song.Id) is { } reason ? reason : $"Removed {song.Id} {song.Title}.");
+            if (!answer) { Write(T("Cancelled")); return; }
+            Write(_host.RemoveEdit(song.Id) is { } reason ? reason : T("Removed", song.Id, song.Title));
         });
     }
 
@@ -1512,24 +1554,24 @@ public sealed class CmdSession
     {
         if (_host.HeldSong is not { } held)
         {
-            Write("There is nothing to restore.");
+            Write(T("NothingToRestore"));
             return;
         }
-        Confirm(yes, $"Restore {held}?", answer =>
+        Confirm(yes, T("AskRestore", held), answer =>
         {
-            if (!answer) { Write("Cancelled."); return; }
-            Write(_host.Restore(out var slot) is { } reason ? reason : $"Restored {held} into slot {slot}.");
+            if (!answer) { Write(T("Cancelled")); return; }
+            Write(_host.Restore(out var slot) is { } reason ? reason : T("Restored", held, slot));
         });
     }
 
     private void Delete(CmdLine line, bool yes)
     {
         if (SongFor(line) is not { } song) return;
-        var after = song.Kind == "custom" ? " restore cannot bring it back; the next sync copies it again." : " restore cannot bring it back.";
-        Confirm(yes, $"Delete {song.Title} for good?{after}", answer =>
+        var after = song.Kind == "custom" ? T("DeleteCustom") : T("DeleteForGood");
+        Confirm(yes, T("AskDelete", song.Title, after), answer =>
         {
-            if (!answer) { Write("Cancelled."); return; }
-            Write(_host.DeleteSong(song.Id) is { } reason ? reason : $"Deleted {song.Id} {song.Title}.");
+            if (!answer) { Write(T("Cancelled")); return; }
+            Write(_host.DeleteSong(song.Id) is { } reason ? reason : T("Deleted", song.Id, song.Title));
         });
     }
 
@@ -1648,8 +1690,8 @@ public sealed class CmdSession
         if (line.Arguments.Count is 0 or > 2 || !TryParseRange(line.Arguments[^1], NoteCountGuess, out _, out _))
         {
             if (line.Arguments.Count == 1 && (Song(line.Arguments[0]) is not null || line.Arguments[0].Equals("now", StringComparison.OrdinalIgnoreCase)))
-                Write($"A range is needed after the song, as in note {line.Arguments[0]} all.");
-            else Write("The syntax of the command is incorrect.", NoteUsage);
+                Write(T("RangeNeeded", line.Arguments[0]));
+            else Write(T("SyntaxIncorrect"), NoteUsage);
             return;
         }
         var range = line.Arguments[^1];
@@ -1658,12 +1700,12 @@ public sealed class CmdSession
         {
             if (Song(line.Arguments[0]) is not { } song)
             {
-                Write($"No song has the id {line.Arguments[0]}. playlist shows the ids.");
+                Write(T("NoSongWithId", line.Arguments[0]));
                 return;
             }
             if (song.Entry.Status != MapParseStatus.Supported || song.Entry.Timeline is not { } timeline)
             {
-                Write($"{song.Title} cannot be read, so it has no notes.");
+                Write(T("NoNotesToRead", song.Title));
                 return;
             }
             CheckSettings(() => new CmdNoteSource(timeline, _host.EditOf(song)), range, json, yes, copy);
@@ -1676,27 +1718,27 @@ public sealed class CmdSession
         }
         if (_host.SongToLoad is not { } toLoad)
         {
-            Write("No song is loaded. Name one, as in note <id> all, or pick one on the main window first.");
+            Write(T("NoSongNameOne"));
             return;
         }
-        Confirm(yes, $"The song is not loaded. Load \"{toLoad}\" first?", answer =>
+        Confirm(yes, T("AskLoadFirst", toLoad), answer =>
         {
             if (!answer)
             {
-                Write("Canceled.");
+                Write(T("Cancelled"));
                 return;
             }
             if (!_host.LoadSong(out var message) || _host.Timeline is null)
             {
-                Write(("The song could not be loaded. " + message).TrimEnd());
+                Write(T("CouldNotLoad", message).TrimEnd());
                 return;
             }
-            Write($"Loaded \"{toLoad}\".");
+            Write(T("LoadedQuoted", toLoad));
             CheckSettings(() => _host.NowNotes, range, json, yes, copy);
         });
     }
 
-    private const string NoteUsage = "Usage: note [-proceed] [-json] [-copy] [<id>] <all | a..b | a.. | ..b | n | -n>";
+    private static string NoteUsage => T("Usage", "note [-proceed] [-json] [-copy] [<id>] <all | a..b | a.. | ..b | n | -n>");
 
     /// <summary>
     /// Unapplied settings would place notes differently, so they are applied or left out first. The source is read after
@@ -1709,18 +1751,18 @@ public sealed class CmdSession
             PrintNotes(source(), range, json, copy);
             return;
         }
-        Confirm(yes, "There are settings that are not applied yet. Apply the settings?", answer =>
+        Confirm(yes, T("AskApplyPending"), answer =>
         {
             if (answer)
             {
                 if (_host.ApplyPendingSettings() is { } error)
                 {
-                    Write("The settings could not be applied. " + error);
+                    Write(T("CouldNotApply", error));
                     return;
                 }
-                Write("Settings applied.");
+                Write(T("SettingsApplied"));
             }
-            else Write("Using the applied settings.");
+            else Write(T("UsingApplied"));
             PrintNotes(source(), range, json, copy);
         });
     }
@@ -1732,12 +1774,12 @@ public sealed class CmdSession
     {
         if (source is not { Timeline: var timeline })
         {
-            Write("No song is loaded.");
+            Write(T("NoSongLoaded"));
             return;
         }
         IReadOnlyList<VisualizerNote> notes;
         IReadOnlyList<int> noteHits;
-        // Only the language differs, so a placement problem reads in English like the rest of the console.
+        // Only the language differs, so a placement problem reads in the console's language like the rest of it.
         var settings = _host.Settings with { Language = Language };
         try
         {
@@ -1747,26 +1789,26 @@ public sealed class CmdSession
         }
         catch (Exception error) when (error is NotePlacementException or ArgumentException)
         {
-            Write("The notes could not be placed. " + error.Message);
+            Write(T("CouldNotPlace", error.Message));
             return;
         }
         // Numbers are source hits; auto hits and long note ends have no note of their own.
         var hits = timeline.HitTimesMs.Count;
         if (!TryParseRange(range, hits, out var first, out var last))
         {
-            Write("The syntax of the command is incorrect.", NoteUsage);
+            Write(T("SyntaxIncorrect"), NoteUsage);
             return;
         }
         if (first > hits)
         {
-            Write($"There is no note {first}. The song has {hits} notes.");
+            Write(T("NoSuchNote", first, hits));
             return;
         }
         var until = Math.Min(last ?? hits, hits);
         var lines = json ? FormatNotesJson(notes, noteHits, timeline, first, until) : FormatNotes(notes, noteHits, first, until);
         if (lines.Count == 0)
         {
-            Write("There are no notes to press in that range.");
+            Write(T("NoNotesInRange"));
             return;
         }
         Show(lines, copy);
@@ -1808,23 +1850,21 @@ public sealed class CmdSession
     {
         if (line.Arguments.Count == 0 || (exact && line.Arguments.Count > 1))
         {
-            Write(line.Arguments.Count == 0 ? $"A setting is needed, as in {line.Command.Name} general.language. property lists them."
-                : "The syntax of the command is incorrect.", $"Usage: {line.Command.Usage}");
+            Write(line.Arguments.Count == 0 ? T("SettingNeeded", line.Command.Name) : T("SyntaxIncorrect"), T("Usage", line.Command.Usage));
             return null;
         }
         var name = line.Arguments[0];
         if (SettingPaths.Find(name) is not { } path)
         {
             var section = SettingPaths.Sections.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            Write(section.Name is null || !SettingPaths.IsOpen(section.Name, _host.Settings) ? $"'{name}' is not a setting. property lists the sections."
-                : SettingPaths.In(section.Name).FirstOrDefault() is { } first
-                    ? $"{section.Name} is a section. Add a setting, as in {first.Name}; property {section.Name} lists them."
+            Write(section.Name is null || !SettingPaths.IsOpen(section.Name, _host.Settings) ? T("NotASetting", name)
+                : SettingPaths.In(section.Name).FirstOrDefault() is { } first ? T("IsASection", section.Name, first.Name)
                     : section.About);
             return null;
         }
         if (!SettingPaths.IsOpen(path.Section, _host.Settings))
         {
-            Write("Experimental settings open while advanced.experimental is true.");
+            Write(T("ExperimentalClosed"));
             return null;
         }
         return path;
@@ -1834,7 +1874,7 @@ public sealed class CmdSession
     {
         if (line.Arguments.Count == 1 && SettingPaths.Find(line.Arguments[0]) is { } bare && SettingPaths.IsOpen(bare.Section, _host.Settings))
         {
-            Write($"A value is needed. property {bare.Name} shows what it takes.");
+            Write(T("ValueNeeded", bare.Name));
             return;
         }
         if (SettingFor(line, exact: false) is not { } path) return;
@@ -1851,16 +1891,26 @@ public sealed class CmdSession
             Syntax<object>(line);
             return;
         }
-        if (what == "inspect")
+        // -inspect drives the inspect run and nothing else (user rule): start and stop are the only words it takes.
+        if (line.Options.ContainsKey("-inspect"))
         {
-            // It presses keys into the game, so it always asks (user rule), even though every rule is checked first.
-            Confirm(line.Has("-proceed"), "link inspect presses the lane key of every note the visualizer draws into the game, with No Fail on. Go ahead?",
-                answer => Show(answer ? _host.GameSyncInspect(true) : ["Nothing was pressed."], copy));
-            return;
+            switch (what)
+            {
+                case "start":
+                    // It presses keys into the game, so it always asks (user rule), even though every rule is checked first.
+                    Confirm(line.Has("-proceed"), T("AskInspect"),
+                        answer => Show(answer ? _host.GameSyncInspect(true) : [T("NothingPressed")], copy));
+                    return;
+                case "stop":
+                    Show(_host.GameSyncInspect(false), copy);
+                    return;
+                default:
+                    Write(T("InspectStartStopOnly"));
+                    return;
+            }
         }
         Show(what switch
         {
-            "uninspect" => _host.GameSyncInspect(false),
             "tiles" => _host.GameSyncTiles(),
             "follow" => _host.GameSyncFollow(true),
             "unfollow" => _host.GameSyncFollow(false),
@@ -1891,12 +1941,12 @@ public sealed class CmdSession
         if (items.Any(item => item is "all" or "*"))
         {
             if (items.Count == 1) return CmdCatalog.Areas;
-            Write("all stands alone, since it already names every area.");
+            Write(T("AllStandsAlone"));
             return null;
         }
         if (items.FirstOrDefault(item => !CmdCatalog.Areas.Contains(item)) is { } unknown)
         {
-            Write($"'{unknown}' is not an area. {line.Command.Name} takes {string.Join(", ", line.Command.KeywordNames)}.");
+            Write(T("NotAnArea", unknown, line.Command.Name, string.Join(", ", line.Command.KeywordNames)));
             return null;
         }
         return CmdCatalog.Areas.Where(items.Contains).ToArray();
@@ -1911,31 +1961,31 @@ public sealed class CmdSession
         // Asked for by name, a linker that is not there is a mistake to put right first (user rule).
         if (!every && areas.Contains("linker") && _host.FindLinker().Installed is null)
         {
-            Write("The linker is not installed, so there is nothing to check. Install it first: install linker.");
+            Write(T("LinkerNotInstalledScan"));
             return;
         }
-        RunJob("Scan", (progress, done) => _host.ScanNow(areas, progress, results =>
+        RunJob(T("JobScan"), (progress, done) => _host.ScanNow(areas, progress, results =>
         {
             var lines = new List<string>();
             foreach (var area in results)
             {
                 if (area.NotInstalled)
                 {
-                    lines.Add($"{area.Name,-8}not installed; install linker puts it in");
+                    lines.Add($"{area.Name,-8}" + T("ScanNotInstalled"));
                     continue;
                 }
-                var found = area.Problems.Count == 0 ? "ok" : area.Problems.Count == 1 ? "1 problem" : $"{area.Problems.Count} problems";
+                var found = area.Problems.Count == 0 ? T("ScanOk") : area.Problems.Count == 1 ? T("OneProblem") : T("Problems", area.Problems.Count);
                 lines.Add($"{area.Name,-8}{found}{(area.Checked is { } what ? " · " + what : "")}");
                 lines.AddRange(area.Problems.Take(MaximumProblems).Select(problem => "  " + problem));
-                if (area.Problems.Count > MaximumProblems) lines.Add($"  … and {area.Problems.Count - MaximumProblems} more");
+                if (area.Problems.Count > MaximumProblems) lines.Add("  " + T("AndMore", area.Problems.Count - MaximumProblems));
             }
             var broken = results.Where(area => area.Problems.Count > 0).Select(area => area.Name).ToArray();
             var redo = broken.Where(CmdCatalog.Reinstallable.Contains).ToArray();
             // Advice only (user rule): scannow never puts anything right itself.
-            if (redo.Length > 0) lines.Add($"Run install -reinstall {string.Join(", ", redo)} to put {(redo.Length == 1 ? "it" : "them")} right.");
-            if (broken.Contains("edits")) lines.Add("An edit is your own work, so it is not reinstalled: remove takes a broken one away.");
-            if (broken.Contains("data")) lines.Add("Your data is not reinstalled: reset puts the settings back.");
-            if (broken.Length == 0) lines.Add("Everything checked is whole.");
+            if (redo.Length > 0) lines.Add(T(redo.Length == 1 ? "ReinstallAdviceOne" : "ReinstallAdvice", string.Join(", ", redo)));
+            if (broken.Contains("edits")) lines.Add(T("EditsNotReinstalled"));
+            if (broken.Contains("data")) lines.Add(T("DataNotReinstalled"));
+            if (broken.Length == 0) lines.Add(T("AllWhole"));
             done([]);
             Show(lines, copy);
         }));
@@ -1950,14 +2000,14 @@ public sealed class CmdSession
         if (AreasOf(line) is not { } named) return;
         if (named.Count == 0)
         {
-            Write($"install needs one of: {string.Join(", ", line.Command.KeywordNames)}.", $"Usage: {line.Command.Usage}");
+            Write(T("InstallNeeds", string.Join(", ", line.Command.KeywordNames)), T("Usage", line.Command.Usage));
             return;
         }
         var every = named.Count == CmdCatalog.Areas.Count;
         if (!line.Has("-reinstall"))
         {
             if (named is ["linker"]) InstallLinker(yes);
-            else Write("Only the linker is installed on its own; the rest come with this copy. install -reinstall puts a part back.");
+            else Write(T("OnlyLinkerInstalls"));
             return;
         }
         var linker = _host.FindLinker().Installed is not null;
@@ -1965,47 +2015,46 @@ public sealed class CmdSession
         var parts = every ? CmdCatalog.Reinstallable.Where(part => part is "source" or "app" || (part == "linker" && linker)).ToArray() : named;
         if (parts.FirstOrDefault(part => !CmdCatalog.Reinstallable.Contains(part)) is { } own)
         {
-            Write(own == "edits" ? "Edits are your own work, so there is nothing to reinstall. remove takes a broken one away."
-                : "Your data is your own, so there is nothing to reinstall. reset puts the settings back.", "Nothing was done.");
+            Write(own == "edits" ? T("EditsOwnWork") : T("DataOwn"), T("NothingDone"));
             return;
         }
         if (parts.Contains("linker") && !linker)
         {
-            Write("The linker is not installed. Install it first: install linker.");
+            Write(T("LinkerNotInstalled"));
             return;
         }
         if (parts.Contains("source") && line.Has("-proceed"))
         {
             // Agreed with the user: putting the files back always asks, since this copy's own changes go with it.
-            Write("Putting the source back always asks first, since this copy's own changes go; -proceed cannot answer for it.");
+            Write(T("SourceAlwaysAsks"));
             return;
         }
         var restart = parts.Contains("source") || parts.Contains("app");
-        var question = $"Reinstall {string.Join(", ", parts)}?"
-            + (parts.Contains("maps") ? " The custom maps are built again from the map folder, so songs no longer in it leave the list." : "")
-            + (restart ? " The app closes and opens again." : "");
+        var question = T("AskReinstall", string.Join(", ", parts))
+            + (parts.Contains("maps") ? T("ReinstallMapsNote") : "")
+            + (restart ? T("AppReopens") : "");
         if (!parts.Contains("source"))
         {
             Confirm(yes, question, Go);
             return;
         }
         // The files that will go back are shown before the question (user rule), so nothing is lost by surprise.
-        RunJob("Scan", (progress, done) => _host.ScanNow(["source"], progress, results =>
+        RunJob(T("JobScan"), (progress, done) => _host.ScanNow(["source"], progress, results =>
         {
             var changes = results.SelectMany(area => area.Problems).ToArray();
-            done(changes.Length == 0 ? ["Every file of the source is as this version has it."]
-                : ["These go back to this version:", .. changes.Take(MaximumProblems).Select(change => "  " + change),
-                    .. changes.Length > MaximumProblems ? new[] { $"  … and {changes.Length - MaximumProblems} more" } : []]);
+            done(changes.Length == 0 ? [T("SourceWhole")]
+                : [T("TheseGoBack"), .. changes.Take(MaximumProblems).Select(change => "  " + change),
+                    .. changes.Length > MaximumProblems ? new[] { "  " + T("AndMore", changes.Length - MaximumProblems) } : []]);
             Confirm(false, question, Go);
         }));
 
         void Go(bool answer)
         {
-            if (!answer) { Write("Cancelled. Nothing was reinstalled."); return; }
+            if (!answer) { Write(T("CancelledNoReinstall")); return; }
             if (parts.Contains("maps"))
-                RunJob("Map rebuild", (progress, done) => _host.Resync(progress, count =>
+                RunJob(T("JobMapRebuild"), (progress, done) => _host.Resync(progress, count =>
                 {
-                    done([$"The custom maps are built again. {count} songs in the library."]);
+                    done([T("MapsBuiltAgain", count)]);
                     Then();
                 }));
             else Then();
@@ -2016,8 +2065,8 @@ public sealed class CmdSession
             var rest = parts.Where(part => part != "maps").ToArray();
             if (rest.Length == 0) return;
             if (restart)
-                Write(_host.ReinstallAndRestart(rest) is { } reason ? reason : "Closing to reinstall. The app comes back when it is done.");
-            else RunJob("Linker", (progress, done) => _host.ReinstallLinker(progress, done));
+                Write(_host.ReinstallAndRestart(rest) is { } reason ? reason : T("ClosingToReinstall"));
+            else RunJob(T("JobLinker"), (progress, done) => _host.ReinstallLinker(progress, done));
         }
     }
 
@@ -2027,14 +2076,12 @@ public sealed class CmdSession
         var place = _host.FindLinker();
         if (place.GameDirectory is null)
         {
-            Write("The game folder was not found, so nothing was written.",
-                "A folder counts only with Unity Mod Manager in it; the map folder in the settings is what points at the Steam library.");
+            Write(T("NoGameFolder"), T("NoGameFolderWhy"));
             return;
         }
         if (place.Source is null)
         {
-            Write("The linker itself was not found, so nothing was written.",
-                @"It ships with the app in plugins\linker beside it; build the app again (build.ps1) or update to bring it back.");
+            Write(T("NoLinkerFiles"), T("NoLinkerFilesWhy"));
             return;
         }
         var version = place.SourceVersion is { Length: > 0 } made ? " " + made : "";
@@ -2042,23 +2089,21 @@ public sealed class CmdSession
         {
             if (string.Equals(installed, place.SourceVersion, StringComparison.Ordinal))
             {
-                Write($"The linker{version} is already installed in {place.Target}.", "Nothing was written.");
+                Write(T("LinkerAlready", version, place.Target), T("NothingWritten"));
                 return;
             }
-            var now = installed.Length == 0 ? "of an unknown version" : installed;
-            Confirm(yes, $"The linker in {place.Target} is {now}. Replace it with{version}?", answer => Run(answer, place));
+            var now = installed.Length == 0 ? T("UnknownVersion") : installed;
+            Confirm(yes, T("AskReplaceLinker", place.Target, now, version), answer => Run(answer, place));
             return;
         }
-        Confirm(yes, $"Install the linker{version} into {place.Target}? Only its own two files are written; other mods are left alone.",
-            answer => Run(answer, place));
+        Confirm(yes, T("AskInstallLinker", version, place.Target), answer => Run(answer, place));
 
         void Run(bool answer, LinkerPlace ready)
         {
-            if (!answer) { Write("Cancelled."); return; }
-            RunJob("Linker install", (progress, done) => done(_host.InstallLinker(ready, progress) is { } reason
+            if (!answer) { Write(T("Cancelled")); return; }
+            RunJob(T("JobLinkerInstall"), (progress, done) => done(_host.InstallLinker(ready, progress) is { } reason
                 ? [reason]
-                : [$"Installed into {ready.Target}.",
-                    "Restart the game, switch the mod on in Unity Mod Manager (Ctrl+F10), then link start here."]));
+                : [T("InstalledInto", ready.Target), T("AfterInstall")]));
         }
     }
 
@@ -2094,25 +2139,25 @@ public sealed class CmdSession
             var next = SettingPaths.With(current, path, value);
             if (next == current)
             {
-                Write($"{path.Name} is already {SettingPaths.Format(path, current)}.");
+                Write(T("AlreadyValue", path.Name, SettingPaths.Format(path, current)));
                 return;
             }
             if (Problem(next) is { } problem)
             {
-                Write("Not changed. " + problem);
+                Write(T("NotChanged", problem));
                 return;
             }
             Apply(current, next);
         });
     }
 
-    /// <summary>Why a settings snapshot cannot be applied, in English, or null: the same checks the settings panel makes.</summary>
+    /// <summary>Why a settings snapshot cannot be applied, in the console's language, or null: the same checks the settings panel makes.</summary>
     private static string? Problem(VisualizerSettings settings)
     {
         var worded = settings with { Language = Language };
         var errors = worded.ValidateFields();
         if (errors.Count > 0) return string.Join(" ", errors.Select(error => error.Message).Distinct());
-        if (!Themes.ThemeCatalog.Exists(settings.Theme)) return $"There is no theme '{settings.Theme}'.";
+        if (!Themes.ThemeCatalog.Exists(settings.Theme)) return T("NoTheme", settings.Theme);
         try { _ = ControlBindings.Create(worded); }
         catch (ArgumentException error) { return error.Message; }
         return null;
@@ -2124,7 +2169,7 @@ public sealed class CmdSession
         var changes = Changes(before, after);
         if (_host.ApplySettings(after) is { } reason)
         {
-            Write("Not changed. " + reason);
+            Write(T("NotChanged", reason));
             return;
         }
         Log.Write(changes);
@@ -2144,7 +2189,7 @@ public sealed class CmdSession
         return lines;
 
         static string Text(VisualizerSettings settings, string name) => Convert.ToString(SettingsFields.Get(settings, name), CultureInfo.InvariantCulture) ?? "";
-        static string Shown(string value) => value.Length == 0 ? "(empty)" : value;
+        static string Shown(string value) => value.Length == 0 ? T("Empty") : value;
     }
 
     private void Property(CmdLine line, bool copy)
@@ -2167,12 +2212,12 @@ public sealed class CmdSession
             var section = SettingPaths.Sections.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Name;
             if (section is null)
             {
-                Write($"'{name}' is not a section. property lists them.");
+                Write(T("NotASection", name));
                 return;
             }
             if (!SettingPaths.IsOpen(section, settings))
             {
-                Write("Experimental settings open while advanced.experimental is true.");
+                Write(T("ExperimentalClosed"));
                 return;
             }
             // A section without settings (experimental, for now) says what it holds instead.
@@ -2182,14 +2227,14 @@ public sealed class CmdSession
                 return;
             }
             Show(SettingPaths.In(section).Select(path => $"{path.Name,-30}{SettingPaths.Format(path, settings)}"
-                + (SettingPaths.LockedBy(path, settings) is null ? "" : "  (locked)")).ToArray(), copy);
+                + (SettingPaths.LockedBy(path, settings) is null ? "" : "  " + T("Locked"))).ToArray(), copy);
             return;
         }
         if (SettingFor(line, exact: true) is not { } setting) return;
-        var lines = new List<string> { $"{setting.Name} is {SettingPaths.Format(setting, settings)} now." };
+        var lines = new List<string> { T("SettingIsNow", setting.Name, SettingPaths.Format(setting, settings)) };
         var choices = SettingPaths.Choices(setting, settings);
-        if (setting.Kind is SettingKind.Toggle or SettingKind.Choice) lines.Add("Values: " + string.Join(", ", choices) + ".");
-        else lines.Add("Takes " + SettingPaths.Describe(setting) + ".");
+        if (setting.Kind is SettingKind.Toggle or SettingKind.Choice) lines.Add(T("SettingValues", string.Join(", ", choices)));
+        else lines.Add(T("SettingTakes", SettingPaths.Describe(setting)));
         if (SettingPaths.LockedBy(setting, settings) is { } locked) lines.Add(locked);
         Show(lines, copy);
     }
@@ -2199,7 +2244,7 @@ public sealed class CmdSession
         var json = line.Rest.Trim();
         if (json.Length == 0)
         {
-            Write("Paste the settings JSON after import, as in: import { \"NoteTravelTimeMs\": 700 }");
+            Write(T("PasteJson"));
             return;
         }
         WithSettingsClosed(yes, () =>
@@ -2210,26 +2255,26 @@ public sealed class CmdSession
             try { imported = SettingsJson.ImportPortable(json, current, out keptPaths, Language); }
             catch (SettingsJsonException error)
             {
-                Write("The JSON could not be used. " + error.Message.Replace(Environment.NewLine, " ", StringComparison.Ordinal));
+                Write(T("JsonUnusable", error.Message.Replace(Environment.NewLine, " ", StringComparison.Ordinal)));
                 return;
             }
             if (Problem(imported) is { } problem)
             {
-                Write("The JSON could not be used. " + problem);
+                Write(T("JsonUnusable", problem));
                 return;
             }
-            if (keptPaths) Write("The map and data folders keep this PC's values.");
+            if (keptPaths) Write(T("FoldersKept"));
             var changes = Changes(current, imported);
             if (changes.Count == 0)
             {
-                Write("Nothing changes.");
+                Write(T("NothingChanges"));
                 return;
             }
             Log.Write(changes);
-            Confirm(yes, "Apply these changes?", answer =>
+            Confirm(yes, T("AskApplyChanges"), answer =>
             {
-                if (!answer) { Write("Cancelled."); return; }
-                Write(_host.ApplySettings(imported) is { } reason ? "Not changed. " + reason : "Applied. rollback undoes it.");
+                if (!answer) { Write(T("Cancelled")); return; }
+                Write(_host.ApplySettings(imported) is { } reason ? T("NotChanged", reason) : T("AppliedRollback"));
             });
         });
     }
@@ -2240,17 +2285,17 @@ public sealed class CmdSession
         {
             if (_host.LastChange is not { } change)
             {
-                Write("There is nothing to roll back.");
+                Write(T("NothingToRollBack"));
                 return;
             }
             // What each touched setting is now, and what it goes back to.
             var lines = Changes(change.After, change.Before);
-            Write("The last change goes back:");
-            Log.Write(lines.Count > 0 ? lines : ["(no visible setting)"]);
-            Confirm(yes, "Roll back?", answer =>
+            Write(T("LastChangeGoesBack"));
+            Log.Write(lines.Count > 0 ? lines : [T("NoVisibleSetting")]);
+            Confirm(yes, T("AskRollBack"), answer =>
             {
-                if (!answer) { Write("Cancelled."); return; }
-                Write(_host.RollBack() is { } reason ? reason : "Rolled back.");
+                if (!answer) { Write(T("Cancelled")); return; }
+                Write(_host.RollBack() is { } reason ? reason : T("RolledBack"));
             });
         });
     }
@@ -2265,13 +2310,13 @@ public sealed class CmdSession
             var count = Changes(current, defaults).Count;
             if (count == 0)
             {
-                Write("The settings are already the defaults.");
+                Write(T("AlreadyDefaults"));
                 return;
             }
-            Confirm(yes, $"Reset every setting to its default ({count} {(count == 1 ? "change" : "changes")})? The map and data folders stay; rollback undoes it.", answer =>
+            Confirm(yes, T(count == 1 ? "AskResetOne" : "AskReset", count), answer =>
             {
-                if (!answer) { Write("Cancelled."); return; }
-                Write(_host.ApplySettings(defaults) is { } reason ? "Not changed. " + reason : "The settings are reset.");
+                if (!answer) { Write(T("Cancelled")); return; }
+                Write(_host.ApplySettings(defaults) is { } reason ? T("NotChanged", reason) : T("SettingsReset"));
             });
         });
     }
@@ -2280,15 +2325,15 @@ public sealed class CmdSession
     {
         if (line.Arguments.Count != 1 || !CmdCatalog.ActionNames.Contains(line.Arguments[0].ToLowerInvariant()))
         {
-            Write(line.Arguments.Count == 0 ? "An action is needed." : $"'{string.Join(' ', line.Arguments)}' is not an action.",
-                "Actions: " + string.Join(", ", CmdCatalog.ActionNames) + ".");
+            Write(line.Arguments.Count == 0 ? T("ActionNeeded") : T("NotAnAction", string.Join(' ', line.Arguments)),
+                T("Actions", string.Join(", ", CmdCatalog.ActionNames)));
             return;
         }
         var action = line.Arguments[0].ToLowerInvariant();
         if (action == "view-playlist-details")
         {
             // The song list details window.
-            WithSettingsClosed(false, () => Write(_host.OpenPlaylist() ? "The song list changes are applied." : "The song list closed without changes."));
+            WithSettingsClosed(false, () => Write(_host.OpenPlaylist() ? T("SongListApplied") : T("SongListUnchanged")));
             return;
         }
         var clears = action.StartsWith("clear", StringComparison.Ordinal);
@@ -2302,7 +2347,7 @@ public sealed class CmdSession
         })!;
         if (clears && SettingPaths.Format(path, _host.Settings) == "none")
         {
-            Write($"{path.Name} is already none.");
+            Write(T("AlreadyNone", path.Name));
             return;
         }
         WithSettingsClosed(false, () =>
@@ -2313,7 +2358,7 @@ public sealed class CmdSession
             {
                 if (_host.PickFolder(SettingsFields.Get(current, path.Property) as string ?? "") is not { Length: > 0 } folder)
                 {
-                    Write("No folder was picked.");
+                    Write(T("NoFolderPicked"));
                     return;
                 }
                 value = folder;
@@ -2321,12 +2366,12 @@ public sealed class CmdSession
             var next = SettingPaths.With(current, path, value);
             if (next == current)
             {
-                Write($"{path.Name} is already {SettingPaths.Format(path, current)}.");
+                Write(T("AlreadyValue", path.Name, SettingPaths.Format(path, current)));
                 return;
             }
             if (Problem(next) is { } problem)
             {
-                Write("Not changed. " + problem);
+                Write(T("NotChanged", problem));
                 return;
             }
             Apply(current, next);
@@ -2353,18 +2398,18 @@ public sealed class CmdSession
                 Write(error);
                 return;
             }
-            Write("The settings are closed.");
+            Write(T("SettingsClosed"));
             then();
             return;
         }
-        Confirm(yes, "The settings have changes that are not applied. Apply them before they close?", answer =>
+        Confirm(yes, T("AskApplyBeforeClose"), answer =>
         {
             if (_host.CloseSettings(apply: answer) is { } error)
             {
-                Write("The settings could not be applied, so the window stays open. " + error);
+                Write(T("SettingsStayOpen", error));
                 return;
             }
-            Write(answer ? "The changes are applied and the settings are closed." : "The changes are dropped and the settings are closed.");
+            Write(answer ? T("AppliedAndClosed") : T("DroppedAndClosed"));
             then();
         });
     }
@@ -2474,7 +2519,7 @@ public sealed class CmdSession
         if (line.Has("-en")) messages = messages.Where(message => !message.Copying).ToArray();
         if (messages.Count == 0)
         {
-            Write("There is nothing to copy yet.");
+            Write(T("NothingToCopy"));
             return;
         }
         // Counted from the newest back, so 1 is the message above this one.
@@ -2499,7 +2544,7 @@ public sealed class CmdSession
         while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
         if (lines.Count == 0)
         {
-            Write("There is nothing to copy there.");
+            Write(T("NothingToCopyThere"));
             return;
         }
         if (showing) Write([.. lines]);
@@ -2507,15 +2552,15 @@ public sealed class CmdSession
         try
         {
             _host.CopyText(string.Join(Environment.NewLine, lines));
-            Write(picked.Length == 1 ? "Copied 1 message." : $"Copied {picked.Length} messages.");
+            Write(picked.Length == 1 ? T("CopiedOne") : T("CopiedMessages", picked.Length));
         }
-        catch (ExternalException error) { Write("Could not copy to clipboard. " + error.Message); }
+        catch (ExternalException error) { Write(T("CouldNotCopy", error.Message)); }
     }
 
     /// <summary>
-    /// A blank in a stored prompt. <see cref="Question"/> is what the console asks for it (English, like the rest of the
-    /// console; the answer is the user's own words and may be any language). <see cref="Placeholder"/> is left in its
-    /// place when the blank is skipped, and tells a language model to ask rather than invent.
+    /// A blank in a stored prompt. <see cref="Question"/> is what the console asks for it, in the console's language (the
+    /// answer is the user's own words and may be any language). <see cref="Placeholder"/> is left in its place when the
+    /// blank is skipped, and tells a language model to ask rather than invent.
     /// </summary>
     private sealed record PromptBlank(string Name, string Question, string Placeholder);
 
@@ -2523,42 +2568,16 @@ public sealed class CmdSession
     private sealed record StoredPrompt(IReadOnlyList<string> Lines, IReadOnlyList<PromptBlank> Blanks);
 
     /// <summary>
-    /// Prompts kept for pasting into a language model. Nothing here is sent anywhere and nothing runs: the console only
-    /// fills the blanks in and hands the text over (user rule).
+    /// Prompts kept for pasting into a language model, in the console's language. Nothing here is sent anywhere and nothing
+    /// runs: the console only fills the blanks in and hands the text over (user rule). A line that is only {name} is a blank.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, StoredPrompt> Prompts =
+    private static IReadOnlyDictionary<string, StoredPrompt> Prompts =>
         new Dictionary<string, StoredPrompt>(StringComparer.OrdinalIgnoreCase)
         {
-            ["note-lanes"] = new(
+            ["note-lanes"] = new(T("Prompt.note-lanes").Split('\n'),
             [
-                "You rewrite the lanes of a rhythm chart. The user gives you JSON printed by a practice visualizer and says",
-                "in their own words how they want the notes laid out. Return the same JSON with only the lanes changed.",
-                "",
-                "The JSON is { \"notes\": [ { \"n\": 1, \"tile\": 3, \"ms\": 0 }, ... ] }, one object per note the player presses:",
-                "  n     the note number. Never change it, never add one, never leave one out.",
-                "  tile  the lane the note is on, 1 to 8 from the left. This is the only value you may change.",
-                "  ms    when the note is hit. Never change it; it is there so the numbers can be checked.",
-                "  chord two notes that share this number are played together. Keep them together or remove both.",
-                "",
-                "Rules you must not break:",
-                "  1. Keep every note. The output has exactly the same n values, in the same order, as the input.",
-                "  2. Lanes are 1 to 8. Do not use a lane the user has not asked for.",
-                "  3. The two notes of a chord must sit on lanes next to each other (such as 3 and 4).",
-                "  4. Two notes less than 50 ms apart must not share a lane; the same hand cannot hit it twice that fast.",
-                "  5. If the user asks for something that breaks a rule, say so in one sentence and change nothing.",
-                "",
-                "Answer with the JSON alone, no explanation and no code fence, unless rule 5 applies.",
-                "",
-                "How I want it:",
-                "{request}",
-                "",
-                "{notes}"
-            ],
-            [
-                new("request", "How do you want the lanes laid out?",
-                    ">>> WRITE THE REQUEST HERE. If this line is still here, ask for it instead of guessing. <<<"),
-                new("notes", "Which notes? (/paste, /note -json 1..64, or paste the JSON itself)",
-                    ">>> PUT THE note -json OUTPUT HERE. If this line is still here, ask for it instead of guessing. <<<")
+                new("request", T("Blank.request"), T("Placeholder.request")),
+                new("notes", T("Blank.notes"), T("Placeholder.notes"))
             ])
         };
 
@@ -2590,12 +2609,12 @@ public sealed class CmdSession
         var wanted = line.Rest.Trim();
         if (wanted.Length == 0 || wanted.Equals("all", StringComparison.OrdinalIgnoreCase))
         {
-            Show(["Prompts: " + string.Join(", ", Prompts.Keys), "Type prompt <title> to see one."], copy);
+            Show([T("PromptList", string.Join(", ", Prompts.Keys)), T("PromptHint")], copy);
             return;
         }
         if (!Prompts.TryGetValue(wanted, out var prompt))
         {
-            Write($"There is no prompt called {wanted}.", "Prompts: " + string.Join(", ", Prompts.Keys));
+            Write(T("NoSuchPrompt", wanted), T("PromptList", string.Join(", ", Prompts.Keys)));
             return;
         }
         if (prompt.Blanks.Count == 0)
@@ -2604,8 +2623,7 @@ public sealed class CmdSession
             return;
         }
         _filling = new Filling(wanted, prompt, new string?[prompt.Blanks.Count], 0, copy);
-        Write($"{wanted}: {prompt.Blanks.Count} blanks to fill in.",
-            "Type the text, or /paste and /note -json to put an output in. /skip leaves a blank, /back /again /cancel move around.");
+        Write(T("BlanksToFill", wanted, prompt.Blanks.Count), T("BlankHint"));
         AskBlank();
     }
 
@@ -2636,13 +2654,13 @@ public sealed class CmdSession
                     Keep(null);
                     return;
                 case "cancel":
-                    Write($"{filling.Title} is cancelled.");
+                    Write(T("PromptCancelled", filling.Title));
                     Leave(filling, printed: true);
                     return;
                 case "back":
                     if (filling.At == 0)
                     {
-                        Write("This is the first blank.");
+                        Write(T("FirstBlank"));
                         AskBlank();
                         return;
                     }
@@ -2651,7 +2669,7 @@ public sealed class CmdSession
                     return;
                 case "again":
                     _filling = filling with { Values = new string?[filling.Blanks().Count], At = 0 };
-                    Write("Starting over.");
+                    Write(T("StartingOver"));
                     AskBlank();
                     return;
                 case "string":
@@ -2683,13 +2701,13 @@ public sealed class CmdSession
         {
             if (CmdCatalog.Parse(typed, out var error) is not { } parsed)
             {
-                Write(error ?? "That is not a command.");
+                Write(error ?? T("NotACommandBlank"));
                 AskBlank();
                 return;
             }
             if (!BlankCommands.Contains(parsed.Command.Name))
             {
-                Write($"{parsed.Command.Name} cannot fill a blank: only commands that print and stop can.");
+                Write(T("CannotFillBlank", parsed.Command.Name));
                 AskBlank();
                 return;
             }
@@ -2702,18 +2720,18 @@ public sealed class CmdSession
             {
                 _question = null;
                 _choice = null;
-                Write($"{parsed.Command.Name} asks a question, so it cannot fill a blank.");
+                Write(T("AsksCannotFill", parsed.Command.Name));
                 AskBlank();
                 return;
             }
             while (caught.Count > 0 && caught[^1].Length == 0) caught.RemoveAt(caught.Count - 1);
             if (caught.Count == 0)
             {
-                Write($"{parsed.Command.Name} printed nothing.");
+                Write(T("PrintedNothing", parsed.Command.Name));
                 AskBlank();
                 return;
             }
-            Write($"Took {caught.Count} line{(caught.Count == 1 ? "" : "s")} from {parsed.Command.Name}.");
+            Write(T(caught.Count == 1 ? "TookLine" : "TookLines", caught.Count, parsed.Command.Name));
             Keep(string.Join(Environment.NewLine, caught));
         }
     }
@@ -2744,7 +2762,7 @@ public sealed class CmdSession
                 continue;
             }
             lines.AddRange(own.Take(ShortLines - 1));
-            lines.Add($"    … {own.Length - (ShortLines - 1)} more lines …");
+            lines.Add("    " + T("MoreLines", own.Length - (ShortLines - 1)));
         }
         return lines;
     }
@@ -2758,11 +2776,11 @@ public sealed class CmdSession
         Write("");
         foreach (var line in Filled(filling, whole: false)) Write(line);
         Write("");
-        Confirm(false, "Copy this?", answer =>
+        Confirm(false, T("AskCopyThis"), answer =>
         {
             if (!answer)
             {
-                Write($"{filling.Title} is cancelled.");
+                Write(T("PromptCancelled", filling.Title));
                 Leave(filling, printed: true);
                 return;
             }
@@ -2770,12 +2788,12 @@ public sealed class CmdSession
             try
             {
                 _host.CopyText(text);
-                Write($"Copied the filled prompt ({Filled(filling, whole: true).Count} lines).");
+                Write(T("CopiedPrompt", Filled(filling, whole: true).Count));
                 _filling = null;
             }
             catch (ExternalException error)
             {
-                Write("Could not copy to clipboard. " + error.Message);
+                Write(T("CouldNotCopy", error.Message));
                 Leave(filling, printed: true);
             }
         }, () => { foreach (var line in Filled(filling, whole: true)) Write(line); });
@@ -2791,11 +2809,11 @@ public sealed class CmdSession
         if (!printed) return;
         var written = filling.Values.Select((value, index) => (value, index)).Where(pair => pair.value is not null).ToArray();
         if (written.Length == 0) return;
-        Write("What was filled in, so it is not lost:");
+        Write(T("WhatWasFilled"));
         foreach (var (value, index) in written)
         {
             var own = value!.Split(Environment.NewLine);
-            Write($"  {filling.Blanks()[index].Name}: " + (own.Length == 1 ? own[0] : $"{own[0]} … ({own.Length} lines)"));
+            Write($"  {filling.Blanks()[index].Name}: " + (own.Length == 1 ? own[0] : T("FirstOfLines", own[0], own.Length)));
         }
     }
 
@@ -2807,13 +2825,13 @@ public sealed class CmdSession
     /// checks the title and reads what is there; nothing about the note is edited here.
     /// </summary>
     /// <summary>What the editor's command line takes, for report -col.</summary>
-    private static readonly (string Command, string Means)[] EditorCommands =
+    private static (string Command, string Means)[] EditorCommands =>
     [
-        (":w  :write", "Write the note and stay in it."),
-        (":q  :quit", "Leave it. Changes that were not written are asked about first."),
-        (":wq  :x", "Write it and leave."),
-        (":copy", "Copy what is selected, or the whole note when nothing is."),
-        (":d  :delete", "Remove the note, after asking.")
+        (":w  :write", T("Colon.write")),
+        (":q  :quit", T("Colon.quit")),
+        (":wq  :x", T("Colon.writequit")),
+        (":copy", T("Colon.copy")),
+        (":d  :delete", T("Colon.delete"))
     ];
 
     /// <summary>
@@ -2857,15 +2875,15 @@ public sealed class CmdSession
         // The parser keeps -force and -proceed apart only in front of the word; behind it they are read here.
         if (Has("-force") && Has("-proceed"))
         {
-            Write("-force always asks first, so -proceed cannot answer for it.");
+            Write(T("ForceAlwaysAsks"));
             return;
         }
 
         if (verb.Length == 0 || !line.Command.KeywordNames.Contains(verb, StringComparer.OrdinalIgnoreCase))
         {
             Write(verb.Length == 0
-                ? $"report needs one of: {string.Join(", ", line.Command.KeywordNames)}."
-                : $"'{verb}' is not one of report's words. It takes {string.Join(", ", line.Command.KeywordNames)}.");
+                ? T("ReportNeeds", string.Join(", ", line.Command.KeywordNames))
+                : T("NotReportWord", verb, string.Join(", ", line.Command.KeywordNames)));
             return;
         }
         switch (verb.ToLowerInvariant())
@@ -2891,7 +2909,7 @@ public sealed class CmdSession
         }
         if (title.Length == 0)
         {
-            Write($"report {verb} <title> needs a title.");
+            Write(T("ReportNeedsTitle", verb));
             return;
         }
         var found = _host.ReadReport(title, out var problem);
@@ -2905,40 +2923,40 @@ public sealed class CmdSession
         {
             case "state":
                 // One line, for an agent to read: it never opens anything and never changes anything.
-                Write(found is null ? $"{title} was never written." : StateLine(Standing(title)));
+                Write(found is null ? T("NeverWritten", title) : StateLine(Standing(title)));
                 return;
             case "ask":
             {
                 // report ask <title> > <reason>, split the way rename is: a title may hold spaces but never ">".
                 var cut = title.IndexOf('>');
-                if (cut < 0) { Write("Say what is needed: report ask <title> > <reason>"); return; }
+                if (cut < 0) { Write(T("SayWhatIsNeeded")); return; }
                 var asked = title[..cut].Trim();
                 var why = title[(cut + 1)..].Trim();
-                if (why.Length == 0) { Write("Say what is needed: report ask <title> > <reason>"); return; }
+                if (why.Length == 0) { Write(T("SayWhatIsNeeded")); return; }
                 if (_host.MarkReport(asked, "asked", why) is { } problem2) Write(problem2);
-                else Write($"\"{asked}\" is waiting on an answer.");
+                else Write(T("WaitingOnAnswer", asked));
                 return;
             }
             case "done":
             case "undone":
             {
-                if (found is null) { Write($"{title} was never written."); return; }
+                if (found is null) { Write(T("NeverWritten", title)); return; }
                 var wanted = verb.Equals("done", StringComparison.OrdinalIgnoreCase) ? "done" : "open";
                 if (_host.MarkReport(title, wanted, null) is { } trouble) Write(trouble);
-                else Write(wanted == "open" ? $"\"{title}\" is open again." : $"\"{title}\" is done in {AppInfo.Version}.");
+                else Write(wanted == "open" ? T("OpenAgain", title) : T("DoneIn", title, AppInfo.Version));
                 return;
             }
             case "erase":
-                if (found is null) { Write($"{title} was never written."); return; }
-                Confirm(Has("-proceed"), $"Delete \"{title}\" ({found.Count} lines)?", answer =>
+                if (found is null) { Write(T("NeverWritten", title)); return; }
+                Confirm(Has("-proceed"), T("AskDeleteNote", title, found.Count), answer =>
                 {
-                    if (!answer) { Write("Nothing was deleted."); return; }
+                    if (!answer) { Write(T("NothingDeleted")); return; }
                     if (DeleteReport(title) is { } trouble) Write(trouble);
-                    else Write($"\"{title}\" deleted.");
+                    else Write(T("NoteDeleted", title));
                 });
                 return;
             case "print":
-                if (found is null) { Write($"{title} was never written."); return; }
+                if (found is null) { Write(T("NeverWritten", title)); return; }
                 Show([.. found], copy);
                 return;
         }
@@ -2951,26 +2969,26 @@ public sealed class CmdSession
     private void NewReport(string title, bool creating, bool force, bool yes)
     {
         var word = creating ? "create" : "write";
-        if (title.Length == 0) { Write($"report {word} <title> needs a title."); return; }
+        if (title.Length == 0) { Write(T("ReportNeedsTitle", word)); return; }
         var found = _host.ReadReport(title, out var problem);
         if (problem is { } reason) { Write(reason); return; }
         if (!creating)
         {
-            if (found is null) { Write($"There is no note called \"{title}\". report create {title} starts one."); return; }
+            if (found is null) { Write(T("NoNoteCalled", title)); return; }
             Edit(title, found);
             return;
         }
         if (found is null) { Edit(title, null); return; }
         if (!force)
         {
-            Write($"\"{title}\" is already there. report write {title} adds to it, or report create -force {title} replaces it.");
+            Write(T("NoteAlreadyThere", title));
             return;
         }
         // Replacing is the only way a note loses what is in it, so it asks (user rule for anything that throws work away).
-        Confirm(yes, $"Replace \"{title}\" ({found.Count} lines)? The editor opens empty and what is there goes when it is saved.",
+        Confirm(yes, T("AskReplaceNote", title, found.Count),
             answer =>
             {
-                if (!answer) { Write("Nothing was replaced."); return; }
+                if (!answer) { Write(T("NothingReplaced")); return; }
                 Edit(title, []);
             });
     }
@@ -2983,9 +3001,9 @@ public sealed class CmdSession
     private void InspectReport(string title, bool creating, string? which, bool force, bool yes)
     {
         var word = creating ? "create" : "write";
-        if (title.Length == 0) { Write($"report {word} <title> -inspect needs a title."); return; }
+        if (title.Length == 0) { Write(T("InspectReportNeedsTitle", word)); return; }
         var count = which is null or "" ? 1 : which == "*" ? 0 : int.Parse(which, System.Globalization.CultureInfo.InvariantCulture);
-        if (_host.InspectLines(count) is not { } found) { Write("No inspect run is kept. link inspect makes one."); return; }
+        if (_host.InspectLines(count) is not { } found) { Write(T("NoInspectRun")); return; }
         var lines = found.ToArray();
         var existing = _host.ReadReport(title, out var problem);
         if (problem is { } reason) { Write(reason); return; }
@@ -2996,21 +3014,21 @@ public sealed class CmdSession
         }
         if (!creating)
         {
-            if (existing is null) { Write($"There is no note called \"{title}\". report -inspect create {title} starts one."); return; }
-            Save([.. existing, "", .. lines], $"Added {lines.Length} lines of inspect results below \"{title}\".");
+            if (existing is null) { Write(T("NoNoteCalledInspect", title)); return; }
+            Save([.. existing, "", .. lines], T("InspectAdded", lines.Length, title));
             return;
         }
-        if (existing is null) { Save(lines, $"Wrote {lines.Length} lines of inspect results to \"{title}\"."); return; }
+        if (existing is null) { Save(lines, T("InspectWrote", lines.Length, title)); return; }
         if (!force)
         {
-            Write($"\"{title}\" is already there. report -inspect write {title} adds to it, or report -inspect create -force {title} replaces it.");
+            Write(T("InspectNoteAlreadyThere", title));
             return;
         }
-        Confirm(yes, $"Replace \"{title}\" ({existing.Count} lines) with the inspect results?",
+        Confirm(yes, T("AskReplaceInspect", title, existing.Count),
             answer =>
             {
-                if (!answer) { Write("Nothing was replaced."); return; }
-                Save(lines, $"Replaced \"{title}\" with {lines.Length} lines of inspect results.");
+                if (!answer) { Write(T("NothingReplaced")); return; }
+                Save(lines, T("InspectReplaced", title, lines.Length));
             });
     }
 
@@ -3020,14 +3038,14 @@ public sealed class CmdSession
         // The window may not be listening (a test, or the console closing): then the note simply is not opened.
         if (ReportRequested is null)
         {
-            Write("The console cannot open a note right now.");
+            Write(T("CannotOpenNote"));
             return;
         }
         var state = _host.ReportNotes()
             .FirstOrDefault(note => note.Title.Equals(title, StringComparison.OrdinalIgnoreCase))?.Done ?? "";
         Log.Report = new ReportDraft(title, lines?.ToArray() ?? [], Changed: false, Done: state);
         // The keys are on the editor's own bottom line, so the console does not repeat them (user rule).
-        Write($"{title}: {(lines is null ? "a new note" : $"{lines.Count} lines")}.");
+        Write(lines is null ? T("NewNote", title) : T("NoteLines", title, lines.Count));
         ReportRequested(Log.Report);
     }
 
@@ -3043,7 +3061,7 @@ public sealed class CmdSession
                 || note.Holds(word)).ToArray();
         if (notes.Count == 0)
         {
-            Write(word.Length > 0 ? $"No note holds \"{word}\"." : "No notes are written yet.");
+            Write(word.Length > 0 ? T("NoNoteHolds", word) : T("NoNotesYet"));
             return;
         }
         var width = Math.Max(8, notes.Max(note => note.Title.Length));
@@ -3052,11 +3070,11 @@ public sealed class CmdSession
         foreach (var note in notes)
         {
             lines.Add($"  {note.Title.PadRight(width)}  {(note.Version.Length > 0 ? note.Version : "-"),-7}"
-                + (note.State == "done" ? $"done {note.Version}" : note.State).PadRight(12) + $"{note.Lines} lines");
+                + (note.State == "done" ? $"done {note.Version}" : note.State).PadRight(12) + T("LineCount", note.Lines));
             // The reason is a sentence in the language the settings are set to, so it goes under its row, not in a column.
             if (note.State == "asked" && note.Why.Length > 0) lines.Add($"  {new string(' ', width)}  {note.Why}");
         }
-        lines.Add($"  {open} of {notes.Count} still open.");
+        lines.Add("  " + T("StillOpen", open, notes.Count));
         Show(lines, copy);
     }
 
@@ -3080,12 +3098,12 @@ public sealed class CmdSession
     private void ClearReports(bool yes)
     {
         var done = _host.ReportNotes().Where(note => note.State == "done").Select(note => note.Title).ToArray();
-        if (done.Length == 0) { Write("No note is marked done."); return; }
-        Confirm(yes, $"Delete {done.Length} note(s) already done ({string.Join(", ", done)})?", answer =>
+        if (done.Length == 0) { Write(T("NoNoteDone")); return; }
+        Confirm(yes, T("AskSweep", done.Length, string.Join(", ", done)), answer =>
         {
-            if (!answer) { Write("Nothing was deleted."); return; }
+            if (!answer) { Write(T("NothingDeleted")); return; }
             var gone = _host.ClearDoneReports();
-            Write(gone.Count == 0 ? "Nothing was deleted." : $"Deleted {gone.Count} note(s): {string.Join(", ", gone)}.");
+            Write(gone.Count == 0 ? T("NothingDeleted") : T("DeletedNotes", gone.Count, string.Join(", ", gone)));
         });
     }
 
@@ -3098,27 +3116,27 @@ public sealed class CmdSession
         var cut = rest.IndexOf('>');
         if (cut < 0)
         {
-            Write("Say which name goes where: report rename <old title> > <new title>");
+            Write(T("SayWhichName"));
             return;
         }
         var title = rest[..cut].Trim();
         var name = rest[(cut + 1)..].Trim();
         if (title.Length == 0 || name.Length == 0)
         {
-            Write("Say which name goes where: report rename <old title> > <new title>");
+            Write(T("SayWhichName"));
             return;
         }
         // The same rule the store keeps, said here so the console does not name a storage type (ICmdHost stays its own).
         if (name.Length > 64 || !name.All(letter => char.IsLetterOrDigit(letter) || letter is ' ' or '-' or '_'))
         {
-            Write("A note title may only be letters, digits, spaces, dashes and underscores.");
+            Write(T("NoteTitleRule"));
             return;
         }
-        Confirm(yes, $"Rename \"{title}\" to \"{name}\"?", answer =>
+        Confirm(yes, T("AskRename", title, name), answer =>
         {
-            if (!answer) { Write("The name stays."); return; }
+            if (!answer) { Write(T("NameStays")); return; }
             if (_host.RenameReport(title, name) is { } trouble) Write(trouble);
-            else Write($"\"{title}\" is now \"{name}\".");
+            else Write(T("NoteRenamed", title, name));
         });
     }
 
@@ -3133,7 +3151,7 @@ public sealed class CmdSession
 
     /// <summary>Removes a note for the editor; null when it went, otherwise why not.</summary>
     public string? DeleteReport(string title) =>
-        _host.DeleteReport(title, out var problem) ? null : problem ?? $"{title} was never written.";
+        _host.DeleteReport(title, out var problem) ? null : problem ?? T("NeverWritten", title);
 
     private void Show(IReadOnlyList<string> lines, bool copy)
     {
@@ -3147,9 +3165,9 @@ public sealed class CmdSession
         try
         {
             _host.CopyText(string.Join(Environment.NewLine, lines));
-            Write("Copied to clipboard.");
+            Write(T("CopiedToClipboard"));
         }
-        catch (ExternalException error) { Write("Could not copy to clipboard. " + error.Message); }
+        catch (ExternalException error) { Write(T("CouldNotCopy", error.Message)); }
     }
 
     private bool NoArguments(CmdLine line)
@@ -3161,9 +3179,21 @@ public sealed class CmdSession
 
     private T? Syntax<T>(CmdLine line) where T : class
     {
-        Write("The syntax of the command is incorrect.", $"Usage: {line.Command.Usage}");
+        // ConsoleText by name: T is the type here.
+        Write(ConsoleText.T("SyntaxIncorrect"), ConsoleText.T("Usage", line.Command.Usage));
         return null;
     }
+
+    /// <summary>The culture the console's language names weekdays in; invariant when its language file names none.</summary>
+    private static CultureInfo DateCulture() =>
+        T("DateCulture") is { Length: > 0 } name ? CultureInfo.GetCultureInfo(name) : CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// How many letter widths a text takes in the console's font: Hangul and the other wide scripts take two, so a column
+    /// after a translated label still lines up.
+    /// </summary>
+    public static int Wide(string text) => text.Sum(letter => letter is >= '\u1100' and <= '\u115F' or >= '\u2E80' and <= '\uA4CF'
+        or >= '\uAC00' and <= '\uD7A3' or >= '\uF900' and <= '\uFAFF' or >= '\uFF00' and <= '\uFF60' or >= '\uFFE0' and <= '\uFFE6' ? 2 : 1);
 
     // ---- completion ------------------------------------------------------------------------------------------------
 
@@ -3225,7 +3255,7 @@ public sealed class CmdSession
                 if (words.Skip(1).Take(options).Any(word => word.Word.Equals("-id", StringComparison.OrdinalIgnoreCase)))
                     return _host.Songs.Select(song => song.Id).Order(StringComparer.Ordinal)
                         .Where(id => id.StartsWith(title, StringComparison.OrdinalIgnoreCase)).ToArray();
-                return new[] { "origin", "edited" }.Where(keyword => keyword.StartsWith(title, StringComparison.OrdinalIgnoreCase))
+                return new[] { "origin", "edited", "link" }.Where(keyword => keyword.StartsWith(title, StringComparison.OrdinalIgnoreCase))
                     .Concat(_host.Songs.Where(song => song.Slot is null && Has(song.Title, title)).Select(song => song.Title)
                         .Order(StringComparer.CurrentCultureIgnoreCase))
                     .Distinct().ToArray();

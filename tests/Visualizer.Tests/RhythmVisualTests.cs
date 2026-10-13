@@ -81,7 +81,7 @@ internal static class RhythmVisualTests
             Throws<ArgumentException>(() => MultimediaScheduling.Register(" "));
 
             // The console report ends with what the scheduling and the collector are set to.
-            var window = new MainWindow();
+            var window = English(new MainWindow());
             var printed = ((ICmdHost)window).FrameStats(false);
             Assert(printed[^1].StartsWith("Scheduling  multimedia class", StringComparison.Ordinal)
                 && printed[^1].Contains("GC latency", StringComparison.Ordinal), "The report says how it is scheduled: " + printed[^1]);

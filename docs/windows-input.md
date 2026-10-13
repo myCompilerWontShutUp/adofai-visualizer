@@ -31,4 +31,4 @@ WPF Button은 포커스가 있으면 Space/Enter로 Click을 실행합니다([Bu
 ## 입력 합성 예외: link inspect (1.0.4)
 
 - 앱은 관찰만 한다는 원칙의 유일한 예외입니다(AGENTS 안전 규칙 6, 사용자 승인). `Infrastructure/Input/KeyboardInjector`가 `SendInput`으로 스캔 코드를 보내며, `MainWindow.Inspect.cs`의 `LinkInspection`만 부릅니다.
-- 키를 보내기 직전마다 앞 창의 프로세스가 게임인지 확인합니다(`WindowsForegroundObserver.ForegroundProcessId`, 캐시 없음 — 다른 스레드에서 불림). 보낸 키는 Raw Input이 관찰하므로 비주얼라이저의 입력 효과로 보이고, 그동안 위치를 옮기는 키(시작 키 포함)는 무시합니다.
+- 게임 프로세스는 시작할 때 이름으로 찾고(`WindowsForegroundObserver.FindProcess`, 프로세스 열거는 이때 한 번), 키를 보내기 직전마다 앞 창의 프로세스가 그 게임인지 확인합니다(`ForegroundProcessId`, 캐시 없음 — 다른 스레드에서 불림). 게임이 처음 앞에 올 때까지는 키를 보내지 않고 기다립니다. 보낸 키는 Raw Input이 관찰하므로 비주얼라이저의 입력 효과로 보이고, 그동안 위치를 옮기는 키(시작 키 포함)는 무시합니다.

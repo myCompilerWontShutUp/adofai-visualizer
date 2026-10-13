@@ -1,4 +1,5 @@
-using System.Text.Json;
+using System.Text.Json;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Storage;
 
@@ -21,7 +22,7 @@ public sealed class PinBook(AppStorage storage)
         var data = JsonSerializer.Deserialize<Data>(File.ReadAllText(Path), Options);
         if (data is null || data.SchemaVersion != 1 || data.Pins is null
             || data.Pins.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || pair.Value is null || pair.Value.Any(tile => tile < 1)))
-            throw new InvalidDataException("Unsupported pin file; run a supported version.");
+            throw new InvalidDataException(T("UnsupportedPinFile"));
         return data.Pins.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<int>)pair.Value.Distinct().Order().ToArray(), StringComparer.Ordinal);
     }
 

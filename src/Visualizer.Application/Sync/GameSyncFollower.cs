@@ -1,6 +1,7 @@
 using System.Globalization;
 using Visualizer.Application.Playback;
 using Visualizer.Core.Maps;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Application.Sync;
 
@@ -73,26 +74,24 @@ public sealed class GameSyncFollower
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(session);
         OffsetMs = null;
-        if (session.Timeline is not { } timeline) { State = GameSyncFollowState.NoNotes; return "no song is loaded."; }
+        if (session.Timeline is not { } timeline) { State = GameSyncFollowState.NoNotes; return T("FollowNoSong"); }
         // The app's own practice speed would draw the notes falling at a different rate from the game they follow.
         if (session.Settings.PlaybackSpeedPercent != 100)
-            { State = GameSyncFollowState.WrongSong; return "this app's playback speed is not 100%. The game sets the pace while it is followed."; }
+            { State = GameSyncFollowState.WrongSong; return T("FollowSpeed"); }
         var check = GameTileCheck.Compare(level.TimesMs, timeline);
-        if (check.Matched == 0) { State = GameSyncFollowState.WrongSong; return "none of this song's tiles is one the game has."; }
+        if (check.Matched == 0) { State = GameSyncFollowState.WrongSong; return T("FollowNoTiles"); }
         var spread = check.MaxOffsetMs - check.MinOffsetMs;
         if (spread > GameTileCheck.Tolerance || check.Unmatched > 0)
         {
             State = GameSyncFollowState.WrongSong;
-            return $"the tiles do not line up ({spread.ToString("0.0", CultureInfo.InvariantCulture)} ms apart,"
-                   + $" {check.Unmatched} missing), so this is not the song the game is playing.";
+            return T("FollowNotLinedUp", spread.ToString("0.0", CultureInfo.InvariantCulture), check.Unmatched);
         }
         // Prepared from a checkpoint or a practice tile, the app has no notes before that point, so the game playing
         // from the start would leave the playhead a long way in front of the first one with nothing on screen.
         if (session.StartHitIndex > 0)
         {
             State = GameSyncFollowState.WrongSong;
-            return $"the app is prepared from hit {session.StartHitIndex + 1}, not the start of the song."
-                   + " Reset it to the beginning, then follow again.";
+            return T("FollowFromMiddle", session.StartHitIndex + 1);
         }
         OffsetMs = check.MedianOffsetMs;
         _tileTimes = level.TimesMs;
@@ -287,36 +286,21 @@ public sealed class GameSyncFollower
         return true;
     }
 
-    /// <summary>The follower's state as the console prints it (English, like the rest of the console).</summary>
+    /// <summary>The follower's state as the console prints it, in the console's language.</summary>
     public IReadOnlyList<string> Lines()
     {
         string Ms(double value) => double.IsFinite(value) ? value.ToString("0.0", CultureInfo.InvariantCulture) : "-";
-        static string Percent(double rate) => double.IsFinite(rate) ? (rate * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%" : "an unknown rate";
+        static string Percent(double rate) => double.IsFinite(rate) ? (rate * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%" : T("UnknownRate");
         var what = State switch
         {
-            GameSyncFollowState.Off => "not following.",
-            GameSyncFollowState.NoLevel => "waiting for the game to load a level.",
-            GameSyncFollowState.WrongSong => "the loaded song is not the one the game has.",
-            GameSyncFollowState.NoNotes => "no notes are prepared.",
-            GameSyncFollowState.WaitingForGame => "waiting for the game to play.",
-            GameSyncFollowState.HeldHere => "paused here. Resume in the app to follow the game again.",
-            GameSyncFollowState.Dropped => "stopped: the song, the start point or the playback speed changed here. Use link follow again.",
-            GameSyncFollowState.LevelChanged => "stopped: the game sent other tiles for this level, and they do not line up with the song here. Use link follow again.",
-            GameSyncFollowState.GameOver => "the game is over; the notes wait here until it starts again.",
-            GameSyncFollowState.GameStopped => "the game is paused or its clock stands still; the notes wait with it.",
-            GameSyncFollowState.OtherLevel => "the game is playing another level; the notes wait here until it is back on this one.",
-            GameSyncFollowState.OtherRate => $"the game plays at {Percent(_gameRate)}, and the notes only follow it at 100%. They wait here until it is back at 100%.",
-            GameSyncFollowState.Silent => "nothing from the game for a moment; the notes wait here until it sends again.",
-            _ => "following the game."
+            GameSyncFollowState.OtherRate => T("Follow.OtherRate", Percent(_gameRate)),
+            var state => T("Follow." + state)
         };
-        var lines = new List<string> { "Follow   " + what };
-        if (OffsetMs is { } offset)
-            lines.Add($"Offset   {Ms(offset)} ms between the game's clock and ours"
-                      + $" · off by {Ms(LastErrorMs)} ms at the last reading");
-        if (_snaps + _pulls > 0) lines.Add($"Moves    {_snaps} jumps · {_pulls} nudges");
+        var lines = new List<string> { T("FollowLine", what) };
+        if (OffsetMs is { } offset) lines.Add(T("FollowOffset", Ms(offset), Ms(LastErrorMs)));
+        if (_snaps + _pulls > 0) lines.Add(T("FollowMoves", _snaps, _pulls));
         // An empty screen is worth explaining: the song may simply not have reached its first note yet.
-        if (FirstNoteWaitMs > 2000)
-            lines.Add($"First    the first note is {Ms(FirstNoteWaitMs / 1000)} s away, so the screen is empty until then.");
+        if (FirstNoteWaitMs > 2000) lines.Add(T("FollowFirst", Ms(FirstNoteWaitMs / 1000)));
         return lines;
     }
 }

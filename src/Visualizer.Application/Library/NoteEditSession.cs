@@ -1,4 +1,5 @@
 using Visualizer.Core.Maps;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Application.Library;
 
@@ -377,11 +378,12 @@ public sealed class NoteEditSession
         foreach (var note in notes)
         {
             var index = Array.FindIndex(wanted, each => each.Hit == note.Hit - 1);
-            if (index < 0) return $"note {note.Hit} is not in this song.";
-            if (LaneOf(note.Tile) < 0) return $"note {note.Hit}: lane {note.Tile} is not on the screen.";
+            if (index < 0) return T("OverrideNoNote", note.Hit);
+            if (LaneOf(note.Tile) < 0) return T("OverrideLaneOff", note.Hit, note.Tile);
             if (note.HitTimeMs is { } time && Math.Abs(time - wanted[index].HitTimeMs) > 0.5)
-                return $"note {note.Hit} is at {wanted[index].HitTimeMs:0} ms, not {time:0} ms.";
-            if (!byHit.TryAdd(note.Hit, note.Tile)) return $"note {note.Hit} is named twice.";
+                return T("OverrideTime", note.Hit, wanted[index].HitTimeMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                    time.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+            if (!byHit.TryAdd(note.Hit, note.Tile)) return T("OverrideTwice", note.Hit);
             // Naming a note takes it out of whatever chord it was in, and the note it was paired with comes out with it:
             // half a chord is not a thing the rest of the app knows how to read.
             var was = wanted[index].Chord;
@@ -397,14 +399,14 @@ public sealed class NoteEditSession
         foreach (var group in groups)
         {
             var members = group.Select(note => Array.FindIndex(wanted, each => each.Hit == note.Hit - 1)).OrderBy(index => index).ToArray();
-            if (members.Length != 2) return $"chord {group.Key} has {members.Length} notes; a chord is two.";
+            if (members.Length != 2) return T("OverrideChordSize", group.Key, members.Length);
             var (first, second) = (wanted[members[0]], wanted[members[1]]);
             if (Math.Abs(second.HitTimeMs - first.HitTimeMs) > Math.Min(windowMs, Core.Settings.VisualizerSettings.MaximumChordWindowMs) + Epsilon)
-                return $"notes {first.Hit + 1} and {second.Hit + 1} are too far apart to be a chord.";
+                return T("OverrideChordFar", first.Hit + 1, second.Hit + 1);
             if (Math.Abs(LaneOf(first.Tile) - LaneOf(second.Tile)) != 1)
-                return $"notes {first.Hit + 1} and {second.Hit + 1} are not on lanes next to each other.";
+                return T("OverrideChordLanes", first.Hit + 1, second.Hit + 1);
             if (wanted.Any(each => each.Hit > first.Hit && each.Hit < second.Hit))
-                return $"another note lies between {first.Hit + 1} and {second.Hit + 1}, so they cannot be a chord.";
+                return T("OverrideChordBetween", first.Hit + 1, second.Hit + 1);
             id++;
             wanted[members[0]] = first with { Chord = id };
             wanted[members[1]] = second with { Chord = id, ShowTimeMs = first.ShowTimeMs };
@@ -414,8 +416,8 @@ public sealed class NoteEditSession
         for (var i = 1; i < order.Length; i++)
             for (var back = i - 1; back >= 0 && order[i].HitTimeMs - order[back].HitTimeMs < SameLaneGuardMs; back--)
                 if (order[back].Tile == order[i].Tile && order[back].Hit != order[i].Hit)
-                    return $"notes {order[back].Hit + 1} and {order[i].Hit + 1} are on lane {order[i].Tile} less than"
-                           + $" {SameLaneGuardMs:0} ms apart.";
+                return T("OverrideSameLane", order[back].Hit + 1, order[i].Hit + 1, order[i].Tile,
+                    SameLaneGuardMs.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
         Remember();
         _notes.Clear();
         _notes.AddRange(wanted);

@@ -1,7 +1,8 @@
 using System.Text.Json;
 using Visualizer.Application.Cache;
 using Visualizer.Application.Library;
-using Visualizer.Core.Settings;
+using Visualizer.Core.Settings;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Storage;
 
@@ -115,7 +116,7 @@ public sealed class NoteEditStore(MapLibrary maps)
     {
         var data = JsonSerializer.Deserialize<Data>(File.ReadAllText(path), Options);
         if (data is null || data.SchemaVersion != NoteEdit.SchemaVersion || data.Lanes is null || data.Chords is null)
-            throw new InvalidDataException("Unsupported edit file; run a supported version.");
+            throw new InvalidDataException(T("UnsupportedEditFile"));
         return data;
     }
 

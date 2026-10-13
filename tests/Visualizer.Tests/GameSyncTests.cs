@@ -28,6 +28,9 @@ internal static class GameSyncTests
         bool paused = false, int floor = 3, double speed = 1, string path = @"C:\maps\main.adofai", int protocol = GameSyncLink.Protocol) =>
         new(protocol, clock, position, state, paused, floor, speed, path);
 
+    /// <summary>A window whose console speaks English, which these checks read; the app's own default is Korean.</summary>
+    private static MainWindow EnglishWindow() => English(new MainWindow { Left = -20000, Top = -20000, ShowActivated = false });
+
     public static IEnumerable<(string Name, Action Run)> Create(string artifactRoot)
     {
         yield return ("The linker is installed into the game's own mod folder and nothing else there is touched", () =>
@@ -678,7 +681,7 @@ internal static class GameSyncTests
             // The real window on a pipe of its own, driven by its own frames as the app is.
             var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
             MainWindow.GameSyncPipeName = name;
-            var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            var window = EnglishWindow();
             try
             {
                 var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
@@ -754,7 +757,7 @@ internal static class GameSyncTests
                 var clock = new Clock { NowMs = 1000 };
                 MainWindow.PlaybackClock = clock;
                 MainWindow.GameSyncPipeName = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
-                var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+                var window = EnglishWindow();
                 try
                 {
                     // No app store and no real game: only synthetic schedules and this window's private listener.
@@ -779,9 +782,11 @@ internal static class GameSyncTests
                     Equal(model.Message, model.Text["GameAutoStaleCache"]);
                     Assert(model.Message.Contains("sync", StringComparison.Ordinal) && model.Message.Contains("link manual", StringComparison.Ordinal),
                         "The main screen explains how to update the cache or start by hand");
-                    Assert(host.GameSync(false, false, false).Any(line => line.Contains("run sync", StringComparison.Ordinal)),
-                        "The console's automatic refusal also points to the cache fix");
-                    Assert(host.GameSyncFollow(true)[0].Contains("run sync", StringComparison.Ordinal), "A manual refusal explains the same fix");
+                    // The console speaks the app's language, so the fix is checked by what both languages name: sync and the old cache.
+                    static bool PointsToSync(string line) => line.Contains("sync", StringComparison.Ordinal)
+                        && line.Contains("adofai-v24-pause-correction", StringComparison.Ordinal);
+                    Assert(host.GameSync(false, false, false).Any(PointsToSync), "The console's automatic refusal also points to the cache fix");
+                    Assert(PointsToSync(host.GameSyncFollow(true)[0]), "A manual refusal explains the same fix");
 
                     // Retrying the same refusal must not overwrite newer messages or refresh its age every two seconds.
                     model.SetMessage("A newer message");
@@ -993,16 +998,30 @@ internal static class GameSyncTests
             Assert(inspection.Finished(notes.Length), "Every note was pressed once");
             Assert(inspection.Presses.All(press => press.LateMs == 0), "Each on its moment");
 
-            // A run that starts late skips what already passed; a key never goes while the game is not in front.
+            // A run that starts late skips what already passed. Until the game first comes to the front it waits: a note due
+            // then goes without a key and is counted (user report: the run ended at the first note while the console was in
+            // front, so no key ever went). A key never goes while the game is not in front.
             sent.Clear();
-            using var late = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
+            front = false;
+            using var late = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front,
+                () => "in front: Console");
             clock.NowMs = 1100;
             late.Plan(notes, 1100, 0, 1100);
-            front = false;
             clock.NowMs = 1200;
             late.Plan(notes, 1200, 0, 1200);
-            Assert(!late.Step(1200) && late.StopReason!.Contains("not in front", StringComparison.Ordinal), "Not in front: it stops");
-            Equal(sent.Count(press => press.Down), 0);
+            Assert(late.Step(1200) && late.StopReason is null && late.WaitingForGame && late.Skipped == 2,
+                $"Not in front yet: the chord goes unpressed and the run waits ({late.StopReason}, {late.Skipped})");
+            Equal(sent.Count, 0);
+            front = true;
+            clock.NowMs = 1400;
+            late.Plan(notes, 1400, 0, 1400);
+            Assert(late.Step(1400) && !late.WaitingForGame && sent is [(0x4B, true, 1400)], "In front: the long note goes down");
+            // Once it has been in front, leaving the front ends the run at once and says what came instead; its key comes up.
+            front = false;
+            clock.NowMs = 1500;
+            late.Plan(notes, 1500, 0, 1500);
+            Assert(!late.Step(1500) && late.StopReason == "the game window went out of front (in front: Console)", late.StopReason ?? "running");
+            Assert(sent is [(0x4B, true, 1400), (0x4B, false, 1500)], "Only the one key went, and it came up");
             front = true;
             // Without a fresh plan the visualizer is not drawing, and it stops on its own.
             using var stale = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
@@ -1015,8 +1034,9 @@ internal static class GameSyncTests
                 new(GameSyncLink.Protocol, 0, floor * 100, "PlayerControl", false, floor, 1, "L", NoFail: true, Judgments: counts);
             run.Observe(Reading(1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0), null);
             run.Observe(Reading(7, 0, 0, 0, 9, 0, 0, 0, 0, 1, 1, 0, 0), new Visualizer.App.Input.InspectPress(5, 4, 700, 700.5));
-            run.Finish("the song ended", []);
+            run.Finish("the song ended", [], skipped: 2);
             var lines = run.Lines();
+            Assert(lines.Any(line => line.StartsWith("waiting: 2 notes", StringComparison.Ordinal)), "Notes let go while waiting are told");
             Assert(lines.Any(line => line.Contains("FailMiss at tile 7", StringComparison.Ordinal))
                 && lines.Any(line => line.Contains("FailOverload at tile 7", StringComparison.Ordinal))
                 && lines.Any(line => line.Contains("Perfect +4", StringComparison.Ordinal)), string.Join(" / ", lines));
@@ -1028,7 +1048,7 @@ internal static class GameSyncTests
             MainWindow.GameSyncPipeName = name;
             var pressed = new List<int>();
             MainWindow.KeySender = (key, down) => pressed.Add(key);
-            var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            var window = EnglishWindow();
             try
             {
                 var host = (ICmdHost)window;
@@ -1070,7 +1090,12 @@ internal static class GameSyncTests
                 var started = host.GameSyncInspect(true);
                 Assert(started[0].StartsWith("Inspecting", StringComparison.Ordinal), string.Join(" / ", started));
                 Assert(host.GameSync(false, false, false).Any(line => line.StartsWith("Inspect  running", StringComparison.Ordinal)), "link shows it");
-                Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "uninspect stops it");
+                // The middle of the notes says a run is on (user rule) while it is, and nothing once it stops.
+                var banner = (System.Windows.FrameworkElement)window.FindName("InspectBanner");
+                Assert(banner.Visibility == System.Windows.Visibility.Visible
+                    && ((System.Windows.Controls.TextBlock)window.FindName("InspectBannerText")).Text.Contains("link inspect", StringComparison.Ordinal), "The banner shows");
+                Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "link -inspect stop stops it");
+                Assert(banner.Visibility == System.Windows.Visibility.Collapsed, "and the banner goes");
                 Equal(pressed.Count, 0);
                 Assert(host.InspectLines(1) is { Count: > 0 } kept && kept[0].StartsWith("link inspect #1", StringComparison.Ordinal), "The run is kept");
             }
@@ -1088,7 +1113,7 @@ internal static class GameSyncTests
             var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
             MainWindow.GameSyncPipeName = name;
             // The real host, not a fake one: the pipe must stay shut until asked, and must not outlive the window.
-            var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            var window = EnglishWindow();
             var host = (ICmdHost)window;
             Assert(host.GameSync(false, false, false)[0].Contains("Not listening", StringComparison.Ordinal), "Shut to begin with");
             Assert(host.GameSync(true, false, false)[0].Contains("Listening", StringComparison.Ordinal), "Opened by -on");
@@ -1098,7 +1123,7 @@ internal static class GameSyncTests
             Assert(host.GameSync(false, true, false)[0].Contains("Not listening", StringComparison.Ordinal), "Closed by -off");
             window.Close();
             // Closing while it listens must not leave the pipe or its thread behind.
-            var second = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            var second = EnglishWindow();
             ((ICmdHost)second).GameSync(true, false, false);
             second.Close();
             using var after = new NamedPipeClientStream(".", name, PipeDirection.Out);

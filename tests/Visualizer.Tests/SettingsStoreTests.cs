@@ -91,7 +91,7 @@ internal static class SettingsStoreTests
             MainWindow.StoreForTests = AppStorage.At(home);
             try
             {
-                var window = new MainWindow();
+                var window = English(new MainWindow());
                 var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
                 model.ApplySettings(model.Settings with { MapRootDirectory = Path.Combine(home, "no-map-folder") });
                 IReadOnlyList<Visualizer.App.Commands.ScanArea>? found = null;

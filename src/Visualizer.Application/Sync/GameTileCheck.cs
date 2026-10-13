@@ -1,5 +1,6 @@
 using System.Globalization;
 using Visualizer.Core.Maps;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Application.Sync;
 
@@ -64,32 +65,28 @@ public static class GameTileCheck
     private static double Percentile(double[] sorted, double part) =>
         sorted[Math.Clamp((int)Math.Round(part * (sorted.Length - 1)), 0, sorted.Length - 1)];
 
-    /// <summary>The report as the console prints it (English, like the rest of the console).</summary>
+    /// <summary>The report as the console prints it, in the console's language.</summary>
     public static IReadOnlyList<string> Lines(TileCheckReport report, string? warning = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
         var lines = new List<string>();
-        if (warning != null) lines.Add("Careful  " + warning);
+        if (warning != null) lines.Add(T("CarefulLine", warning));
         if (report.Matched == 0)
         {
-            lines.Add($"None of the {report.Unmatched} hits in the loaded song is a tile the game has. Is it the same song?");
+            lines.Add(T("NoneMatched", report.Unmatched));
             return lines;
         }
         var spread = report.MaxOffsetMs - report.MinOffsetMs;
-        lines.Add($"Tiles    {report.Matched} compared"
-                  + (report.Unmatched > 0 ? $" · {report.Unmatched} of our hits are not tiles the game has" : string.Empty));
-        lines.Add($"Offset   {Ms(report.MedianOffsetMs)} ms at the median · {Ms(report.MinOffsetMs)} to {Ms(report.MaxOffsetMs)} ms"
-                  + " (the game's tile time minus ours)");
-        lines.Add($"Spread   {Ms(spread)} ms");
-        lines.Add($"Drift    first half {Ms(report.EarlyHalfMs)} · second half {Ms(report.LateHalfMs)} ms");
+        lines.Add(T("TilesCompared", report.Matched) + (report.Unmatched > 0 ? T("TilesUnmatched", report.Unmatched) : string.Empty));
+        lines.Add(T("TileOffset", Ms(report.MedianOffsetMs), Ms(report.MinOffsetMs), Ms(report.MaxOffsetMs)));
+        lines.Add(T("TileSpread", Ms(spread)));
+        lines.Add(T("TileDrift", Ms(report.EarlyHalfMs), Ms(report.LateHalfMs)));
         if (report.Worst is { } worst)
-            lines.Add($"Worst    tile {worst.Floor} (hit {worst.HitIndex + 1}): game {Ms(worst.GameTimeMs)} ms,"
-                      + $" ours {Ms(worst.HitTimeMs)} ms, {Ms(worst.OffsetMs - report.MedianOffsetMs)} ms off the median");
+            lines.Add(T("TileWorst", worst.Floor, worst.HitIndex + 1, Ms(worst.GameTimeMs), Ms(worst.HitTimeMs), Ms(worst.OffsetMs - report.MedianOffsetMs)));
         // Both sides are schedules worked out from the same file, so agreeing means agreeing to the millisecond.
         lines.Add(spread <= Tolerance && report.Unmatched == 0
-            ? "Every tile has the same offset: this app reads the map exactly as the game does."
-            : "The tiles do not all have the same offset: look at the worst one in docs/debug-logs/timing-mismatch.md.");
+            ? T("TilesAgree") : T("TilesDisagree"));
         return lines;
     }
 }

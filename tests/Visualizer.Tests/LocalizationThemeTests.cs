@@ -124,6 +124,55 @@ internal static class LocalizationThemeTests
             Equal(Languages.Get(Languages.Korean, "Extra lanes"), "여분 레인 배치");
         });
 
+        yield return ("The console's words: every language has them whole, and every key the code names is in the files", () =>
+        {
+            // The console speaks the app's language (user rule), so its part of every file must be complete, {0} places and all.
+            var english = Languages.ConsoleKeys(Languages.English).ToHashSet(StringComparer.Ordinal);
+            Assert(english.Count > 500, $"The console part is there: {english.Count}");
+            static string Places(string text) => string.Join(",",
+                System.Text.RegularExpressions.Regex.Matches(text, @"(?<!\{)\{(\d+)\}").Select(m => m.Value).Distinct().Order(StringComparer.Ordinal));
+            foreach (var language in Languages.All)
+            {
+                var own = Languages.ConsoleKeys(language.Id).ToHashSet(StringComparer.Ordinal);
+                Assert(own.SetEquals(english), $"{language.Id}: missing {string.Join(", ", english.Except(own))} / not in english {string.Join(", ", own.Except(english))}");
+                var differ = english.Where(key => Places(Languages.ConsoleGet(language.Id, key)) != Places(Languages.ConsoleGet(Languages.English, key))).ToArray();
+                Assert(differ.Length == 0, $"{language.Id}: the {{0}} places differ in {string.Join(", ", differ)}");
+            }
+
+            // Every key the code names in full is in the files; a missing one would print as the key itself.
+            var root = Path.Combine(WorkspaceMapCache.FindRepositoryRoot(AppContext.BaseDirectory), "src");
+            var named = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var file in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
+            {
+                // Only the files that speak through ConsoleText: the settings panel has a T of its own for the windows' words.
+                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    || !File.ReadAllText(file).Contains("ConsoleText", StringComparison.Ordinal)) continue;
+                foreach (var line in File.ReadAllLines(file).Where(line => line.Contains("T(", StringComparison.Ordinal)))
+                    foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(line,
+                                 @"(?:\bT\(|\?\s*|:\s*|T\(\()""([A-Z][A-Za-z0-9]*(?:\.[A-Za-z0-9 \-]+)?)"""))
+                        named.Add(m.Groups[1].Value);
+            }
+            Assert(named.Count > 400, $"The console's keys were found in the source: {named.Count}");
+            var missing = named.Where(key => !english.Contains(key)).ToArray();
+            Assert(missing.Length == 0, "Keys the code names that no file has: " + string.Join(", ", missing));
+
+            // Keys built from a name: the catalog's own words, the setting sections and the follower's states.
+            ConsoleText.Language = Languages.English;
+            bool Has(string key) => english.Contains(key);
+            Assert(Visualizer.App.Commands.CmdCatalog.All.All(command => Has("Summary." + command.Name) && Has("Help." + command.Name)), "Every command is described");
+            Assert(Visualizer.App.Commands.CmdCatalog.Options.All(option => Has("Option." + option.Name)), "Every option is explained");
+            Assert(Visualizer.App.Commands.CmdCatalog.Groups.All(group => Has("Group." + group)), "Every group is named");
+            foreach (var command in Visualizer.App.Commands.CmdCatalog.Visible)
+            {
+                foreach (var keyword in command.KeywordNames)
+                    Assert(!Visualizer.App.Commands.CmdCatalog.KeywordMeaning(command, keyword).StartsWith("Keyword.", StringComparison.Ordinal), $"{command.Name} {keyword}");
+                foreach (var option in command.OptionNames)
+                    Assert(!Visualizer.App.Commands.CmdCatalog.OptionMeaning(command, option).StartsWith("Option.", StringComparison.Ordinal), $"{command.Name} {option}");
+            }
+            Assert(Visualizer.App.Commands.SettingPaths.Sections.All(section => Has("Section." + section.Name)), "Every setting section is described");
+            Assert(Enum.GetNames<Visualizer.Application.Sync.GameSyncFollowState>().All(state => Has("Follow." + state)), "Every follow state is told");
+        });
+
         yield return ("Keys built from a name reach the language files, and the app's words and colors come from no other place", () =>
         {
             var keys = Languages.Keys(Languages.Korean).ToHashSet(StringComparer.Ordinal);

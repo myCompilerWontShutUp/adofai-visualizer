@@ -15,6 +15,7 @@ using Visualizer.Infrastructure.Maps;
 using Visualizer.Infrastructure.Parsing;
 using Visualizer.Infrastructure.Storage;
 using Visualizer.Infrastructure.Sync;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Views;
 
@@ -48,10 +49,10 @@ public partial class MainWindow
                     "maps" => await ScanMapsAsync(part),
                     "edits" => await Task.Run(ScanEdits),
                     "data" => ScanData(),
-                    var other => new ScanArea(other, [$"'{other}' is not an area."])
+                    var other => new ScanArea(other, [T("ScanNotArea", other)])
                 };
             }
-            catch (Exception error) when (IsExpectedError(error)) { area = new ScanArea(areas[i], ["It could not be checked: " + error.Message]); }
+            catch (Exception error) when (IsExpectedError(error)) { area = new ScanArea(areas[i], [T("ScanCouldNotCheck", error.Message)]); }
             results.Add(area);
             progress.Report((i + 1) * share);
         }
@@ -65,7 +66,7 @@ public partial class MainWindow
         if (Repository is { } repository)
         {
             var source = Regex.Match(File.ReadAllText(Path.Combine(repository, "Directory.Build.props")), "<Version>([^<]+)</Version>").Groups[1].Value;
-            if (source != AppInfo.Version) problems.Add($"this build is {AppInfo.Version}, but its source is {source}");
+            if (source != AppInfo.Version) problems.Add(T("ScanBuildVsSource", AppInfo.Version, source));
             // A source file newer than the build means the app running is not what the files say.
             var built = File.GetLastWriteTimeUtc(typeof(MainWindow).Assembly.Location);
             var root = Path.Combine(repository, "src");
@@ -73,30 +74,33 @@ public partial class MainWindow
                 .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
                     && !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
                 .Count(file => File.GetLastWriteTimeUtc(file) > built);
-            if (newer > 0) problems.Add($"{newer} source file(s) changed after this build was made");
+            if (newer > 0) problems.Add(T("ScanNewerSource", newer));
         }
         var reference = Languages.Keys(Languages.Default);
+        var console = Languages.ConsoleKeys(Languages.Default);
         foreach (var language in Languages.All)
         {
+            // The windows' words and the console's alike: both parts of a file must be whole.
             var keys = Languages.Keys(language.Id);
-            var missing = reference.Except(keys).Count();
-            var unknown = keys.Except(reference).Count();
-            if (missing + unknown > 0) problems.Add($"language {language.Id}: {missing} word(s) missing, {unknown} unknown");
+            var own = Languages.ConsoleKeys(language.Id);
+            var missing = reference.Except(keys).Count() + console.Except(own).Count();
+            var unknown = keys.Except(reference).Count() + own.Except(console).Count();
+            if (missing + unknown > 0) problems.Add(T("ScanLanguage", language.Id, missing, unknown));
         }
         foreach (var theme in ThemeCatalog.All)
         {
             var missing = ThemeCatalog.BrushKeys.Except(ThemeCatalog.DeclaredKeys(theme.Id)).ToArray();
-            if (missing.Length > 0) problems.Add($"theme {theme.Id}: {missing.Length} color(s) missing, as {missing[0]}");
+            if (missing.Length > 0) problems.Add(T("ScanTheme", theme.Id, missing.Length, missing[0]));
         }
-        if (new VisualizerSettings().Validate() is { Count: > 0 } wrong) problems.Add("the initial settings are not valid: " + wrong[0]);
-        return new("app", problems, $"{AppInfo.Version}, {Languages.All.Count} languages, {ThemeCatalog.All.Count} themes");
+        if (new VisualizerSettings().Validate() is { Count: > 0 } wrong) problems.Add(T("ScanInitialSettings", wrong[0]));
+        return new("app", problems, T("ScanAppChecked", AppInfo.Version, Languages.All.Count, ThemeCatalog.All.Count));
     }
 
     /// <summary>The repository's files against the commit this copy is on, as update.ps1 -Scan reads them.</summary>
     private async Task<ScanArea> ScanSourceAsync(IProgress<double> progress)
     {
         if (UpdateScript("-Scan", "-Progress") is not { } start)
-            return new("source", [], "not a copy of the repository, so there is nothing to compare");
+            return new("source", [], T("ScanNotRepository"));
         var finished = new TaskCompletionSource<IReadOnlyList<string>>();
         _ = RunScriptAsync(start, progress, finished.SetResult);
         var lines = await finished.Task;
@@ -109,7 +113,7 @@ public partial class MainWindow
                 problems.Add($"{kind,-8}{path}");
             else problems.Add(line);
         }
-        return new("source", problems, version is { Length: > 0 } ? $"against {version}" : null);
+        return new("source", problems, version is { Length: > 0 } ? T("ScanAgainst", version) : null);
     }
 
     /// <summary>The installed linker against this version's build. Not there at all is not a problem, only a fact.</summary>
@@ -118,18 +122,18 @@ public partial class MainWindow
         var place = ((ICmdHost)this).FindLinker();
         if (place.Installed is null || place.GameDirectory is null) return new("linker", [], NotInstalled: true);
         var problems = new List<string>();
-        if (place.Installed != AppInfo.Version) problems.Add($"the linker is {(place.Installed.Length == 0 ? "of an unknown version" : place.Installed)}, but this app is {AppInfo.Version}");
+        if (place.Installed != AppInfo.Version) problems.Add(T("ScanLinkerVersion", place.Installed.Length == 0 ? T("UnknownVersion") : place.Installed, AppInfo.Version));
         foreach (var name in LinkerInstaller.FileNames)
-            if (!File.Exists(Path.Combine(place.Target, name))) problems.Add($"{name} is missing from {place.Target}");
-        if (place.Source is null) problems.Add("this version's linker is not beside the app, so the installed one cannot be compared");
+            if (!File.Exists(Path.Combine(place.Target, name))) problems.Add(T("ScanMissingFrom", name, place.Target));
+        if (place.Source is null) problems.Add(T("ScanNoLinkerSource"));
         else
         {
             var dll = LinkerInstaller.FileNames[0];
             var installed = Path.Combine(place.Target, dll);
             if (File.Exists(installed) && !File.ReadAllBytes(installed).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(place.Source, dll))))
-                problems.Add($"the installed {dll} is not this version's build");
+                problems.Add(T("ScanDllDiffers", dll));
         }
-        return new("linker", problems, $"{place.Installed} in {place.Target}");
+        return new("linker", problems, T("ScanLinkerChecked", place.Installed, place.Target));
     }
 
     /// <summary>The map copies against the song list: every copy listed, every listed song still there and as it was synced.</summary>
@@ -142,7 +146,7 @@ public partial class MainWindow
         return await Task.Run(async () =>
         {
             var problems = new List<string>();
-            if (string.IsNullOrWhiteSpace(mapRoot) || !Directory.Exists(mapRoot)) problems.Add($"the map folder {mapRoot} is not there, so sync has nothing to read");
+            if (string.IsNullOrWhiteSpace(mapRoot) || !Directory.Exists(mapRoot)) problems.Add(T("ScanNoMapFolder", mapRoot));
             var roots = new[] { ("base", maps.BaseRoot), ("custom", maps.CustomRoot), ("edited", maps.EditedRoot) };
             var levels = new List<(string Kind, string Root, string Path)>();
             foreach (var (kind, root) in roots)
@@ -160,22 +164,22 @@ public partial class MainWindow
                 var (kind, root, path) = levels[i];
                 var key = (Path.TrimEndingDirectorySeparator(root).ToUpperInvariant(), path.ToUpperInvariant());
                 seen.Add(key);
-                if (!listed.TryGetValue(key, out var entry)) problems.Add($"{kind}/{path} is not in the song list");
+                if (!listed.TryGetValue(key, out var entry)) problems.Add(T("ScanNotListed", kind, path));
                 else
                 {
                     var text = (await new ReadOnlyDirectoryMapSource(root).ReadAsync(path)).Text;
-                    if (MapSyncService.HashOf(text) != entry.SourceHash) problems.Add($"{entry.SongName} changed after it was synced");
+                    if (MapSyncService.HashOf(text) != entry.SourceHash) problems.Add(T("ScanChanged", entry.SongName));
                     if (entry.ParserVersion != AdofaiTimelineParser.CurrentVersion) older++;
                 }
                 progress.Report((i + 1d) / Math.Max(1, levels.Count));
             }
-            if (older > 0) problems.Add($"{older} song(s) were read by an older version of the reader");
+            if (older > 0) problems.Add(T("ScanOlderReader", older));
             var ours = roots.Select(root => Path.TrimEndingDirectorySeparator(root.Item2).ToUpperInvariant()).ToHashSet();
             foreach (var (key, entry) in listed)
-                if (ours.Contains(key.Item1) && !seen.Contains(key)) problems.Add($"{entry.SongName} is in the song list, but its file is gone");
+                if (ours.Contains(key.Item1) && !seen.Contains(key)) problems.Add(T("ScanFileGone", entry.SongName));
             var unread = entries.Count(entry => entry.Status != MapParseStatus.Supported);
-            return new ScanArea("maps", problems, $"{levels.Count} maps, {entries.Count} in the song list"
-                + (unread > 0 ? $", {unread} the app cannot read" : ""));
+            return new ScanArea("maps", problems, T("ScanMapsChecked", levels.Count, entries.Count)
+                + (unread > 0 ? T("ScanUnreadable", unread) : ""));
         });
     }
 
@@ -193,41 +197,41 @@ public partial class MainWindow
                     count++;
                     var name = $"{Path.GetFileName(song)}/{Path.GetFileName(slot)}";
                     if (!int.TryParse(Path.GetFileName(slot), NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number is < 1 or > 9)
-                        problems.Add($"{name} is not a slot (1 to 9)");
+                        problems.Add(T("ScanNotSlot", name));
                     var copies = Directory.EnumerateFiles(slot, "*.adofai").Where(file => !MapFileRules.IsEditorBackupName(Path.GetFileName(file))).ToArray();
                     var edit = Path.Combine(slot, "edit.json");
-                    if (copies.Length != 1) problems.Add($"{name} should hold one copy of its original, and holds {copies.Length}");
-                    if (!File.Exists(edit)) { problems.Add($"{name} has no edit.json"); continue; }
+                    if (copies.Length != 1) problems.Add(T("ScanCopies", name, copies.Length));
+                    if (!File.Exists(edit)) { problems.Add(T("ScanNoEditJson", name)); continue; }
                     try
                     {
                         using var json = JsonDocument.Parse(File.ReadAllText(edit));
                         var data = json.RootElement;
                         if (!data.TryGetProperty("SchemaVersion", out var schema) || schema.GetInt32() != NoteEdit.SchemaVersion)
-                            problems.Add($"{name}: edit.json is of another form");
+                            problems.Add(T("ScanEditForm", name));
                         if (data.TryGetProperty("Lanes", out var lanes) && lanes.EnumerateObject().Any(lane => lane.Value.GetInt32() is < 1 or > 8))
-                            problems.Add($"{name}: a lane is outside 1 to 8");
+                            problems.Add(T("ScanLaneOutside", name));
                         if (copies.Length == 1 && data.TryGetProperty("SourceHash", out var hash) && hash.GetString() is { Length: > 0 } made
                             && MapSyncService.HashOf(File.ReadAllText(copies[0])) != made)
-                            problems.Add($"{name}: its copy is not the map the lanes were made on");
+                            problems.Add(T("ScanCopyDiffers", name));
                     }
                     catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException)
                     {
-                        problems.Add($"{name}: edit.json cannot be read ({error.Message})");
+                        problems.Add(T("ScanEditUnreadable", name, error.Message));
                     }
                 }
         }
-        return new("edits", problems, count == 1 ? "1 edit" : $"{count} edits");
+        return new("edits", problems, count == 1 ? T("OneEdit") : T("EditCount", count));
     }
 
     /// <summary>The settings and the files that keep the song list, the ids, the marks and the notes.</summary>
     private ScanArea ScanData()
     {
         var problems = new List<string>();
-        if (Storage.Warning is { } warning) problems.Add("the data folder chosen in the settings cannot be used: " + warning);
+        if (Storage.Warning is { } warning) problems.Add(T("ScanDataFolder", warning));
         void Check(string what, Action read)
         {
             try { read(); }
-            catch (Exception error) when (IsExpectedError(error) || error is SettingsJsonException) { problems.Add($"{what} cannot be read: {error.Message}"); }
+            catch (Exception error) when (IsExpectedError(error) || error is SettingsJsonException) { problems.Add(T("ScanCannotRead", what, error.Message)); }
         }
         Check("settings.json", () => { if (Storage.ReadSettings() is { } json) SettingsJson.Import(json, new VisualizerSettings()); });
         Check("songs.json", () => SongStore.Read());
@@ -236,9 +240,9 @@ public partial class MainWindow
         {
             var ids = IdBook.Read();
             foreach (var shared in ids.GroupBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1))
-                problems.Add($"song-ids.json gives {shared.Count()} songs the same id {shared.Key}");
+                problems.Add(T("ScanSharedId", shared.Count(), shared.Key));
         });
-        Check("the notes", () => new ReportBook(Storage).Notes());
+        Check(T("TheNotes"), () => new ReportBook(Storage).Notes());
         Check("pins.json", () => new PinBook(Storage).Read());
         return new("data", problems, Storage.Root);
     }
@@ -250,10 +254,10 @@ public partial class MainWindow
     void ICmdHost.ReinstallLinker(IProgress<double> progress, Action<IReadOnlyList<string>> done)
     {
         var place = ((ICmdHost)this).FindLinker();
-        if (place.GameDirectory is null) { done(["The game folder was not found."]); return; }
-        if (place.Source is null) { done(["This version's linker is not beside the app, so there is nothing to reinstall from."]); return; }
+        if (place.GameDirectory is null) { done([T("GameFolderNotFound")]); return; }
+        if (place.Source is null) { done([T("NoLinkerToReinstall")]); return; }
         done([((ICmdHost)this).InstallLinker(place, progress)
-            ?? $"The linker{(place.SourceVersion is { Length: > 0 } version ? " " + version : "")} is written into {place.Target} again. Restart the game to load it."]);
+            ?? T("LinkerRewritten", place.SourceVersion is { Length: > 0 } version ? " " + version : "", place.Target)]);
     }
 
     /// <summary>
@@ -266,13 +270,13 @@ public partial class MainWindow
             Environment.ProcessId.ToString(CultureInfo.InvariantCulture), "-Restart" };
         if (parts.Contains("linker") && ((ICmdHost)this).FindLinker() is { GameDirectory: { } game }) arguments.AddRange(["-LinkerGame", game]);
         if (UpdateScript([.. arguments]) is not { } start)
-            return "This build is not running from the repository, so there is nothing to reinstall from.";
+            return T("NotFromRepositoryReinstall");
         start.RedirectStandardOutput = false;
         start.RedirectStandardError = false;
         try { Process.Start(start); }
         catch (Exception error) when (IsExpectedError(error) || error is System.ComponentModel.Win32Exception)
         {
-            return "The reinstall could not start. " + error.Message;
+            return T("ReinstallCouldNotStart", error.Message);
         }
         Dispatcher.BeginInvoke(new Action(() => System.Windows.Application.Current.Shutdown()),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);

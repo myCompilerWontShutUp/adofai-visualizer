@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Rendering;
 
@@ -120,22 +121,22 @@ public sealed class FrameStats
     private static double Percentile(double[] sorted, double part) =>
         sorted[Math.Clamp((int)Math.Round(part * (sorted.Length - 1)), 0, sorted.Length - 1)];
 
-    /// <summary>The report as the console prints it (English, like the rest of the console).</summary>
+    /// <summary>The report as the console prints it, in the console's language.</summary>
     public static IReadOnlyList<string> Lines(FrameReport? report)
     {
-        if (report is not { } r) return ["No frames measured yet. Play or move the window, then try again."];
+        if (report is not { } r) return [T("NoFrames")];
         string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
         var fps = r.MedianMs > 0 ? 1000 / r.MedianMs : 0;
         return
         [
-            $"Frames {r.Frames} in {Ms(r.WindowSeconds)} s · {Ms(fps)} fps at the median (measuring for {Ms(r.MeasuredSeconds)} s)",
-            $"Arrival   min {Ms(r.MinMs)} · median {Ms(r.MedianMs)} · p95 {Ms(r.P95Ms)} · max {Ms(r.MaxMs)} ms",
-            $"Composer  min {Ms(r.FrameMinMs)} · median {Ms(r.FrameMedianMs)} · p95 {Ms(r.FrameP95Ms)} · max {Ms(r.FrameMaxMs)} ms",
-            $"Handoff   p95 +{Ms(r.HandoffP95Ms)} · max +{Ms(r.HandoffMaxMs)} ms over its usual delay",
-            $"App work  median {Ms(r.WorkMedianMs)} · p95 {Ms(r.WorkP95Ms)} · max {Ms(r.WorkMaxMs)} ms",
-            $"Late {r.LateFrames} frames over {Ms(r.LateAboveMs)} ms · {r.SkippedFrames} of them never came from the compositor",
-            $"Collections gen0 {r.Gen0} · gen1 {r.Gen1} · gen2 {r.Gen2} over the {Ms(r.MeasuredSeconds)} s measured",
-            $"Render tier {r.RenderTier} ({(r.RenderTier >= 2 ? "hardware" : r.RenderTier == 1 ? "partial hardware" : "software")})",
+            T("FpsFrames", r.Frames, Ms(r.WindowSeconds), Ms(fps), Ms(r.MeasuredSeconds)),
+            T("FpsArrival", Ms(r.MinMs), Ms(r.MedianMs), Ms(r.P95Ms), Ms(r.MaxMs)),
+            T("FpsComposer", Ms(r.FrameMinMs), Ms(r.FrameMedianMs), Ms(r.FrameP95Ms), Ms(r.FrameMaxMs)),
+            T("FpsHandoff", Ms(r.HandoffP95Ms), Ms(r.HandoffMaxMs)),
+            T("FpsWork", Ms(r.WorkMedianMs), Ms(r.WorkP95Ms), Ms(r.WorkMaxMs)),
+            T("FpsLate", r.LateFrames, Ms(r.LateAboveMs), r.SkippedFrames),
+            T("FpsCollections", r.Gen0, r.Gen1, r.Gen2, Ms(r.MeasuredSeconds)),
+            T("FpsTier", r.RenderTier, T(r.RenderTier >= 2 ? "TierHardware" : r.RenderTier == 1 ? "TierPartial" : "TierSoftware")),
             Verdict(r)
         ];
     }
@@ -143,12 +144,10 @@ public sealed class FrameStats
     /// <summary>Which way the numbers point, so the next step is not guesswork.</summary>
     private static string Verdict(FrameReport r)
     {
-        if (r.WorkP95Ms > r.MedianMs / 2) return "The drawing itself is heavy: look at the app first.";
-        if (r.LateFrames == 0) return "Nothing stands out in this window.";
-        if (r.SkippedFrames > r.LateFrames / 2)
-            return "The compositor skipped those frames, so it is outside the app: the window being covered, the GPU busy with the game, or a variable refresh rate.";
-        if (r.HandoffMaxMs > r.MedianMs)
-            return "The frames came on time but reached this app late: thread scheduling, which MMCSS or a higher priority can help.";
-        return "The late frames are not the drawing: collections, composition or power. Compare with the collection counts above.";
+        if (r.WorkP95Ms > r.MedianMs / 2) return T("VerdictHeavy");
+        if (r.LateFrames == 0) return T("VerdictNothing");
+        if (r.SkippedFrames > r.LateFrames / 2) return T("VerdictCompositor");
+        if (r.HandoffMaxMs > r.MedianMs) return T("VerdictScheduling");
+        return T("VerdictOther");
     }
 }

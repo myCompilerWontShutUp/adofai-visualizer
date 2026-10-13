@@ -268,6 +268,13 @@
                         <TextBlock x:Name="SectionNotice" Text="{Binding SectionNotice}" FontSize="15" FontWeight="SemiBold"
                                    TextAlignment="Center" TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
                     </Border>
+                    <!-- link -inspect start (measuring only) says in the middle of the notes that it is pressing keys into the game
+                         (user rule); the window sets it, shown only while a run is on. -->
+                    <Border x:Name="InspectBanner" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Margin="16,0" Padding="16,8" Background="{Binding OverlayBackBrush}" Visibility="Collapsed">
+                        <TextBlock x:Name="InspectBannerText" FontSize="16" FontWeight="SemiBold" TextAlignment="Center"
+                                   TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
+                    </Border>
                     <!-- Once the song is over and nothing has been touched for a second, it offers to play again (user rule).
                          The band fits what it holds, and the first button keeps its place whether the second one is there
                          or not (user rule): an invisible twin of the second button stands above the band whenever the

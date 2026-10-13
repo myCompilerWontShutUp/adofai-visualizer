@@ -1,4 +1,6 @@
 using System.Globalization;
+using Visualizer.Core.Localization;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Commands;
 
@@ -9,9 +11,15 @@ public enum CmdArgument { None, Id, Command, Songs, Title, Range, Setting, Setti
 /// One console command. <see cref="Options"/> lists option groups split by "/"; the options of one group, split by commas,
 /// cannot be used together (user rule). <see cref="Keywords"/> are the fixed words its argument takes.
 /// </summary>
-public sealed record CmdCommand(string Name, string Group, string Usage, string Summary, string Help, string Options,
+public sealed record CmdCommand(string Name, string Group, string Usage, string Options,
     CmdArgument Argument, string Keywords = "", bool Hidden = false)
 {
+    /// <summary>One line on what it does, in the console's language (the language files' console part).</summary>
+    public string Summary => T("Summary." + Name);
+
+    /// <summary>What help says about it, in the console's language.</summary>
+    public string Help => T("Help." + Name);
+
     public IReadOnlyList<IReadOnlyList<string>> OptionGroups { get; } = Options.Split('/', StringSplitOptions.RemoveEmptyEntries)
         .Select(group => (IReadOnlyList<string>)group.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
         .Where(group => group.Count > 0).ToArray();
@@ -73,8 +81,7 @@ public static class CmdCatalog
     /// The answer to "uninstall", typed or asked about. Taking the visualizer off the computer is done in PowerShell only,
     /// never from inside it (user rule), so there is no such command; the word just says where it is done.
     /// </summary>
-    public const string UninstallNote =
-        @"Uninstalling is not done from inside the visualizer: close it and run .\uninstall.ps1 in PowerShell, in its folder.";
+    public static string UninstallNote => T("UninstallNote");
 
     /// <summary>Whether <paramref name="text"/> is a version written as major.minor.patch.</summary>
     public static bool IsVersion(string text)
@@ -88,7 +95,7 @@ public static class CmdCatalog
     public static IReadOnlyList<string> Groups { get; } = ["Help", "Songs", "Editing", "Song files", "Settings", "Console"];
 
     /// <summary>The words a &lt;string&gt; takes; all is the default of playlist, now the default of id and title.</summary>
-    public static IReadOnlyList<string> SongGroups { get; } = ["base", "custom", "edited", "main", "now", "family", "origin", "all"];
+    public static IReadOnlyList<string> SongGroups { get; } = ["base", "custom", "edited", "main", "now", "link", "family", "origin", "all"];
 
     /// <summary>The song words, with the one a bare command means marked so help can show it (user rule).</summary>
     private static string SongWords(string standsFor) =>
@@ -96,171 +103,64 @@ public static class CmdCatalog
 
     public static IReadOnlyList<CmdCommand> All { get; } =
     [
-        new("cmd", "Help", "cmd", "Show the commands.", "Show every command, grouped by what it does.", "-copy", CmdArgument.None),
-        new("help", "Help", "help [<cmd>]", "Explain a command.",
-            "Explain a command, with its options and keywords. With nothing, every command.", "-copy", CmdArgument.Command, "list*, last"),
-        new("option", "Help", "option [<cmd>]", "Show the options.",
-            "With nothing, every option and what it does; with a command, that command's options.", "-keywords / -copy", CmdArgument.Command, "list*, last"),
-        new("keyword", "Help", "keyword [<cmd>]", "Show the keywords.",
-            "With nothing, every keyword and the commands that take it; with a command, that command's keywords.", "-options / -copy",
-            CmdArgument.Command, "list*, last"),
-        new("version", "Help", "version", "Show the app version.",
-            "Show the app version, the date it was applied, when this build was made and whether it is the latest version, which asks "
-            + "the repository. -number prints the number alone and asks nothing.", "-number / -copy", CmdArgument.None),
-        new("fps", "Help", "fps", "Show how smoothly it draws.",
-            "Show the frame intervals of the last few seconds, how long the app itself took in them, the garbage collections meanwhile and the render tier. -restart starts a new measurement after printing.",
-            "-restart / -copy", CmdArgument.None),
-        new("link", "Help", "link [<what>]", "Show or drive the game link.",
-            "With nothing, show what the read-only sync mod is sending: how often readings arrive, how much the delay varies, the game's state, speed and level, and the state changes so far. "
-            + "start opens the pipe and stop closes it; tiles compares the game's own tile times with the loaded song; follow puts the notes on the game's clock and unfollow takes them back; again starts a new measurement. "
-            + "inspect is for measuring only: with link auto off, the same song open in the game and No Fail on there, it presses the lane key of every note the visualizer draws as the note reaches the judgment line, into the game alone, and keeps the game's judgments for report -inspect; uninspect or Esc stops it. "
-            + "Apart from inspect nothing is sent to the game, and nothing is saved.",
-            "-proceed / -copy", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual, inspect, uninspect"),
-        new("install", "Help", "install <what>[, …]", "Install the game link mod, or put a part back.",
-            "install linker writes the read-only link mod into the game's own Mods folder, which is the one place outside this app's folders it ever writes, and only when Unity Mod Manager is there. "
-            + "It asks first, writes the mod's two files and nothing else, and leaves other mods alone. A mod already there with the same version is left as it is. "
-            + "-reinstall writes a part again when scannow finds it wrong: source puts this version's files back, app builds it again, linker writes this version's mod again, "
-            + "maps builds the custom maps again, and all is this version in full. Your edits and data are your own and are never reinstalled. "
-            + "Name several with commas, as in install -reinstall app, linker.",
+        new("cmd", "Help", "cmd", "-copy", CmdArgument.None),
+        new("help", "Help", "help [<cmd>]", "-copy", CmdArgument.Command, "list*, last"),
+        new("option", "Help", "option [<cmd>]", "-keywords / -copy", CmdArgument.Command, "list*, last"),
+        new("keyword", "Help", "keyword [<cmd>]", "-options / -copy", CmdArgument.Command, "list*, last"),
+        new("version", "Help", "version", "-number, -check / -copy", CmdArgument.None),
+        new("fps", "Help", "fps", "-restart / -copy", CmdArgument.None),
+        new("link", "Help", "link [<what>]",
+            "-proceed / -copy / -inspect", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual"),
+        new("install", "Help", "install <what>[, …]",
             "-reinstall / -proceed", CmdArgument.Areas, "all, app, source, linker, maps, edits, data"),
-        new("scannow", "Help", "scannow [<area>, …]", "Check the app and its files.",
-            "Check that each area is whole and print what is wrong; nothing is changed. app is this build against its source and its language and "
-            + "theme files, source the repository's files against this version, linker the installed mod, maps the map copies against the song "
-            + "list, edits every edited song, and data the settings and the files that keep the song list. Name several with commas, as in "
-            + "scannow maps, linker. What install -reinstall can put right is named at the end.",
-            "-copy", CmdArgument.Areas, "all*, app, source, linker, maps, edits, data"),
+        new("scannow", "Help", "scannow [<area>, …]", "-copy", CmdArgument.Areas, "all*, app, source, linker, maps, edits, data"),
 
-        new("song", "Songs", "song", "Show the loaded song.", "Show the loaded song's details, the same as info now.", "-id, -title / -copy", CmdArgument.None),
-        new("info", "Songs", "info <id>", "Show a song's details.",
-            "Show a song's id, title, artist, author, kind, length, notes (pressed ones), long notes, auto notes, difficulty, checkpoints, slot (origin for an original), hidden state and path.",
-            "-title / -copy", CmdArgument.Id, "now"),
-        new("id", "Songs", "id [<string>]", "Show song ids.", "Show song ids; an edit shows its slot. With nothing, the loaded song's.",
-            "-title / -copy", CmdArgument.Songs, SongWords("now")),
-        new("title", "Songs", "title [<string>]", "Show song titles.", "Show song titles; an edit shows its slot. With nothing, the loaded song's.",
-            "-id / -copy", CmdArgument.Songs, SongWords("now")),
-        new("load", "Songs", "load <title>", "Load a song.",
-            "Load a base or custom song by any part of its title; a song with edits lists them to pick from, and a single match loads at once. "
-            + "* is every song and . is the loaded one, which is how it reloads or takes an option. An edit loads by its full title, as in 1*Plum - R. "
-            + "Songs hidden from the song list are left out unless -hidden asks for them. Unless keep speed on load is set, the playback speed goes back to 100%. "
-            + "-force loads an unsupported song anyway, after asking.",
-            "-id, -origin, -slot / -speed / -hidden / -force", CmdArgument.Title, "origin, edited"),
-        new("playlist", "Songs", "playlist [<string>]", "List songs.",
-            "List songs with their id, kind and title. With nothing, every song; main is the main window's list in its own order, "
-            + "which is what this command used to print on its own.",
-            "-id, -title / -hidden, -shown / -copy", CmdArgument.Songs, SongWords("all")),
-        new("checkpoint", "Songs", "checkpoint [<number>]", "Move to a checkpoint.",
-            "Prepare the loaded song from one of its checkpoints, the way the main window's list does. A number is the checkpoint of that name, "
-            + "first is the song's beginning, last is the final one, and next and previous step through the list and wrap around at its ends. "
-            + "With nothing, it says where the song stands now, and list shows every checkpoint of the song.",
-            "-copy", CmdArgument.None, "list, first, next, previous, last"),
-        new("go", "Songs", "go <tile>", "Start from a tile.",
-            "Prepare the loaded song from a tile number, as the section box does: play begins at the first note at or after that tile, with the lanes "
-            + "of a full run. The tile must be one this song presses, so a midspin tile or one inside a long note is refused. Tab offers the song's pins; "
-            + "checkpoint first goes back to the beginning.",
-            "", CmdArgument.Tile),
-        new("pin", "Songs", "pin [<id>] <tile>", "Pin a tile for go.",
-            "Pin a tile of a song so go can find it again: Tab after go offers the pins. A pin belongs to the song and every edit of it alike, "
-            + "whichever of them it was set on. now, the default, is the loaded song; all lists the song's pins in tile order, numbered as "
-            + "checkpoints are. The tile must be one go can start from.",
-            "-copy", CmdArgument.Pin, "now*, all"),
-        new("unpin", "Songs", "unpin [<id>] <tile>", "Remove a pin.",
-            "Remove a pin from a song and every edit of it. now, the default, is the loaded song, and Tab offers its pins.",
-            "", CmdArgument.Pin, "now*"),
-        new("hide", "Songs", "hide <id>", "Hide a song from the song list.", "Hide a song from the song list. show brings it back.", "", CmdArgument.Id, "now"),
-        new("show", "Songs", "show <id>", "Show a hidden song again.", "Show a hidden song in the song list again.", "", CmdArgument.Id, "now"),
+        new("song", "Songs", "song", "-id, -title / -copy", CmdArgument.None),
+        new("info", "Songs", "info <id>", "-title / -copy", CmdArgument.Id, "now, link"),
+        new("id", "Songs", "id [<string>]", "-title / -copy", CmdArgument.Songs, SongWords("now")),
+        new("title", "Songs", "title [<string>]", "-id / -copy", CmdArgument.Songs, SongWords("now")),
+        new("load", "Songs", "load <title>", "-id, -origin, -slot / -speed / -hidden / -force", CmdArgument.Title, "origin, edited, link"),
+        new("playlist", "Songs", "playlist [<string>]", "-id, -title / -hidden, -shown / -copy", CmdArgument.Songs, SongWords("all")),
+        new("checkpoint", "Songs", "checkpoint [<number>]", "-copy", CmdArgument.None, "list, first, next, previous, last"),
+        new("go", "Songs", "go <tile>", "", CmdArgument.Tile),
+        new("pin", "Songs", "pin [<id>] <tile>", "-copy", CmdArgument.Pin, "now*, all"),
+        new("unpin", "Songs", "unpin [<id>] <tile>", "", CmdArgument.Pin, "now*"),
+        new("hide", "Songs", "hide <id>", "", CmdArgument.Id, "now"),
+        new("show", "Songs", "show <id>", "", CmdArgument.Id, "now"),
 
-        new("edit", "Editing", "edit [<id>]", "Edit a song's lanes and chords.",
-            "Open the editor for a song; with nothing, the loaded one. The settings close first; their unapplied changes are applied or dropped as you answer.",
-            "-proceed", CmdArgument.Id, "now*"),
-        new("note", "Editing", "note [<id>] <range>", "Show a song's notes.",
-            "Show a song's notes as it plays, as n<note> <tile> <ms to next>; a chord shows as n3-4 3-4, and an edit shows its own lanes. "
-            + "now, the default, is what is on screen: while the editor is open, the lanes being edited, saved or not. "
-            + "Ranges: all, a..b, a.., ..b or n, where -1 is the last note. -json prints them as JSON instead, which override reads back.",
-            "-proceed / -json / -copy", CmdArgument.Range, "now*, all"),
-        new("override", "Editing", "override <json>", "Set the lanes from JSON.",
-            "Replace the open editor's lanes with the JSON pasted after the command, as note -json prints it. Only the note numbers and tiles are read; "
-            + "a time that is there must match the note's own. The editor must be open.", "-proceed", CmdArgument.Json),
-        new("retitle", "Editing", "retitle <title>", "Rename the loaded song.",
-            "Give the loaded song the display name typed after the command, as the song list does. An edit keeps its n* prefix. Shows both names and asks first.",
-            "-proceed", CmdArgument.Text),
+        new("edit", "Editing", "edit [<id>]", "-proceed", CmdArgument.Id, "now*"),
+        new("note", "Editing", "note [<id>] <range>", "-proceed / -json / -copy", CmdArgument.Range, "now*, all"),
+        new("override", "Editing", "override <json>", "-proceed", CmdArgument.Json),
+        new("retitle", "Editing", "retitle <title>", "-proceed", CmdArgument.Text),
 
-        new("sync", "Song files", "sync [rebuild]", "Bring the map folder in.",
-            "Copy the map folder's songs into the custom maps and read every app folder again, as the main window's button does; it asks nothing. "
-            + "rebuild builds the custom maps from nothing instead, which is the only way a song no longer in the map folder leaves the list, and asks first.",
-            "-proceed", CmdArgument.None, "rebuild"),
-        new("remove", "Song files", "remove <id>", "Remove an edited song.",
-            "Remove an edited song. restore brings back the one removed last.", "-proceed", CmdArgument.Id, "now"),
-        new("restore", "Song files", "restore", "Bring back the removed song.",
-            "Bring back the edited song removed last. Only that one is kept, so a second restore finds nothing.", "-proceed", CmdArgument.None),
-        new("delete", "Song files", "delete <id>", "Delete any song for good.",
-            "Delete a song for good; restore cannot bring it back. A custom map returns with the next sync.", "-proceed", CmdArgument.Id, "now"),
+        new("sync", "Song files", "sync [rebuild]", "-proceed", CmdArgument.None, "rebuild"),
+        new("remove", "Song files", "remove <id>", "-proceed", CmdArgument.Id, "now"),
+        new("restore", "Song files", "restore", "-proceed", CmdArgument.None),
+        new("delete", "Song files", "delete <id>", "-proceed", CmdArgument.Id, "now"),
 
-        new("get", "Settings", "get <setting>", "Show a setting.", "Show a setting's value, as in get general.language.", "", CmdArgument.Setting),
-        new("set", "Settings", "set <setting> <value>", "Change a setting.",
-            "Change a setting and apply it at once, as in set general.information-buttons false. A toggle also takes on/off, 1/0 and able/disable. rollback undoes it.",
-            "", CmdArgument.SettingValue),
+        new("get", "Settings", "get <setting>", "", CmdArgument.Setting),
+        new("set", "Settings", "set <setting> <value>", "", CmdArgument.SettingValue),
         // A shortcut for the setting changed most often.
-        new("speed", "Settings", "speed [<percent>]", "Change the playback speed.",
-            "Change the speed the notes play at, the same as set timing.speed; with nothing, show it. -rate changes the approach rate instead, "
-            + "which is how long a note takes to come down (set display.travel, in ms, so a smaller number is faster). rollback undoes either.",
-            "-rate", CmdArgument.None),
-        new("autosave", "Settings", "autosave [on | off]", "Keep settings for the next run.",
-            "Whether applying a setting also writes it to the store, the same as set general.autosave; with nothing, show it.",
-            "", CmdArgument.None, "on, off"),
-        new("property", "Settings", "property [<section>[.<setting>]]", "List sections, settings or values.",
-            "With nothing, list the sections; with a section, its settings and values; with a setting, the values it takes.",
-            "-copy", CmdArgument.SettingOrSection),
-        new("export", "Settings", "export", "Show the settings as JSON.",
-            "Show the settings as JSON, as Export settings does. The map and data folders are left out.", "-copy", CmdArgument.None),
-        new("import", "Settings", "import <json>", "Apply settings from JSON.",
-            "Apply the settings named in JSON pasted after the command; the rest stay. Shows what changes and asks first.", "-proceed", CmdArgument.Json),
-        new("rollback", "Settings", "rollback", "Undo the last settings change.",
-            "Undo the last change of the settings, whatever made it: the settings panel, a command, a load or a forced lane change. Each rollback steps back once more.",
-            "-proceed", CmdArgument.None),
-        new("reset", "Settings", "reset", "Reset the settings.",
-            "Reset every setting to its default. The map and data folders stay, and rollback undoes it.", "-proceed", CmdArgument.None),
-        new("do", "Settings", "do <action>", "Run a settings action.", "Run an action of the settings panel.", "", CmdArgument.Action,
-            string.Join(", ", ActionNames)),
+        new("speed", "Settings", "speed [<percent>]", "-rate", CmdArgument.None),
+        new("autosave", "Settings", "autosave [on | off]", "", CmdArgument.None, "on, off"),
+        new("property", "Settings", "property [<section>[.<setting>]]", "-copy", CmdArgument.SettingOrSection),
+        new("export", "Settings", "export", "-copy", CmdArgument.None),
+        new("import", "Settings", "import <json>", "-proceed", CmdArgument.Json),
+        new("rollback", "Settings", "rollback", "-proceed", CmdArgument.None),
+        new("reset", "Settings", "reset", "-proceed", CmdArgument.None),
+        new("do", "Settings", "do <action>", "", CmdArgument.Action, string.Join(", ", ActionNames)),
 
-        new("copy", "Console", "copy [<count>]", "Copy what was printed.",
-            "Copy the last lines of the screen to the clipboard; with a number, that many messages back, * for all of them, -1 for the first, or a..b for a range. "
-            + "-commands keeps the typed commands with their Visualizer> prompt, -commands:only copies only those, -answers leaves out the answered "
-            + "questions, and -count skips the copying itself when counting.",
-            "-commands / -answers / -count / -paste", CmdArgument.Range),
-        new("paste", "Console", "paste [<count>]", "Show what was printed again.",
-            "Print the last messages of the screen again, counted the way copy counts them: a number goes that many back, * is all of them, "
-            + "-1 is the first and a..b is a range. -copy copies them as well. In a prompt slot, /paste puts them in.",
-            "-commands / -answers / -count / -copy", CmdArgument.Range),
-        new("prompt", "Console", "prompt [<title>]", "Fill in a stored prompt.",
-            "A prompt kept for pasting into a language model; with nothing, list the titles. A prompt with blanks asks for each one in turn: type the "
-            + "text, or /paste and /note -json to put an output in, /skip to leave the blank, /back /again /cancel to move around. The filled prompt "
-            + "is shown and copied once you answer Y. Nothing is sent anywhere and nothing about the app changes.",
-            "-copy", CmdArgument.Prompt, "list*"),
-        new("report", "Console", "report <what> [<title>]", "Write a note for the next version.",
-            "A note left for whoever works on this next, kept in the app store until someone removes it. Every use says what it is doing, since "
-            + "a word is always needed here: create <title> starts one and opens it, and refuses a title that is already there unless -force "
-            + "replaces it after asking; write <title> opens one that is there to add to it, and refuses a title that is not. list shows them all "
-            + "with the version they were written for, and a word after it keeps only the notes holding it. print puts a note here instead of "
-            + "opening it; done and undone mark whether it is taken care of, a mark that lives beside the note where nobody can type it in or out; "
-            + "ask <title> > <why> says it is not settled and what is still needed, in the language the settings are set to; state prints that "
-            + "standing alone for an agent to read; erase removes a note and sweep removes every one already done; rename <old> > <new> gives one "
-            + "another name; colon lists the editor's : commands.",
-            "-force, -proceed / -copy / -inspect", CmdArgument.Note,
-            "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
-        new("update", "Console", "update", "Get the latest version.",
-            "Ask the repository whether this copy is the latest one. When it is, it says so; when a newer version is there, it asks, "
-            + "then closes the app, builds that version and opens it again, and an installed linker in the game is updated with it. "
-            + "-force goes to a version even when this copy's own changes stand in the way, throwing them away, and -version:1.0.0 picks "
-            + "the version; it always asks, and the risk is yours. The songs, the settings and the notes are never touched. It runs the "
-            + "repository's own update.ps1, so the terminal does the same thing.",
-            "-force, -proceed / -version", CmdArgument.None),
-        new("clear", "Console", "clear", "Clear the screen.", "Clear the screen.", "", CmdArgument.None),
-        new("exit", "Console", "exit", "Close the console.",
-            "Clear the screen and close the console. exit -keep keeps the screen for the next time, as closing the window does.", "-keep", CmdArgument.None),
+        new("copy", "Console", "copy [<count>]", "-commands / -answers / -count / -paste", CmdArgument.Range),
+        new("paste", "Console", "paste [<count>]", "-commands / -answers / -count / -copy", CmdArgument.Range),
+        new("prompt", "Console", "prompt [<title>]", "-copy", CmdArgument.Prompt, "list*"),
+        new("report", "Console", "report <what> [<title>]",
+            "-force, -proceed / -copy / -inspect", CmdArgument.Note, "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
+        new("update", "Console", "update", "-force, -proceed / -version", CmdArgument.None),
+        new("clear", "Console", "clear", "", CmdArgument.None),
+        new("exit", "Console", "exit", "-keep", CmdArgument.None),
 
-        new("date", "Console", "date", "Show the date and time.",
-            "Show this computer's date and time. Nothing is read from the game and nothing is saved.", "-copy", CmdArgument.None),
-        new("whoami", "Console", "whoami", "Show who this is.", "Show who this is.", "", CmdArgument.None)
+        new("date", "Console", "date", "-copy", CmdArgument.None),
+        new("whoami", "Console", "whoami", "", CmdArgument.None)
     ];
 
     /// <summary>
@@ -269,8 +169,11 @@ public static class CmdCatalog
     /// a value lists its <see cref="Values"/> and must have a <see cref="Default"/>, so writing the name alone always means
     /// something (user rule).
     /// </summary>
-    public sealed record CmdOption(string Name, string Help, string Short = "", string Values = "", string Default = "")
+    public sealed record CmdOption(string Name, string Short = "", string Values = "", string Default = "")
     {
+        /// <summary>What it means, in the console's language.</summary>
+        public string Help => T("Option." + Name);
+
         public IReadOnlyList<string> ValueNames { get; } = Values.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
         /// <summary>Whether a value may follow the name, as in -slot:3.</summary>
@@ -283,31 +186,31 @@ public static class CmdCatalog
     /// <summary>What every option means, whichever command has it. The name is the long one; the short spelling is an alias.</summary>
     public static IReadOnlyList<CmdOption> Options { get; } =
     [
-        new("-copy", "Show the output and copy it to the clipboard too.", "-c"),
-        new("-proceed", "Answer Y to every question and go ahead.", "-p"),
-        new("-id", "Show only the id; with title, the id too; with load, find the song by its id."),
-        new("-title", "Show only the title; with id, the title too.", "-tl"),
-        new("-hidden", "Only hidden songs; with load, the hidden ones as well.", "-h"),
-        new("-shown", "Only shown songs.", "-s"),
-        new("-origin", "Load the original at once.", "-og"),
-        new("-slot", "Only the edits; with a number, load that slot (1 to 9) at once.", "-sl", NumberMark, ""),
-        new("-speed", "What the playback speed does on a load.", "", "keep,reset", "keep"),
-        new("-force", "Go ahead with what would be refused, after asking: load an unsupported song as an older verified format version, "
-            + "which may not time as the game does, start a note over a title report create would keep, or update over this copy's own changes."),
-        new("-rate", "The approach rate instead of the playback speed: how long a note takes to reach the judgment line, in ms.", "-ar"),
-        new("-keywords", "Show the keywords too.", "-k"),
-        new("-options", "Show the options too.", "-o"),
-        new("-number", "The number alone, with nothing around it.", "-n"),
-        new("-restart", "Start a new measurement after printing.", "-r"),
-        new("-keep", "Keep the screen for the next time the console opens.", "-m"),
-        new("-json", "Print as JSON instead."),
-        new("-paste", "Print the messages as well as copying them.", "-pa"),
-        new("-commands", "Whether the typed commands come along, each with its Visualizer> prompt.", "", "with,only", "with"),
-        new("-answers", "Whether the answered questions come along.", "", "with,skip", "skip"),
-        new("-count", "What is counted when counting messages back.", "", "all,others", "others"),
-        new("-version", "Which version to go to: latest, or one written as 1.0.0.", "-v", "latest," + VersionMark, "latest"),
-        new("-reinstall", "Write it again even when it is there, as this version has it."),
-        new("-inspect", "With report create or write, what link inspect found: the last run, the last n, or * for every run kept.", "", NumberMark + ",*", "1")
+        new("-copy", "-c"),
+        new("-proceed", "-p"),
+        new("-id"),
+        new("-title", "-tl"),
+        new("-hidden", "-h"),
+        new("-shown", "-s"),
+        new("-origin", "-og"),
+        new("-slot", "-sl", NumberMark, ""),
+        new("-speed", "", "keep,reset", "keep"),
+        new("-force"),
+        new("-rate", "-ar"),
+        new("-keywords", "-k"),
+        new("-options", "-o"),
+        new("-number", "-n"),
+        new("-check"),
+        new("-restart", "-r"),
+        new("-keep", "-m"),
+        new("-json"),
+        new("-paste", "-pa"),
+        new("-commands", "", "with,only", "with"),
+        new("-answers", "", "with,skip", "skip"),
+        new("-count", "", "all,others", "others"),
+        new("-version", "-v", "latest," + VersionMark, "latest"),
+        new("-reinstall"),
+        new("-inspect", "", NumberMark + ",*", "1")
     ];
 
     /// <summary>The areas scannow checks and install -reinstall names, in the order both work through them.</summary>
@@ -328,12 +231,12 @@ public static class CmdCatalog
         var items = text.Split(',').Select(item => item.Trim().ToLowerInvariant()).ToArray();
         if (items.Any(item => item.Length == 0))
         {
-            error = $"A place in the list is empty. Write it as {line.Command.Name} maps, linker.";
+            error = T("ListEmptyPlace", line.Command.Name);
             return null;
         }
         if (items.FirstOrDefault(item => item.Contains(' ')) is { } joined)
         {
-            error = $"'{joined}' needs a comma between its words, as in {line.Command.Name} maps, linker.";
+            error = T("ListNeedsComma", joined, line.Command.Name);
             return null;
         }
         return items.Distinct(StringComparer.Ordinal).ToArray();
@@ -362,7 +265,7 @@ public static class CmdCatalog
     public static IEnumerable<string> ShortSpellings => ShortNames.Keys.Concat(Aliases.Keys);
 
     /// <summary>What every option means, by name, for the places that list them all.</summary>
-    public static IReadOnlyDictionary<string, string> OptionHelp { get; } =
+    public static IReadOnlyDictionary<string, string> OptionHelp =>
         Options.ToDictionary(option => option.Name, option => option.Help, StringComparer.Ordinal);
 
     /// <summary>
@@ -405,92 +308,91 @@ public static class CmdCatalog
         return option.ValueNames.Contains(value, StringComparer.Ordinal) ? (option, value) : null;
     }
 
-    private static readonly Dictionary<string, string> OwnOptionHelp = new(StringComparer.Ordinal)
-    {
-        ["song -id"] = "Show only the id.",
-        ["song -title"] = "Show only the title.",
-        ["info -title"] = "Show only the title.",
-        ["playlist -id"] = "Show only the ids.",
-        ["playlist -title"] = "Show only the titles.",
-        ["id -title"] = "Show the title too.",
-        ["title -id"] = "Show the id too.",
-        ["load -id"] = "Find the song by its id (all 8 characters)."
-    };
+    private static readonly HashSet<string> OwnOptionHelp =
+    [
+        "song -id",
+        "song -title",
+        "info -title",
+        "playlist -id",
+        "playlist -title",
+        "id -title",
+        "title -id",
+        "load -id"
+    ];
 
     /// <summary>What a keyword means; "command keyword" first, for the words that mean something else there.</summary>
-    private static readonly Dictionary<string, string> KeywordText = new(StringComparer.Ordinal)
-    {
-        ["list"] = "Show them all.",
-        ["all"] = "Every one of them.",
-        ["on"] = "Switch it on.",
-        ["off"] = "Switch it off.",
-        ["start"] = "Open the pipe the read-only sync mod writes to.",
-        ["stop"] = "Close it again.",
-        ["tiles"] = "Compare the game's own tile times with the loaded song's hit times.",
-        ["follow"] = "Put the notes on the game's clock instead of the start key.",
-        ["unfollow"] = "Take the notes back off the game's clock.",
-        ["again"] = "Start a new measurement.",
-        ["auto"] = "Load the song the game moves to and match its tiles by itself.",
-        ["manual"] = "Stop matching by itself; link follow still does it by hand.",
-        ["inspect"] = "Press the visualizer's notes into the game to measure them (No Fail on, link auto off, the same song).",
-        ["uninspect"] = "Stop pressing and keep what was found for report -inspect.",
-        ["linker"] = "The read-only game link mod.",
-        ["app"] = "This build: the version it was built from, its source's later changes, and its language and theme files.",
-        ["source"] = "The repository's files, against the version this copy is on.",
-        ["maps"] = "The map copies against the song list: missing, changed or left behind.",
-        ["edits"] = "Every edited song: its copy, its lanes and the original it was made from.",
-        ["data"] = "The settings, the song list choices, the ids, the marks and the notes.",
-        ["scannow all"] = "Every area.",
-        ["install all"] = "This version in full with -reinstall: source, app, and the linker when it is installed.",
-        ["first"] = "The song's beginning.",
-        ["next"] = "The checkpoint after the one chosen now.",
-        ["previous"] = "The checkpoint before the one chosen now.",
-        ["create"] = "Start it and open it.",
-        ["write"] = "Open what is already there and add to it.",
-        ["print"] = "Print it here instead of opening it.",
-        ["done"] = "Mark it taken care of.",
-        ["undone"] = "Open it again.",
-        ["ask"] = "Say it is not settled, and why.",
-        ["state"] = "Print only where it stands.",
-        ["colon"] = "List the commands typed after a colon.",
-        ["rebuild"] = "Build the custom maps from nothing, so songs no longer in the map folder leave.",
-        ["last"] = "The command run before this one.",
-        ["now"] = "The loaded song.",
-        ["base"] = "Base songs.",
-        ["custom"] = "Custom songs.",
-        ["edited"] = "Edited songs.",
-        ["main"] = "The main window's list, in its order.",
-        ["family"] = "The loaded song's original with all its edits.",
-        ["origin"] = "The loaded song's original.",
-        ["playlist all"] = "Every song.",
-        ["id all"] = "Every song.",
-        ["title all"] = "Every song.",
-        ["note all"] = "Every note.",
-        ["note now"] = "What is on screen: the lanes being edited while the editor is open, else the loaded song.",
-        ["checkpoint list"] = "List the song's checkpoints, marking the one it starts from.",
-        ["pin all"] = "List the song's pins, in tile order.",
-        ["report erase"] = "Remove the note, after asking.",
-        ["report sweep"] = "Remove every note already marked done.",
-        ["report rename"] = "Give a note another name: report rename <old> > <new>.",
-        ["report create"] = "Start a note with this title and open it; a title already there is refused unless -force replaces it.",
-        ["report write"] = "Open a note that is already there to add to it.",
-        ["report print"] = "Print it here instead of opening it.",
-        ["report done"] = "Mark it taken care of, in this version.",
-        ["report undone"] = "Open it again.",
-        ["report ask"] = "Say it is not settled and why, in the language the settings are set to.",
-        ["report state"] = "Print only whether it has been taken care of.",
-        ["report colon"] = "List the commands typed after a colon.",
-        ["report list"] = "List the notes, with the version each was written for; a word after it keeps only the ones holding it.",
-        ["load origin"] = "The original of the loaded edit.",
-        ["checkpoint last"] = "The song's final checkpoint.",
-        ["load edited"] = "The edits of the loaded original; a single one loads at once.",
-        ["clear-previous-checkpoint-key"] = "Clear the previous checkpoint key.",
-        ["clear-next-checkpoint-key"] = "Clear the next checkpoint key.",
-        ["clear-settings-key"] = "Clear the settings key.",
-        ["map-folder"] = "Pick the map folder.",
-        ["data-folder"] = "Pick the data folder.",
-        ["view-playlist-details"] = "Open the song list details window."
-    };
+    private static readonly HashSet<string> KeywordText =
+    [
+        "list",
+        "all",
+        "on",
+        "off",
+        "start",
+        "stop",
+        "tiles",
+        "follow",
+        "unfollow",
+        "again",
+        "auto",
+        "manual",
+        "linker",
+        "app",
+        "source",
+        "maps",
+        "edits",
+        "data",
+        "scannow all",
+        "install all",
+        "first",
+        "next",
+        "previous",
+        "create",
+        "write",
+        "print",
+        "done",
+        "undone",
+        "ask",
+        "state",
+        "colon",
+        "rebuild",
+        "last",
+        "now",
+        "link",
+        "base",
+        "custom",
+        "edited",
+        "main",
+        "family",
+        "origin",
+        "playlist all",
+        "id all",
+        "title all",
+        "note all",
+        "note now",
+        "checkpoint list",
+        "pin all",
+        "report erase",
+        "report sweep",
+        "report rename",
+        "report create",
+        "report write",
+        "report print",
+        "report done",
+        "report undone",
+        "report ask",
+        "report state",
+        "report colon",
+        "report list",
+        "load origin",
+        "checkpoint last",
+        "load edited",
+        "clear-previous-checkpoint-key",
+        "clear-next-checkpoint-key",
+        "clear-settings-key",
+        "map-folder",
+        "data-folder",
+        "view-playlist-details"
+    ];
 
     /// <summary>The settings actions do runs; editing, resync and reset have commands of their own.</summary>
     public static IReadOnlyList<string> ActionNames =>
@@ -505,10 +407,12 @@ public static class CmdCatalog
             .Select(group => (group.Key, (IReadOnlyList<string>)group.Select(pair => pair.Name).ToArray())).ToArray();
 
     public static string OptionMeaning(CmdCommand command, string option) =>
-        OwnOptionHelp.TryGetValue(command.Name + " " + option, out var own) ? own : OptionHelp[option];
+        OwnOptionHelp.Contains(command.Name + " " + option) ? T("Option." + command.Name + " " + option) : OptionHelp[option];
 
+    /// <summary>What a keyword means for that command; a word no command explains has no meaning, and asking for it throws.</summary>
     public static string KeywordMeaning(CmdCommand command, string keyword) =>
-        KeywordText.TryGetValue(command.Name + " " + keyword, out var own) ? own : KeywordText[keyword];
+        KeywordText.Contains(command.Name + " " + keyword) ? T("Keyword." + command.Name + " " + keyword)
+            : KeywordText.Contains(keyword) ? T("Keyword." + keyword) : throw new KeyNotFoundException($"{keyword} has no meaning.");
 
     /// <summary>
     /// What a keyword means on its own, for the commands that take it, or null when no command has that word. A word whose
@@ -521,12 +425,19 @@ public static class CmdCatalog
         var commands = Visible.Where(command => command.KeywordNames.Contains(wanted, StringComparer.Ordinal))
             .Select(command => command.Name).ToArray();
         if (commands.Length == 0) return null;
-        return (KeywordText.TryGetValue(wanted, out var text) ? text : "", commands);
+        return (KeywordText.Contains(wanted) ? T("Keyword." + wanted) : "", commands);
     }
 
     /// <summary>A command whose name is also a keyword, or null. The console keeps the two sets apart (user rule).</summary>
     public static string? NameClash() =>
-        Visible.Select(command => command.Name).FirstOrDefault(name => Visible.Any(command => command.KeywordNames.Contains(name, StringComparer.Ordinal)));
+        Visible.Select(command => command.Name).Where(name => !SharedNames.Contains(name, StringComparer.Ordinal))
+            .FirstOrDefault(name => Visible.Any(command => command.KeywordNames.Contains(name, StringComparer.Ordinal)));
+
+    /// <summary>
+    /// The one word a keyword may share with a command (user rule): load link, title link and the like name the song the
+    /// link is playing, which is what the link command is about.
+    /// </summary>
+    private static readonly string[] SharedNames = ["link"];
 
     public static CmdCommand? Find(string? name) =>
         All.FirstOrDefault(command => string.Equals(command.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -560,7 +471,7 @@ public static class CmdCatalog
         if (Find(words[0].Word) is not { } command)
         {
             error = words[0].Word == "uninstall" ? UninstallNote
-                : $"'{words[0].Word}' is not recognized as a command. Type 'cmd' to see the commands.";
+                : T("NotACommand", words[0].Word);
             return null;
         }
         var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -605,22 +516,17 @@ public static class CmdCatalog
             {
                 // A value the option does not take is its own mistake; anything else is read as an unknown option.
                 return Known(typed) is not { TakesValue: true } option
-                    ? command.OptionGroups.Count == 0 ? $"{command.Name} has no options."
-                        : $"{typed} is not an option of {command.Name}. Its options: {command.OptionsText}."
-                    : option.Values == NumberMark
-                        ? $"{typed} is not a slot. Slots are 1 to 9, as in {option.Name}:3, or {option.Name} on its own for every edit."
-                    : option.ValueNames.Contains(VersionMark, StringComparer.Ordinal)
-                        ? $"{typed} is not a version. Write it as 1.0.0, as in {option.Name}:1.0.0, or {option.Name} on its own for the latest."
-                    : option.ValueNames.Contains(NumberMark, StringComparer.Ordinal)
-                        ? $"{typed} is not a count. Write {option.Name}:3 for the last three, {option.Name}:* for all, or {option.Name} on its own for {option.Default}."
-                        : $"{typed} is not one of {option.Name}'s values. It takes {string.Join(" or ", option.ValueNames)}, or {option.Name} on its own for {option.Default}.";
+                    ? command.OptionGroups.Count == 0 ? T("NoOptions", command.Name)
+                        : T("NotAnOption", typed, command.Name, command.OptionsText)
+                    : option.Values == NumberMark ? T("NotASlot", typed, option.Name)
+                    : option.ValueNames.Contains(VersionMark, StringComparer.Ordinal) ? T("NotAVersion", typed, option.Name)
+                    : option.ValueNames.Contains(NumberMark, StringComparer.Ordinal) ? T("NotACount", typed, option.Name, option.Default)
+                    : T("NotAValue", typed, option.Name, string.Join(T("Or"), option.ValueNames), option.Default);
             }
             if (!command.OptionNames.Contains(read.Option.Name))
-                return command.OptionGroups.Count == 0 ? $"{command.Name} has no options."
-                    : $"{typed} is not an option of {command.Name}. Its options: {command.OptionsText}.";
+                return command.OptionGroups.Count == 0 ? T("NoOptions", command.Name) : T("NotAnOption", typed, command.Name, command.OptionsText);
             if (options.TryGetValue(read.Option.Name, out var already))
-                return already == read.Value ? $"{read.Option.Name} is given twice."
-                    : $"{read.Option.Name} is given twice, as {already} and {read.Value}.";
+                return already == read.Value ? T("GivenTwice", read.Option.Name) : T("GivenTwiceAs", read.Option.Name, already, read.Value);
             options[read.Option.Name] = read.Value;
             if (read.Option.Values == NumberMark && read.Value.Length > 0)
                 number = int.Parse(read.Value, NumberStyles.None, CultureInfo.InvariantCulture);
@@ -628,8 +534,7 @@ public static class CmdCatalog
             if (options.Keys.FirstOrDefault(other => other != read.Option.Name && group.Contains(other)) is not { } clash) return null;
             // -force does what would be refused, so it always asks; nothing may answer for it (user rule).
             return clash is "-force" or "-proceed" && read.Option.Name is "-force" or "-proceed"
-                ? "-force always asks first, so -proceed cannot answer for it."
-                : $"{clash} and {read.Option.Name} cannot be used together.";
+                ? T("ForceAlwaysAsks") : T("CannotTogether", clash, read.Option.Name);
         }
 
         // The option a spelling names, whatever value follows it, for telling a wrong value from an unknown name.

@@ -18,10 +18,11 @@ using Visualizer.Infrastructure.Storage;
 using Visualizer.Application.Playback;
 using Visualizer.Application.Sync;
 using Visualizer.Infrastructure.Sync;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Views;
 
-/// <summary>What the console reads and changes in the app. Reasons handed back are English, as the console prints them.</summary>
+/// <summary>What the console reads and changes in the app. Reasons handed back are in the console's language, as it prints them.</summary>
 public partial class MainWindow
 {
     ParsedTimeline? ICmdHost.Timeline => _model.Playback.Timeline;
@@ -32,28 +33,28 @@ public partial class MainWindow
 
     bool ICmdHost.LoadSong(out string message)
     {
-        // The main window shows its own message; the console gets the reason in English.
+        // The main window shows its own message; the console gets the reason in its own words.
         var picked = _model.LoadSelectedSong();
-        message = !picked ? "No song is picked on the main window."
-            : _model.LoadedEntry is { Status: not MapParseStatus.Supported } entry ? $"The map is {entry.Status}." : "";
+        message = !picked ? T("NoSongPicked")
+            : _model.LoadedEntry is { Status: not MapParseStatus.Supported } entry ? T("MapIs", entry.Status) : "";
         return _model.Playback.Timeline is not null;
     }
 
     string? ICmdHost.LoadSongById(string id, bool? keepSpeed)
     {
-        if (_model.SongWithId(id) is not { } entry) return $"No song has the id {id}.";
+        if (_model.SongWithId(id) is not { } entry) return T("NoSongWithIdShort", id);
         _model.LoadChosen(entry, keepSpeed);
         // As the Load button does: the guide buttons forget the song they would put back, and the song panel folds away.
         ForgetGuide();
         MapPanel.IsExpanded = false;
-        return _model.LoadedEntry is { Status: not MapParseStatus.Supported } loaded ? $"The map is {loaded.Status}." : null;
+        return _model.LoadedEntry is { Status: not MapParseStatus.Supported } loaded ? T("MapIs", loaded.Status) : null;
     }
 
     string? ICmdHost.ForceLoadSongById(string id, bool? keepSpeed)
     {
-        if (_model.SongWithId(id) is not { } entry) return $"No song has the id {id}.";
-        if (entry.Status != MapParseStatus.Unsupported) return $"The map is {entry.Status}; -force is only for unsupported songs.";
-        if (!UseAppStore) return "The app store is off.";
+        if (_model.SongWithId(id) is not { } entry) return T("NoSongWithIdShort", id);
+        if (entry.Status != MapParseStatus.Unsupported) return T("MapIsForceOnly", entry.Status);
+        if (!UseAppStore) return T("StoreOff");
         try
         {
             _cache ??= new WorkspaceMapCache(Storage);
@@ -62,9 +63,9 @@ public partial class MainWindow
             var report = service.ForceAsync(new ReadOnlyDirectoryMapSource(entry.RootDirectory), entry).GetAwaiter().GetResult();
             if (report.Result.Status != MapParseStatus.Supported)
             {
-                // The reason is the parser's own (Korean); the main window shows it, the console says what happened in English.
+                // The reason is the parser's own (Korean); the main window shows it, the console says what happened.
                 _model.SetMessage(_model.Text.Format("ForceLoadFailed", string.Join(" ", report.Result.Warnings)));
-                return "No verified format version reads it, so something other than its format version is unsupported. It stays unsupported; the main window shows the reason.";
+                return T("ForceFailed");
             }
             _model.SetLibrary(report.Entries);
             return ((ICmdHost)this).LoadSongById(id, keepSpeed);
@@ -75,12 +76,12 @@ public partial class MainWindow
     IReadOnlyList<string> ICmdHost.FrameStats(bool restart)
     {
         var lines = Rendering.FrameStats.Lines(_frames.Report(RenderCapability.Tier >> 16)).ToList();
-        lines.Add($"Scheduling  multimedia class {(_scheduling is { Active: true } set ? "on (" + set.Task + ")" : "off" + (_scheduling?.Problem is { } why ? " · " + why : ""))}"
-            + $" · GC latency {System.Runtime.GCSettings.LatencyMode}");
+        lines.Add(T("SchedulingLine", _scheduling is { Active: true } set ? T("OnTask", set.Task) : T("Off") + (_scheduling?.Problem is { } why ? " · " + why : ""),
+            System.Runtime.GCSettings.LatencyMode));
         if (restart)
         {
             _frames.Reset();
-            lines.Add("Measuring again from now.");
+            lines.Add(T("MeasuringAgain"));
         }
         return lines;
     }
@@ -107,11 +108,11 @@ public partial class MainWindow
         {
             _follower.Stop();
             _model.FollowingGame = false;
-            _followProblem = "Following stopped: " + error.Message;
+            _followProblem = T("FollowingStopped", error.Message);
         }
         // After following, so a run plans its presses from where this frame put the notes.
         try { InspectFrame(); }
-        catch (Exception error) when (IsExpectedError(error)) { StopInspect("it could not go on: " + error.Message); }
+        catch (Exception error) when (IsExpectedError(error)) { StopInspect(T("InspectCouldNotGoOn", error.Message)); }
     }
 
     /// <summary>Why following last stopped on its own, for link to show.</summary>
@@ -143,12 +144,10 @@ public partial class MainWindow
         var lines = GameSyncLink.Lines(Sync.Report(), _syncServer?.Listening == true,
             _syncServer?.Connected == true, _syncServer?.Problem, AppInfo.Version).ToList();
         lines.AddRange(_follower.Lines());
-        if (_followProblem is { } problem) lines.Add("Problem  " + problem);
-        lines.Add(_linkAuto
-            ? "Auto     on; the game's song is loaded here and its tiles matched by themselves" + (_autoNote is { } note ? " \u00b7 " + note : "")
-            : "Auto     off; link auto matches the tiles by itself");
+        if (_followProblem is { } problem) lines.Add(T("ProblemLine", problem));
+        lines.Add(_linkAuto ? T("AutoOn") + (_autoNote is { } note ? " \u00b7 " + note : "") : T("AutoOff"));
         lines.Add(InspectLine());
-        if (restart) lines.Add("Measuring again from now.");
+        if (restart) lines.Add(T("MeasuringAgain"));
         return lines;
     }
 
@@ -158,26 +157,25 @@ public partial class MainWindow
         {
             _follower.Stop();
             _model.FollowingGame = false;
-            return ["Not following the game any more. The playhead is yours again."];
+            return [T("NotFollowing")];
         }
-        if (_syncServer is not { Listening: true }) return ["Not listening. Use link start first."];
-        if (Sync.Level is not { } level) return ["No tile times yet. Load a level in the game with the mod switched on."];
+        if (_syncServer is not { Listening: true }) return [T("NotListening")];
+        if (Sync.Level is not { } level) return [T("NoTileTimes")];
         if (_model.Playback.State is PlaybackState.NoTimeline)
-            return ["No song is loaded. Load the song the game is playing, then try again."];
+            return [T("LoadGameSongFirst")];
         if (_model.Playback.State is PlaybackState.Off)
-            return ["The visualizer is off. Turn it on, then try again."];
+            return [T("VisualizerOff")];
         // Out of any earlier run first, so a refusal here never leaves the app half in it.
         _model.FollowingGame = false;
         _followProblem = null;
         if (_follower.Prepare(level, _model.Playback) is { } why)
             return [_model.LoadedEntry is { } stale && MainViewModel.IsStale(stale)
-                ? $"Cannot follow: {why} This song has an older timing cache ({stale.ParserVersion}); run sync, then load the song again."
-                : "Cannot follow: " + why];
+                ? T("CannotFollowStale", why, stale.ParserVersion) : T("CannotFollow", why)];
         _model.FollowingGame = true;
         var lines = new List<string>
         {
-            $"Following the game. The offset is {_follower.OffsetMs!.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} ms.",
-            "Start the song in the game; the notes come down with its countdown. link unfollow stops following."
+            T("FollowingOffset", _follower.OffsetMs!.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)),
+            T("FollowingHint")
         };
         return lines;
     }
@@ -212,14 +210,9 @@ public partial class MainWindow
         _autoTried = null;
         _autoRefusedAt = double.NaN;
         _autoNote = null;
-        if (!on) return ["The tiles are no longer matched by themselves. link follow still does it by hand."];
-        var lines = new List<string>
-        {
-            "Matching by itself from now on: the song the game moves to is loaded here (the original; the slot box picks an edit),",
-            "and the notes go on the game's clock. A song picked here by hand stays until the game moves to another one.",
-            "Nothing is sent to the game, and link manual stops this."
-        };
-        if (_syncServer is not { Listening: true }) lines.Add("Nothing happens until the pipe is open; use link start.");
+        if (!on) return [T("AutoStopped")];
+        var lines = new List<string> { T("AutoStarted1"), T("AutoStarted2"), T("AutoStarted3") };
+        if (_syncServer is not { Listening: true }) lines.Add(T("PipeNotOpen"));
         return lines;
     }
 
@@ -268,14 +261,30 @@ public partial class MainWindow
         _autoLoadedPath = gamePath;
         if (SongFor(gamePath, _model.AllSongs, OriginalPathOf) is not { } song)
         {
-            _autoNote = $"the game moved to {gamePath}, which is not in the song list; sync brings it in.";
+            _autoNote = T("AutoNotListed", gamePath);
             _model.SetMessage(_model.Text["GameSongMissing"]);
             return;
         }
         _model.LoadChosen(song, null);
         ForgetGuide();
         MapPanel.IsExpanded = false;
-        _autoNote = $"loaded {song.SongName}, which the game moved to.";
+        _autoNote = T("AutoLoaded", song.SongName);
+    }
+
+    string? ICmdHost.GameSongId(out string? problem)
+    {
+        problem = null;
+        if (_syncServer is not { Listening: true }) { problem = T("LinkNotOn"); return null; }
+        var (reading, _) = Sync.Latest;
+        var path = Sync.Level?.Path is { Length: > 0 } level ? level : reading?.Path;
+        if (!_syncServer.Connected || reading is null || string.IsNullOrEmpty(path))
+        {
+            problem = T("LinkerNotConnected");
+            return null;
+        }
+        if (SongFor(path, _model.AllSongs, OriginalPathOf) is { } song) return song.Id;
+        problem = T("GamePlayingUnlisted", path);
+        return null;
     }
 
     /// <summary>
@@ -343,30 +352,28 @@ public partial class MainWindow
     string? ICmdHost.InstallLinker(LinkerPlace place, IProgress<double> progress)
     {
         ArgumentNullException.ThrowIfNull(place);
-        if (place.GameDirectory is null || place.Source is null) return "Nothing was written: the game folder or the linker is missing.";
+        if (place.GameDirectory is null || place.Source is null) return T("LinkerMissingPart");
         try
         {
             _ = LinkerInstaller.Install(place.GameDirectory, place.Source, progress);
             return null;
         }
-        catch (Exception error) when (IsExpectedError(error)) { return "The linker was not installed. " + error.Message; }
+        catch (Exception error) when (IsExpectedError(error)) { return T("LinkerNotInstalledBecause", error.Message); }
     }
 
     IReadOnlyList<string> ICmdHost.GameSyncTiles()
     {
-        if (_syncServer is not { Listening: true }) return ["Not listening. Use link start first."];
-        if (Sync.Level is not { } level) return ["No tile times yet. Load a level in the game with the mod switched on."];
-        if (_model.Playback.Timeline is not { } timeline) return ["Load the song the game is playing first."];
-        var warning = _model.LoadedEntry is { } entry && !GamePlays(level.Path, entry)
-            ? $"the game has {level.Path}, which is not the loaded {entry.RelativePath}."
-            : null;
+        if (_syncServer is not { Listening: true }) return [T("NotListening")];
+        if (Sync.Level is not { } level) return [T("NoTileTimes")];
+        if (_model.Playback.Timeline is not { } timeline) return [T("LoadGameSongFirstShort")];
+        var warning = _model.LoadedEntry is { } entry && !GamePlays(level.Path, entry) ? T("GameHasOther", level.Path, entry.RelativePath) : null;
         return GameTileCheck.Lines(GameTileCheck.Compare(level.TimesMs, timeline), warning);
     }
 
     /// <summary>Closes the pipe. Also called when the window closes, so no thread outlives the app.</summary>
     private void StopGameSync()
     {
-        StopInspect("the link was closed");
+        StopInspect(T("LinkClosed"));
         _follower.Stop();
         _model.FollowingGame = false;
         _syncServer?.Dispose();
@@ -392,27 +399,27 @@ public partial class MainWindow
     /// </summary>
     string? ICmdHost.OverrideNotes(string json)
     {
-        if (_editor is not { } editor) return "The note editor is not open.";
+        if (_editor is not { } editor) return T("EditorNotOpen");
         var notes = new List<NoteEditSession.NoteOverride>();
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(json);
             var root = document.RootElement;
             if (root.ValueKind == System.Text.Json.JsonValueKind.Object && root.TryGetProperty("notes", out var listed)) root = listed;
-            if (root.ValueKind != System.Text.Json.JsonValueKind.Array) return "The JSON has no list of notes.";
+            if (root.ValueKind != System.Text.Json.JsonValueKind.Array) return T("JsonNoList");
             foreach (var entry in root.EnumerateArray())
             {
-                if (entry.ValueKind != System.Text.Json.JsonValueKind.Object) return "Every note is an object with n and tile.";
-                if (Whole(entry, "n") is not { } number) return "A note has no number (n).";
-                if (Whole(entry, "tile") is not { } tile) return $"note {number} has no tile.";
+                if (entry.ValueKind != System.Text.Json.JsonValueKind.Object) return T("JsonNoteObject");
+                if (Whole(entry, "n") is not { } number) return T("JsonNoNumber");
+                if (Whole(entry, "tile") is not { } tile) return T("JsonNoTile", number);
                 var chord = Whole(entry, "chord");
                 var time = entry.TryGetProperty("ms", out var ms) && ms.ValueKind == System.Text.Json.JsonValueKind.Number
                     && ms.TryGetDouble(out var value) ? value : (double?)null;
                 notes.Add(new NoteEditSession.NoteOverride(number, tile, chord, time));
             }
         }
-        catch (System.Text.Json.JsonException error) { return "The JSON could not be read. " + error.Message; }
-        if (notes.Count == 0) return "No notes were named.";
+        catch (System.Text.Json.JsonException error) { return T("JsonUnreadable", error.Message); }
+        if (notes.Count == 0) return T("NoNotesNamed");
         var problem = editor.Session.Override(notes, _model.Settings.SimultaneousWindowMs);
         if (problem is null) editor.Redrawn();
         return problem;
@@ -448,22 +455,22 @@ public partial class MainWindow
 
     string? ICmdHost.MoveCheckpoint(int checkpoint)
     {
-        if (_model.Playback.Timeline is not { CheckpointsVerified: true }) return "The loaded song has no checkpoints.";
+        if (_model.Playback.Timeline is not { CheckpointsVerified: true }) return T("LoadedNoCheckpoints");
         try { _model.Checkpoint = checkpoint; }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
         {
-            // The timeline's own reasons are Korean; the console says what happened in English.
-            return "That checkpoint is not in this song.";
+            // The timeline's own reasons are Korean; the console says what happened in its own words.
+            return T("CheckpointNotInSong");
         }
         // A placement failure empties the notes and the main window shows why, in its own language.
-        return _model.Playback.Notes.Count == 0 ? "The notes could not be prepared there; the main window says why." : null;
+        return _model.Playback.Notes.Count == 0 ? T("NotPreparedThere") : null;
     }
 
     string? ICmdHost.StartAtTile(int tile)
     {
-        if (_model.Playback.Timeline is not { } timeline) return "No song is loaded.";
-        if (CmdSession.TileProblem(timeline, tile, _model.LoadedEntry?.SongName ?? "The loaded song") is { } problem) return problem;
-        if (!_model.StartAtTile(tile)) return "The notes could not be prepared from that tile; the main window says why.";
+        if (_model.Playback.Timeline is not { } timeline) return T("NoSongLoaded");
+        if (CmdSession.TileProblem(timeline, tile, _model.LoadedEntry?.SongName ?? T("TheLoadedSong")) is { } problem) return problem;
+        if (!_model.StartAtTile(tile)) return T("NotPreparedFromTile");
         return null;
     }
 
@@ -490,7 +497,7 @@ public partial class MainWindow
     string? ICmdHost.SetPins(string family, IReadOnlyList<int> tiles)
     {
         var pins = Pins;
-        if (_pinsUnreadable is { } why) return "pins.json cannot be read, so nothing was changed. " + why;
+        if (_pinsUnreadable is { } why) return T("PinsUnreadable", why);
         if (tiles.Count == 0) pins.Remove(family);
         else pins[family] = tiles.Distinct().Order().ToArray();
         if (!UseAppStore) return null;
@@ -499,12 +506,12 @@ public partial class MainWindow
             new PinBook(Storage).Write(pins);
             return null;
         }
-        catch (Exception error) when (IsExpectedError(error)) { return "The pins could not be saved. " + error.Message; }
+        catch (Exception error) when (IsExpectedError(error)) { return T("PinsNotSaved", error.Message); }
     }
 
     string? ICmdHost.SetHidden(string id, bool hidden)
     {
-        if (_model.SongWithId(id) is not { } entry) return $"No song has the id {id}.";
+        if (_model.SongWithId(id) is not { } entry) return T("NoSongWithIdShort", id);
         _model.SetHidden(entry, hidden);
         return SaveSongChoices();
     }
@@ -518,7 +525,7 @@ public partial class MainWindow
             SongStore.Write(_model.SongPreferences);
             return null;
         }
-        catch (Exception error) when (IsExpectedError(error)) { return "The song list could not be saved. " + error.Message; }
+        catch (Exception error) when (IsExpectedError(error)) { return T("SongListNotSaved", error.Message); }
     }
 
     /// <summary>The song list window opened from the console: confirming it applies at once, as there is no settings window to wait for.</summary>
@@ -585,7 +592,7 @@ public partial class MainWindow
     {
         if (UpdateScript(["-Check", "-Progress", .. version is null ? Array.Empty<string>() : ["-Version", version]]) is not { } start)
         {
-            done(UpdateCheck.Failed("This build is not running from the repository, so there is nothing to update."));
+            done(UpdateCheck.Failed(T("NotFromRepository")));
             return;
         }
         _ = RunScriptAsync(start, progress, lines => done(UpdateCheck.Read(lines)));
@@ -603,13 +610,13 @@ public partial class MainWindow
         // An installed linker follows the app (user rule): the script builds it from the new version and writes it again.
         if (((ICmdHost)this).FindLinker() is { Installed: not null, GameDirectory: { } game }) arguments.AddRange(["-LinkerGame", game]);
         if (UpdateScript([.. arguments]) is not { } start)
-            return "This build is not running from the repository, so there is nothing to update.";
+            return T("NotFromRepository");
         start.RedirectStandardOutput = false;
         start.RedirectStandardError = false;
         try { Process.Start(start); }
         catch (Exception error) when (IsExpectedError(error) || error is System.ComponentModel.Win32Exception)
         {
-            return "The update could not start. " + error.Message;
+            return T("UpdateCouldNotStart", error.Message);
         }
         // Closing is what lets the build replace this app's own files; the script brings it back.
         Dispatcher.BeginInvoke(new Action(() => System.Windows.Application.Current.Shutdown()),
@@ -626,17 +633,17 @@ public partial class MainWindow
         var lines = new List<string>();
         try
         {
-            using var process = Process.Start(start) ?? throw new IOException("powershell did not start.");
+            using var process = Process.Start(start) ?? throw new IOException(T("PowershellNotStarted"));
             process.OutputDataReceived += (_, e) => Read(e.Data);
             process.ErrorDataReceived += (_, e) => Read(e.Data);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             await process.WaitForExitAsync();
-            if (lines.Count == 0) lines.Add(process.ExitCode == 0 ? "Done." : "The script did not finish.");
+            if (lines.Count == 0) lines.Add(process.ExitCode == 0 ? T("ScriptDone") : T("ScriptUnfinished"));
         }
         catch (Exception error) when (IsExpectedError(error) || error is System.ComponentModel.Win32Exception)
         {
-            lines.Add("The script could not run. " + error.Message);
+            lines.Add(T("ScriptCouldNotRun", error.Message));
         }
         done(lines);
 
@@ -681,7 +688,7 @@ public partial class MainWindow
     IReadOnlyList<string>? ICmdHost.ReadReport(string title, out string? problem)
     {
         problem = null;
-        if (!UseAppStore) { problem = "Notes are not kept in this run."; return null; }
+        if (!UseAppStore) { problem = T("NotesNotThisRun"); return null; }
         try
         {
             return Reports.Read(title);
@@ -691,7 +698,7 @@ public partial class MainWindow
 
     string? ICmdHost.WriteReport(string title, IReadOnlyList<string> lines)
     {
-        if (!UseAppStore) return "Notes are not kept in this run.";
+        if (!UseAppStore) return T("NotesNotThisRun");
         try
         {
             Reports.Write(title, lines, AppInfo.Version);
@@ -714,18 +721,18 @@ public partial class MainWindow
 
     string? ICmdHost.MarkReport(string title, string state, string? why)
     {
-        if (!UseAppStore) return "Notes are not kept in this run.";
+        if (!UseAppStore) return T("NotesNotThisRun");
         try
         {
             var version = state == ReportBook.Done ? AppInfo.Version : null;
-            return Reports.SetState(title, state, version, why) ? null : $"{title} was never written.";
+            return Reports.SetState(title, state, version, why) ? null : T("NeverWritten", title);
         }
         catch (Exception error) when (IsExpectedError(error)) { return error.Message; }
     }
 
     string? ICmdHost.RenameReport(string title, string name)
     {
-        if (!UseAppStore) return "Notes are not kept in this run.";
+        if (!UseAppStore) return T("NotesNotThisRun");
         try { return Reports.Rename(title, name); }
         catch (Exception error) when (IsExpectedError(error)) { return error.Message; }
     }
@@ -740,29 +747,29 @@ public partial class MainWindow
     bool ICmdHost.DeleteReport(string title, out string? problem)
     {
         problem = null;
-        if (!UseAppStore) { problem = "Notes are not kept in this run."; return false; }
+        if (!UseAppStore) { problem = T("NotesNotThisRun"); return false; }
         try { return Reports.Delete(title); }
         catch (Exception error) when (IsExpectedError(error)) { problem = error.Message; return false; }
     }
 
     string? ICmdHost.RenameSong(string id, string name)
     {
-        if (_model.SongWithId(id) is not { } entry) return $"No song has the id {id}.";
+        if (_model.SongWithId(id) is not { } entry) return T("NoSongWithIdShort", id);
         if (_model.SetDisplayName(entry, name) is { } problem) return problem;
         return SaveSongChoices();
     }
 
     string? ICmdHost.RemoveEdit(string id)
     {
-        if (_model.SongWithId(id) is not { } entry) return $"No song has the id {id}.";
-        if (Maps.SlotOf(entry) is null) return "Only edited songs can be removed.";
+        if (_model.SongWithId(id) is not { } entry) return T("NoSongWithIdShort", id);
+        if (Maps.SlotOf(entry) is null) return T("OnlyEditsRemovable");
         try
         {
             Maps.Hold(entry, _model.DisplayName(entry));
             Forget(entry);
             return null;
         }
-        catch (Exception error) when (IsExpectedError(error)) { return "The song could not be removed. " + error.Message; }
+        catch (Exception error) when (IsExpectedError(error)) { return T("CouldNotRemove", error.Message); }
     }
 
     string? ICmdHost.HeldSong => UseAppStore ? Maps.HeldName : null;
@@ -770,7 +777,7 @@ public partial class MainWindow
     string? ICmdHost.Restore(out int slot)
     {
         slot = 0;
-        if (!UseAppStore) return "There is nothing to restore.";
+        if (!UseAppStore) return T("NothingToRestore");
         try
         {
             slot = Maps.Restore();
@@ -778,14 +785,14 @@ public partial class MainWindow
             _ = ScanEditedAsync();
             return null;
         }
-        catch (Exception error) when (IsExpectedError(error)) { return "The song could not be restored. " + error.Message; }
+        catch (Exception error) when (IsExpectedError(error)) { return T("CouldNotRestore", error.Message); }
     }
 
     string? ICmdHost.DeleteSong(string id) => _model.SongWithId(id) is { } entry
-        ? RemoveSong(entry) is { } reason ? "The song could not be deleted. " + reason : null
-        : $"No song has the id {id}.";
+        ? RemoveSong(entry) is { } reason ? T("CouldNotDelete", reason) : null
+        : T("NoSongWithIdShort", id);
 
-    string? ICmdHost.EditSong(string id) => _model.SongWithId(id) is { } entry ? OpenEditor(entry, CmdSession.Language) : $"No song has the id {id}.";
+    string? ICmdHost.EditSong(string id) => _model.SongWithId(id) is { } entry ? OpenEditor(entry, CmdSession.Language) : T("NoSongWithIdShort", id);
 
     string? ICmdHost.ApplySettings(VisualizerSettings settings)
     {
@@ -794,7 +801,7 @@ public partial class MainWindow
             _model.ApplySettings(settings);
             return null;
         }
-        catch (NotePlacementException) { return "The song cannot be placed with these settings; note * shows why."; }
+        catch (NotePlacementException) { return T("CannotPlaceSettings"); }
         catch (Exception error) when (IsExpectedError(error)) { return error.Message; }
     }
 
@@ -804,9 +811,9 @@ public partial class MainWindow
     {
         try
         {
-            return _model.RollBack() is null ? "There is nothing to roll back." : null;
+            return _model.RollBack() is null ? T("NothingToRollBack") : null;
         }
-        catch (ArgumentException) { return "The earlier values do not fit the settings as they are now, so nothing changed."; }
+        catch (ArgumentException) { return T("EarlierValuesDontFit"); }
     }
 
     string? ICmdHost.PickFolder(string start)

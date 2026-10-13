@@ -1,4 +1,5 @@
 using System.Text.Json;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Sync;
 
@@ -105,20 +106,20 @@ public static class LinkerInstaller
         ArgumentException.ThrowIfNullOrWhiteSpace(gameDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceDirectory);
         if (!HasModManager(gameDirectory))
-            throw new InvalidOperationException("Unity Mod Manager is not in that game folder, so nothing was written.");
+            throw new InvalidOperationException(T("NoModManager"));
         var target = TargetOf(gameDirectory);
         foreach (var folder in new[] { Path.GetDirectoryName(target)!, target })
             if (Directory.Exists(folder) && new DirectoryInfo(folder).LinkTarget is not null)
-                throw new IOException($"'{folder}' is a link, so nothing was written.");
+                throw new IOException(T("IsALink", folder));
         Directory.CreateDirectory(target);
         var written = 0;
         foreach (var name in FileNames)
         {
             var from = Path.Combine(sourceDirectory, name);
-            if (!File.Exists(from)) throw new FileNotFoundException("The mod is missing one of its files.", from);
+            if (!File.Exists(from)) throw new FileNotFoundException(T("ModFileMissing"), from);
             var to = Path.Combine(target, name);
             if (File.Exists(to) && new FileInfo(to).LinkTarget is not null)
-                throw new IOException($"'{to}' is a link, so nothing was written.");
+                throw new IOException(T("IsALink", to));
             File.WriteAllBytes(to, File.ReadAllBytes(from));
             progress?.Report((double)++written / FileNames.Count);
         }

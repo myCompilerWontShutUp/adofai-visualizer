@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using Visualizer.Application.Playback;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Application.Sync;
 
@@ -155,7 +156,7 @@ public sealed class GameSyncLink
     {
         lock (_gate)
         {
-            if (_last is not null) Note("the mod connected again");
+            if (_last is not null) Note(T("ModReconnected"));
             _last = null;
             _lastArrivedMs = double.NaN;
             _lastModMs = double.NaN;
@@ -186,8 +187,8 @@ public sealed class GameSyncLink
             if (double.IsFinite(_lastModMs) && message.ModClockMs < _lastModMs)
             {
                 _rejected++;
-                _firstRejection ??= "the mod clock went backwards";
-                return "the mod clock went backwards";
+                _firstRejection ??= T("ModClockBack");
+                return T("ModClockBack");
             }
             if (_last is { } previous && previous.State != message.State)
                 Note($"{previous.State} -> {message.State} at {message.PositionMs.ToString("0", CultureInfo.InvariantCulture)} ms"
@@ -234,7 +235,7 @@ public sealed class GameSyncLink
     public void SetLevel(GameSyncLevel level)
     {
         ArgumentNullException.ThrowIfNull(level);
-        if (level.TimesMs.Any(time => !double.IsFinite(time))) { Refuse("a tile time was not a number"); return; }
+        if (level.TimesMs.Any(time => !double.IsFinite(time))) { Refuse(T("TileTimeNaN")); return; }
         lock (_gate) _level = level;
     }
 
@@ -254,21 +255,21 @@ public sealed class GameSyncLink
     /// so that case is named instead of left to guess at.
     /// </summary>
     private static string ModLine(string? modVersion, string? appVersion) => modVersion is null
-        ? "Mod      an older build: it never said its version. Build it again and restart the game."
+        ? T("ModOld")
         : appVersion is not null && !appVersion.StartsWith(modVersion, StringComparison.Ordinal)
-            ? $"Mod      {modVersion}, but this app is {appVersion}. Build the mod again and restart the game."
-            : $"Mod      {modVersion}";
+            ? T("ModMismatch", modVersion, appVersion)
+            : T("ModLine", modVersion);
 
     private static string? Check(GameSyncMessage message, double arrivedMs)
     {
-        if (message.Protocol != Protocol) return $"message shape {message.Protocol}, this app reads {Protocol}";
-        if (!double.IsFinite(arrivedMs)) return "the arrival time is not a number";
-        if (!double.IsFinite(message.ModClockMs) || message.ModClockMs < 0) return "the mod clock is not a time";
-        if (!double.IsFinite(message.PositionMs)) return "the song position is not a number";
+        if (message.Protocol != Protocol) return T("BadShape", message.Protocol, Protocol);
+        if (!double.IsFinite(arrivedMs)) return T("BadArrival");
+        if (!double.IsFinite(message.ModClockMs) || message.ModClockMs < 0) return T("BadModClock");
+        if (!double.IsFinite(message.PositionMs)) return T("BadPosition");
         // The practice speed and the calibrations are only shown, so an odd value there never costs the position.
-        if (message.Floor < -1) return "the tile number is negative";
-        if (string.IsNullOrWhiteSpace(message.State)) return "the state is empty";
-        if (string.IsNullOrWhiteSpace(message.Path)) return "the level path is empty";
+        if (message.Floor < -1) return T("BadFloor");
+        if (string.IsNullOrWhiteSpace(message.State)) return T("BadState");
+        if (string.IsNullOrWhiteSpace(message.Path)) return T("BadPath");
         return null;
     }
 
@@ -310,45 +311,40 @@ public sealed class GameSyncLink
     private static double Percentile(double[] sorted, double part) =>
         sorted[Math.Clamp((int)Math.Round(part * (sorted.Length - 1)), 0, sorted.Length - 1)];
 
-    /// <summary>The report as the console prints it (English, like the rest of the console).</summary>
+    /// <summary>The report as the console prints it, in the console's language.</summary>
     public static IReadOnlyList<string> Lines(GameSyncReport? report, bool listening, bool connected, string? problem,
         string? appVersion = null)
     {
         var lines = new List<string>();
         lines.Add(listening
-            ? connected ? "Listening on the sync pipe · the mod is connected."
-                : "Listening on the sync pipe · no mod connected yet. It looks for the pipe every two seconds, so run sync again in a moment."
-            : "Not listening. Use link start to open the pipe.");
-        if (problem != null) lines.Add("Problem  " + problem);
+            ? connected ? T("ListeningConnected") : T("ListeningWaiting")
+            : T("NotListeningOpen"));
+        if (problem != null) lines.Add(T("ProblemLine", problem));
         if (report is not { } r)
         {
-            if (listening) lines.Add("Nothing received yet. Start a song in the game with the mod switched on.");
+            if (listening) lines.Add(T("NothingReceived"));
             return lines;
         }
         string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
-        lines.Add($"Readings {r.Accepted} accepted · {r.Rejected} refused over {Ms(r.WindowSeconds)} s"
-                  + (r.FirstRejection is { } why ? $" (first: {why})" : string.Empty));
+        lines.Add(T("Readings", r.Accepted, r.Rejected, Ms(r.WindowSeconds))
+                  + (r.FirstRejection is { } why ? T("FirstRefusal", why) : string.Empty));
         if (r.Accepted > 1)
         {
-            lines.Add($"Arrival  min {Ms(r.IntervalMinMs)} · median {Ms(r.IntervalMedianMs)} · p95 {Ms(r.IntervalP95Ms)} · max {Ms(r.IntervalMaxMs)} ms apart");
-            lines.Add($"Delay    p95 +{Ms(r.LatencyP95Ms)} · max +{Ms(r.LatencyMaxMs)} ms over its usual delay");
-            lines.Add($"Position advancing {r.PositionRate.ToString("0.000", CultureInfo.InvariantCulture)} ms per ms of real time"
-                      + " (song time against the clock, over the readings where it simply played on)");
+            lines.Add(T("LinkArrival", Ms(r.IntervalMinMs), Ms(r.IntervalMedianMs), Ms(r.IntervalP95Ms), Ms(r.IntervalMaxMs)));
+            lines.Add(T("LinkDelay", Ms(r.LatencyP95Ms), Ms(r.LatencyMaxMs)));
+            lines.Add(T("LinkPosition", r.PositionRate.ToString("0.000", CultureInfo.InvariantCulture)));
         }
         lines.Add(ModLine(r.ModVersion, appVersion));
-        lines.Add(r.LevelTiles > 0
-            ? $"Level    the game sent its own times for {r.LevelTiles} tiles · link tiles compares them with the loaded song"
-            : "Level    no tile times yet; they arrive when the game loads a level.");
+        lines.Add(r.LevelTiles > 0 ? T("LevelTimes", r.LevelTiles) : T("LevelNoTimes"));
         if (r.Last is { } last)
         {
-            lines.Add($"Game     {last.State}{(last.Paused ? " · paused" : string.Empty)}{(last.Dead ? " · over" : string.Empty)} · tile {last.Floor}"
-                      + $" · position {Ms(last.PositionMs)} ms · rate {(last.PitchRate * 100).ToString("0", CultureInfo.InvariantCulture)}%"
-                      + $" (practice setting {(last.Speed * 100).ToString("0", CultureInfo.InvariantCulture)}%)");
-            lines.Add($"Offsets  the game's input {Ms(last.InputOffsetMs)} ms · visual {Ms(last.VisualOffsetMs)} ms"
-                      + " · notes follow the input one, so only this app's calibration shifts them");
-            lines.Add("Playing  " + last.Path);
+            lines.Add(T("GameLine", last.State + (last.Paused ? T("GamePaused") : string.Empty) + (last.Dead ? T("GameOver") : string.Empty),
+                last.Floor, Ms(last.PositionMs), (last.PitchRate * 100).ToString("0", CultureInfo.InvariantCulture),
+                (last.Speed * 100).ToString("0", CultureInfo.InvariantCulture)));
+            lines.Add(T("OffsetsLine", Ms(last.InputOffsetMs), Ms(last.VisualOffsetMs)));
+            lines.Add(T("PlayingLine", last.Path));
         }
-        foreach (var change in r.Changes) lines.Add("Change   " + change);
+        foreach (var change in r.Changes) lines.Add(T("ChangeLine", change));
         return lines;
     }
 }

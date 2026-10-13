@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using Visualizer.Application.Sync;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.Infrastructure.Sync;
 
@@ -87,7 +88,7 @@ public sealed class NamedPipeGameSyncServer : IDisposable
             // so and try again later, never spin on it and never stop listening for good.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                Problem = error.Message + " Another visualizer may already have the pipe.";
+                Problem = T("PipeTaken", error.Message);
                 try { await Task.Delay(BusyDelayMs, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
@@ -104,9 +105,9 @@ public sealed class NamedPipeGameSyncServer : IDisposable
             if (ParseMod(line) is { } mod) _link.SetMod(mod);
             else if (ParseLevel(line) is { } level) _link.SetLevel(level);
             else if (Parse(line) is { } message) _link.Add(message, arrivedMs);
-            else _link.Refuse("a line was not a reading this app understands");
+            else _link.Refuse(T("LineNotReading"));
         }
-        catch (ArgumentException) { _link.Refuse("a line held a value this app cannot take"); }
+        catch (ArgumentException) { _link.Refuse(T("LineBadValue")); }
     }
 
     /// <summary>Reads one line, or null when it is not a reading. Values are checked by the link, not here.</summary>

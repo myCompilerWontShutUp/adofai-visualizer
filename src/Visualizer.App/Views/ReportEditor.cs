@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Views;
 
@@ -21,7 +22,7 @@ public sealed class ReportEditor : Grid
     private const string TabText = "    ";
 
     /// <summary>The short reminder on the right of the bottom line while the note is only being read (user rule).</summary>
-    public const string Keys = "i write  :w save  :q leave  :d delete";
+    public static string Keys => T("EditorKeys");
 
     private readonly TextBox _text = new()
     {
@@ -250,17 +251,17 @@ public sealed class ReportEditor : Grid
                 return;
             case ":q" or ":quit":
                 if (!Changed) { Leave?.Invoke(); return; }
-                Ask("Leave without writing?", yes => { if (yes) Leave?.Invoke(); });
+                Ask(T("AskLeaveUnwritten"), yes => { if (yes) Leave?.Invoke(); });
                 return;
             case ":copy":
                 // What is selected, or the whole note when nothing is: the same thing a copy key does elsewhere.
                 var chosen = _text.SelectionLength > 0 ? _text.SelectedText : _text.Text;
-                if (Copy is null) { Say("Nothing can be copied here."); return; }
+                if (Copy is null) { Say(T("NothingCopiedHere")); return; }
                 Copy(chosen);
-                Say(_text.SelectionLength > 0 ? "Selection copied." : $"\"{Title}\" copied, {Lines.Count} lines.");
+                Say(_text.SelectionLength > 0 ? T("SelectionCopied") : T("NoteCopied", Title, Lines.Count));
                 return;
             case ":d" or ":delete":
-                Ask($"Delete \"{Title}\"?", yes =>
+                Ask(T("AskDeleteThisNote", Title), yes =>
                 {
                     if (!yes) return;
                     var problem = Delete?.Invoke();
@@ -269,7 +270,7 @@ public sealed class ReportEditor : Grid
                 });
                 return;
             default:
-                Say($"Not an editor command: {typed}");
+                Say(T("NotEditorCommand", typed));
                 return;
         }
     }
@@ -278,11 +279,11 @@ public sealed class ReportEditor : Grid
     {
         if (Save?.Invoke(Lines) is { } problem)
         {
-            Say("Not written. " + problem);
+            Say(T("NotWritten", problem));
             return false;
         }
         _saved = _text.Text;
-        Say($"\"{Title}\" written, {Lines.Count} lines.");
+        Say(T("NoteWritten", Title, Lines.Count));
         return true;
     }
 
@@ -355,6 +356,6 @@ public sealed class ReportEditor : Grid
         var where = string.Create(CultureInfo.InvariantCulture, $"{line + 1},{column + 1}");
         // The right of the line says what typing does now: the mode while writing, and otherwise the short list of keys,
         // since nothing else says them once the console line that used to is gone (user rule).
-        _status.Text = $"\"{Title}\"{mark}{state}  {Lines.Count} lines  {where}".PadRight(56) + (Insert ? "-- INSERT --" : Keys);
+        _status.Text = $"\"{Title}\"{mark}{state}  {T("LineCount", Lines.Count)}  {where}".PadRight(56) + (Insert ? "-- INSERT --" : Keys);
     }
 }

@@ -16,6 +16,18 @@ namespace Visualizer.Tests;
 internal static class Program
 {
     private sealed class FakeClock : IMonotonicClock { public double NowMs { get; set; } }
+    /// <summary>
+    /// The window with its language set to English, so its console speaks the words these checks read; the app's own
+    /// default is Korean. The change is left out of the settings history, so the window starts as fresh as before.
+    /// </summary>
+    internal static Visualizer.App.Views.MainWindow English(Visualizer.App.Views.MainWindow window)
+    {
+        var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+        model.ApplySettings(model.Settings with { Language = Visualizer.Core.Localization.Languages.English });
+        model.ForgetSettingsHistory();
+        return window;
+    }
+
     internal static void Assert(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
@@ -388,6 +400,9 @@ internal static class Program
         var failed = 0;
         foreach (var (name, run) in tests)
         {
+            // The console speaks the app's language, and a window sets it to its own (Korean by default); every group
+            // starts from English, which is what most of them read.
+            Visualizer.Core.Localization.ConsoleText.Language = Visualizer.Core.Localization.Languages.English;
             try { run(); Console.WriteLine($"PASS {name}"); }
             catch (Exception error) { failed++; Console.Error.WriteLine($"FAIL {name}: {error}"); }
         }

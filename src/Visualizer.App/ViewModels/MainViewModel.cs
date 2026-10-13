@@ -76,7 +76,22 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<MapCacheEntry> Library { get; } = [];
     /// <summary>The song list filtered by the title typed in the song box.</summary>
     public ICollectionView LibraryView { get; }
-    public string Message { get; private set; } = "";
+    /// <summary>
+    /// The latest message. Every new one is new by its time as well (user report: loading the same song again, or another
+    /// version of it, left "n minutes ago" in front of the fresh words), so setting it starts its age again.
+    /// </summary>
+    public string Message
+    {
+        get => _message;
+        private set
+        {
+            _message = value;
+            _messageAt = DateTime.Now;
+            _messageMinutes = 0;
+            _messageAge = MessageAge();
+        }
+    }
+    private string _message = "";
     private DateTime _messageAt = DateTime.Now;
     private string _messageAge = "";
 
@@ -377,7 +392,9 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         Settings = settings;
         if (listChanged) RebuildLibrary();
         if (rulesChanged) _manualCheckpointPending = false;
-        Message = Text[rulesChanged ? "NotesRebuilt" : "SettingsApplied"];
+        // The notes were placed again: the tiles changed, and the settings are why (user rule).
+        Message = rulesChanged && Playback.Timeline is not null ? Text.Format("TilesChanged", Text["TilesBySettings"])
+            : Text[rulesChanged ? "NotesRebuilt" : "SettingsApplied"];
         NotifyAll();
         SettingsCommitted?.Invoke();
     }
@@ -403,7 +420,8 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         try
         {
             Playback.ApplySettings(restored, Checkpoint);
-            Message = Text["SettingsApplied"];
+            Message = !restored.HasSameNoteRulesAs(change.After) && Playback.Timeline is not null
+                ? Text.Format("TilesChanged", Text["TilesBySettings"]) : Text["SettingsApplied"];
         }
         catch (NotePlacementException error)
         {
@@ -719,9 +737,6 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
     public void SetMessage(string message)
     {
         Message = message;
-        _messageAt = DateTime.Now;
-        _messageMinutes = Minutes();
-        _messageAge = MessageAge();
         Raise(nameof(Message));
         Raise(nameof(MessageText));
     }

@@ -817,8 +817,21 @@ internal static class SongListTests
 
             // Picking one loads it at once, keeping the speed, and the bottom line says which version this is.
             model.ApplySettings(model.Settings with { PlaybackSpeedPercent = 75, KeepSpeedOnLoad = false });
+            // An old message, five minutes back, as when a song has played a while.
+            void Age(int minutes)
+            {
+                typeof(MainViewModel).GetField("_messageAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                    .SetValue(model, DateTime.Now.AddMinutes(-minutes));
+                model.RefreshMessageAge();
+                Assert(model.MessageText.StartsWith(MainViewModel.AgeText(model.Text, minutes), StringComparison.Ordinal), model.MessageText);
+            }
+            var justNow = MainViewModel.AgeText(model.Text, 0) + " ";
+            Age(5);
             model.SelectedSlot = 3;
             Equal(model.LoadedEntry?.Id, "e3");
+            // The message is new, so it reads just now (user report: it kept "5 minutes ago"), and it says how the tiles
+            // changed: from the original to edit 3 (user rule).
+            Equal(model.MessageText, justNow + "타일이 변경되었습니다: 원본 → 수정본 3");
             Equal(model.Settings.PlaybackSpeedPercent, 75);
             Equal(model.SelectedSlot, 3);
             Assert(model.OverlayTileParts.Any(part => part.Text == "수정본 3" && part.Changed), "The slot is still shown: " + model.OverlayTiles);
@@ -832,15 +845,30 @@ internal static class SongListTests
             Assert(model.SectionText == "2", "The section is taken: " + model.Message);
             model.SelectedSlot = 3;
             Equal(model.SectionText, "2");
-            model.Reload(model.LoadedEntry!);
+            Age(2);
+            model.Reload(model.LoadedEntry!, saved: true);
             Equal(model.SectionText, "2");
+            Assert(model.MessageText.StartsWith(justNow + "타일이 변경되었습니다: 수정본 3 저장 · 타일 2부터", StringComparison.Ordinal),
+                "The tiles first, then where the practice starts: " + model.MessageText);
             Equal(model.Playback.StartTile, (int?)2);
             model.SelectedSlot = 0;
             model.SectionText = "";
 
+            // Settings that place the notes again change the tiles too, and say so; so does rolling them back.
+            Age(3);
+            model.ApplySettings(model.Settings with { TrillWindowMs = model.Settings.TrillWindowMs == 30 ? 20 : 30 });
+            Equal(model.MessageText, justNow + "타일이 변경되었습니다: 설정 변경");
+            Age(3);
+            model.RollBack();
+            Equal(model.MessageText, justNow + "타일이 변경되었습니다: 설정 변경");
+
             // A song with no edits still shows the picker, reading "원본" (user rule): the three controls keep one shape.
+            // Another song is only prepared, but its message is just as new.
+            Age(4);
             model.SelectedMap = model.Library.Single(entry => entry.Id == "z");
             model.LoadSelectedSong();
+            Assert(model.MessageText.StartsWith(justNow, StringComparison.Ordinal) && !model.Message.Contains("타일이", StringComparison.Ordinal),
+                model.MessageText);
             Assert(model.ShowSlotPicker && model.SlotOptions.Count == 1 && model.SlotOptions[0].Number == 0,
                 "The only version is still offered");
         }),
