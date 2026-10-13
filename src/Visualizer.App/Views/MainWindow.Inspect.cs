@@ -57,8 +57,11 @@ public partial class MainWindow
         var keys = ControlBindings.CreateLaneKeys(_model.Settings).ToDictionary(pair => pair.Value, pair => pair.Key);
         var send = KeySender ?? (OperatingSystem.IsWindows() ? KeyboardInjector.Send : null);
         if (send is null) return [T("CannotInspect", T("WindowsOnly"))];
-        // Found by name now rather than caught in front on some frame: the run must know the game before its first note.
-        _gameProcess = WindowsForegroundObserver.FindProcess(_model.Settings.AdofaiProcessName);
+        // Found now rather than caught in front on some frame: the run must know the game before its first note. The game
+        // the linker follows comes first; by name, a second game running (the game starts twice now and then, user report)
+        // could be the other one, and the keys would wait for it for ever.
+        _gameProcess = _syncServer?.ClientProcessId is uint linked && linked != 0
+            ? linked : WindowsForegroundObserver.FindProcess(_model.Settings.AdofaiProcessName);
         _inspectPrepared = _model.Playback.Prepared;
         _inspectFrameMs = double.NaN;
         var (reading, _) = Sync.Latest;
@@ -116,6 +119,12 @@ public partial class MainWindow
         if (_inspection.StopReason is { } stopped) { StopInspect(stopped); return; }
         if (InspectRefusal() is { } why) { StopInspect(why); return; }
         if (!_model.FollowingGame) { StopInspect(T("FollowingEnded")); return; }
+        // The link moved to another game: the keys must not go after it.
+        if (_syncServer?.ClientProcessId is uint followed && followed != 0 && _gameProcess != 0 && followed != _gameProcess)
+        {
+            StopInspect(T("InspectOtherGame", followed));
+            return;
+        }
         if (_model.Playback.Prepared != _inspectPrepared) { StopInspect(T("NotesPreparedAgain")); return; }
         if (_gameProcess == 0 && WindowsForegroundObserver.IsProcessForeground(_model.Settings.AdofaiProcessName))
             _gameProcess = WindowsForegroundObserver.ForegroundProcessId();

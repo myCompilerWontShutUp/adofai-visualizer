@@ -268,6 +268,10 @@ public interface ICmdHost
     /// (a running app holds its own files). Null when it is on its way, otherwise why not.
     /// </summary>
     string? ReinstallAndRestart(IReadOnlyList<string> parts) => T("ReinstallNotHere");
+    /// <summary>restart linker: the link thrown away whole and opened again; the status lines that follow.</summary>
+    IReadOnlyList<string> RestartLinker() => [T("RestartNotHere")];
+    /// <summary>restart app: closes this app and starts the same build again; null when it is on its way, else why not.</summary>
+    string? RestartApp() => T("RestartNotHere");
 
     /// <summary>
     /// update and version: asks the repository about the latest version, or <paramref name="version"/>, by running its own
@@ -638,6 +642,9 @@ public sealed class CmdSession
                 break;
             case "inspect":
                 Inspect(line, copy);
+                break;
+            case "restart":
+                Restart(line, copy);
                 break;
             case "install":
                 Install(line, yes);
@@ -3057,6 +3064,26 @@ public sealed class CmdSession
     /// into the game after asking, and with -flow prints every key as it goes until the run ends; stop ends it; result shows
     /// what the last runs found, -runs:n the last n and -runs:* every one kept.
     /// </summary>
+    /// <summary>
+    /// restart linker and restart app (user request: after trouble in the game, such as an error or the game running twice,
+    /// the link had no way back short of closing everything). linker throws the link away whole and opens it again, which
+    /// asks nothing; app closes this app and starts the same build again, after asking.
+    /// </summary>
+    private void Restart(CmdLine line, bool copy)
+    {
+        var words = string.Join(", ", line.Command.KeywordNames);
+        var what = line.Arguments.Count == 0 ? "" : line.Arguments[0].ToLowerInvariant();
+        if (line.Arguments.Count > 1) { Syntax<object>(line); return; }
+        if (what.Length == 0) { Write(T("RestartNeeds", words)); return; }
+        if (!line.Command.KeywordNames.Contains(what)) { Write(T("NotRestartWord", what, words)); return; }
+        if (what == "linker") { Show(_host.RestartLinker(), copy); return; }
+        Confirm(line.Has("-proceed"), T("AskRestartApp"), answer =>
+        {
+            if (!answer) { Write(T("NothingRestarted")); return; }
+            Write(_host.RestartApp() is { } reason ? reason : T("ClosingToRestart"));
+        });
+    }
+
     private void Inspect(CmdLine line, bool copy)
     {
         var words = string.Join(", ", line.Command.KeywordNames);

@@ -149,6 +149,9 @@ public partial class MainWindow
         var manual = stop && _linkAuto;
         if (stop) StopGameSync();
         if (manual) ((ICmdHost)this).GameSyncAuto(false);
+        // Without the game the notes would run on alone from wherever it left them: the song goes back to how loading
+        // leaves it (user rule).
+        var reset = stop && _model.BackToLoaded();
         if (start)
         {
             _syncServer ??= new NamedPipeGameSyncServer(Sync, GameSyncPipeName);
@@ -157,11 +160,14 @@ public partial class MainWindow
         if (restart) Sync.Reset();
         var lines = GameSyncLink.Lines(Sync.Report(), _syncServer?.Listening == true,
             _syncServer?.Connected == true, _syncServer?.Problem, AppInfo.Version).ToList();
+        // The game runs twice now and then (user report): every one is taken in, and the one in front is followed.
+        if (_syncServer is { Games: > 1 } server) lines.Add(T("LinkGames", server.Games, server.ClientProcessId));
         lines.AddRange(_follower.Lines());
         if (_followProblem is { } problem) lines.Add(T("ProblemLine", problem));
         lines.Add(_linkAuto ? T("AutoOn") + (_autoNote is { } note ? " \u00b7 " + note : "") : T("AutoOff"));
         lines.Add(InspectLine());
         if (manual) lines.Add(T("AutoOffWithStop"));
+        if (reset) lines.Add(T("LinkStopReset"));
         if (restart) lines.Add(T("MeasuringAgain"));
         return lines;
     }
@@ -394,6 +400,25 @@ public partial class MainWindow
     }
 
     /// <summary>Closes the pipe. Also called when the window closes, so no thread outlives the app.</summary>
+    /// <summary>
+    /// restart linker (user request): everything the link knew goes, as if the app had just started: the pipe, what the
+    /// game said and what was measured, following, inspect, and what link auto remembered (whether it is on stays). The
+    /// song goes back to how loading leaves it, and the pipe opens again for the game to connect to.
+    /// </summary>
+    IReadOnlyList<string> ICmdHost.RestartLinker()
+    {
+        var auto = _linkAuto;
+        StopGameSync();
+        _sync = null;
+        _followProblem = null;
+        ((ICmdHost)this).GameSyncAuto(auto);
+        _model.BackToLoaded();
+        _syncServer = new NamedPipeGameSyncServer(Sync, GameSyncPipeName);
+        _syncServer.Start();
+        Log("LogLinkRestarted");
+        return [T("LinkerRestarted"), .. ((ICmdHost)this).GameSync(false, false, false)];
+    }
+
     private void StopGameSync()
     {
         StopInspect(T("LinkClosed"));

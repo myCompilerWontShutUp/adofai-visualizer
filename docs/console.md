@@ -101,6 +101,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | | `prompt [<title>]` | -copy | `[list]` | 저장된 프롬프트 채우기 |
 | | `report <what> [<title>]` | -force \| -proceed, -copy, -log | list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon | 다음 작업용 메모 |
 | | `update` | -force \| -proceed, -version | | 저장소에서 새 버전 받기 |
+| | `restart <what>` | -proceed, -copy | linker, app | 링크나 앱을 처음부터 다시 시작 |
 | | `clear` | | | 화면 지우기 |
 | | `exit` | -keep | | 콘솔 닫기 |
 | | `date` | -copy | | 날짜·시각 |
@@ -120,6 +121,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`fps`** — 앱이 자기 프레임만 재는 진단: 도착 간격과 합성기 간격, 앱이 한 프레임에 쓴 시간, GC 횟수, 렌더 티어, 원인을 짚는 마지막 줄(MMCSS·GC 지연 모드 상태 포함). `-restart`는 찍은 뒤 측정을 새로 시작합니다. 게임이나 시스템에서 읽는 값은 없습니다.
 - **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. **`stop`은 link auto도 끕니다**(manual로 돌아옴, 사용자 규칙: 링크가 닫히면 스스로 맞출 것이 없음). 파이프를 다시 열어도 auto는 꺼진 채입니다.
 - **`inspect <what>`** — 측정 전용 독립 명령. `start`는 물어본 뒤 비주얼라이저 노트대로 레인 키를 게임에 보내고, `stop`·Esc는 모두 떼며 종료합니다. 링크 켜짐·link auto 꺼짐·같은 곡·게임 실패 방지 모드가 필요하고, 게임이 전경일 때만 키를 보냅니다(AGENTS 안전 규칙 6). 카운트다운 중에는 설정의 8개 레인 키와 Space·Enter를 한 번씩 사전 입력합니다(40ms 간격·25ms 탭, 첫 노트 100ms 전 마감, 늦게 시작하면 들어갈 키만, 게임 창을 기다리는 동안 예약 유지·전송 사이 40ms 간격). **`-flow start`**(`-f` 별칭)는 키·노트·레인·곡 시각(ms)·게임 타일·늦은 정도(ms)와 문제 판정을 한 줄씩 출력하며 **종료까지 `Visualizer>`를 내놓지 않고 입력을 버립니다**. 콘솔을 닫았다 열어도 진행 중 잠금은 유지됩니다. 측정이 끝나거나 Esc로 멈추면 마지막 판정·종료 이유를 출력하고 프롬프트가 돌아옵니다. 이미 측정 중이면 새 실행을 거절합니다. **`result`**는 마지막 결과, **`-runs:3 result`**는 최근 세 개, **`-runs:* result`**는 남은 전체(기본 1)입니다. 결과는 메모리만 사용하며 앱 종료 때 사라집니다. `-flow`는 start, `-runs`는 result에만 씁니다. 기존 -inspect 옵션은 제거했습니다.
+- **`restart <what>`**(사용자 요청: 게임 쪽 문제 뒤에 되돌아갈 길) — `linker`는 묻지 않고 링크 전체를 버리고 다시 엽니다: 파이프·게임이 보낸 값·측정·따라가기·inspect·link auto의 기억(켜짐 여부는 유지)을 지우고 곡을 불러온 직후 상태로 되돌린 뒤 파이프를 새로 엽니다. 게임의 링커는 2초 안팎에 스스로 다시 붙으므로 게임은 다시 켜지 않아도 됩니다. `app`은 물어본 뒤(`-proceed`로 건너뜀) 앱을 닫고 `update.ps1 -RestartOnly -Build <지금 빌드>`가 앱이 사라지기를 기다렸다가 같은 빌드(Debug·Release)를 다시 켭니다(받기·빌드 없음, git 불필요).
+- **게임이 두 번 실행될 때**(사용자 제보): 파이프가 게임을 최대 4개까지 동시에 받고, 그중 앞에 있는 게임 → 지금 따라가던 게임(소식이 0.5초 안에 있으면) → 가장 최근에 소식을 보낸 게임 순으로 하나만 따라갑니다. 게임을 바꾸면 링크는 그 게임의 인사·타일 시각부터 다시 시작합니다. `link`에 `Games` 줄, `log`에 연결된 게임 수가 나옵니다. inspect는 링크가 따라가는 게임에만 키를 보내고, 링크가 다른 게임으로 옮겨 가면 멈춥니다.
 - **inspect 재시작**: 새 inspect는 앱에 남은 일시정지를 풀고 게임 시계에 맡깁니다. 이전 재생 위치의 지나간 노트만으로 새 측정을 끝내지 않습니다. 게임이 60ms 넘게 뒤로 되감기면 이전 키·예약을 해제하고 그 위치부터 노트를 다시 계획하며 사전 입력도 다시 준비합니다(작은 시계 보정은 노트를 반복하지 않음). 체크포인트가 숨긴 앞 노트는 보내지 않고, 사전 입력의 마감은 다음 표시 노트를 기준으로 정합니다.
 - **inspect 결과 해석**: 측정 시작의 노트 설정·실제 패턴 순서와 배속·보정, 마지막 입력의 원본 맵 타일·같은 키 전송 간격을 함께 보여 줍니다. 전송 지연은 앱 예약 대비 값입니다. 앱 프레임과 관측 게임 표본 간격은 따로 표시하며 표본 간격에는 중간 읽기 생략이 포함될 수 있습니다. 판정 증가를 관측한 현재 게임 타일과 마지막 입력 대상은 서로 다를 수 있고, 놓친 타일을 확정하는 값이 아닙니다. 게임 재시작의 판정 초기화는 새 회차의 0을 기준으로 삼아 첫 표본의 판정도 포함하고 양의 증가만 합합니다.
 - **`log [<what>]`** — 앱이 실행되는 동안 메모리에 남기는 기록(사용자 요청: 플레이 중 노트가 사라진 경위를 나중에 읽기 위해). 바뀐 것만 한 줄씩, 시각(밀리초까지)과 함께: 파이프 열림·닫힘, 링커 연결(**연결된 게임 프로세스 id**와 실행 중인 게임 프로세스 수·id — 얼불춤이 두 번 실행되는 버그를 알아보려고, 10초마다 다시 셈), 링커 버전, 레벨(경로·타일 수), 게임 상태·일시정지·게임 오버, follow 상태와 오프셋, auto의 시도 결과, 곡, 노트 준비(개수·시작 타일·배속), 재생 상태, 메인 화면 메시지, 0.5초 넘는 프레임 공백, 그리고 게임이 플레이 중이거나 follow 중이면 1초마다 지금(게임 상태·타일·위치 | 노트 시각·재생 상태·follow·화면에 있는 노트 수). 최근 5000줄만, 앱을 끄면 사라지고, 누른 키는 남기지 않습니다. 인자 없으면 최근 40줄, `all`은 남은 모든 줄, `erase`는 비우기. `report -log create|write <title>`이 메모에 씁니다. 앱이 최소화되어 프레임이 없으면 그동안은 남지 않습니다(그 공백이 한 줄로 남음).
@@ -229,8 +232,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 | 옵션 | 별칭 | 기본값 | 뜻 | 쓰는 명령 |
 | --- | --- | --- | --- | --- |
-| `-copy` | `-c` | | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, inspect, log, scannow, song, info, id, title, playlist, checkpoint, pin, note, property, export, paste, prompt, report, date |
-| `-proceed` | `-p` | | 모든 질문에 Y로 답하고 진행 | inspect, install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update |
+| `-copy` | `-c` | | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, inspect, restart, log, scannow, song, info, id, title, playlist, checkpoint, pin, note, property, export, paste, prompt, report, date |
+| `-proceed` | `-p` | | 모든 질문에 Y로 답하고 진행 | inspect, install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update, restart |
 | `-id` | | | id만 / `title`과 함께면 id도 / `load`는 id로 찾기 | song, title, load, playlist |
 | `-title` | `-tl` | | 제목만 / `id`와 함께면 제목도 | song, info, id, playlist |
 | `-hidden` | `-h` | | 숨긴 곡만 / `load`는 숨긴 곡도 | load, playlist |
@@ -311,6 +314,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
 | `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
 | `timing.no-trill-center-pair` | NoTrillCenterPair | 토글 |
+| `timing.trill-as-one` | TrillAsOneNote | 토글 (트릴을 노트 한 개로 판정, 기본 켜짐) |
 | `timing.trill-side` | TrillLanePreference | 선택 (chord-side와 같은 값) |
 | `timing.start-delay` | StartDelayMs | ms |
 | `timing.calibration` | CalibrationNoteCount | 노트 수 |

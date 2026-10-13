@@ -88,7 +88,8 @@ internal static class DesignAndTimingTests
 
         yield return ("Tiles from the next gap, and the two placement rules being tried out", () =>
         {
-            var wide = new VisualizerSettings { MaximumTileCount = 8 };
+            // Note by note: the 15 and 30ms runs below would otherwise be trills counted as one note each.
+            var wide = new VisualizerSettings { MaximumTileCount = 8, TrillAsOneNote = false };
             wide.EnsureValid();
             // Five notes 15 ms apart (8K) and then a long gap. The last note of the run is the one the two readings
             // disagree about: what is coming is slow, although what it came from was fast. Going up still waits for the
@@ -215,7 +216,8 @@ internal static class DesignAndTimingTests
             // lanes of a pair. Chords are grouped first (their window wins), the center pair is the last resort on four lanes
             // (taken only where every other pair breaks a run) and the preference picks the pair; a trill is not colored
             // differently.
-            var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 20, MagicCircleFixedTiles = false };
+            // These are the rules for trills counted note by note; counted as one note, a trill is laid out like a chord.
+            var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 20, MagicCircleFixedTiles = false, TrillAsOneNote = false };
             Equal(settings.TrillWindowMs, 40d);
             Equal(settings.NoTrillCenterPair, true);
             Equal(settings.TrillLanePreference, "1-2,3-4");

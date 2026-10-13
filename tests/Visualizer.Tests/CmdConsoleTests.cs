@@ -281,6 +281,19 @@ internal static class CmdConsoleTests
             return null;
         }
 
+        /// <summary>What restart asked for, in order.</summary>
+        public List<string> Restarted { get; } = [];
+        public IReadOnlyList<string> RestartLinker()
+        {
+            Restarted.Add("linker");
+            return ["The link started again from nothing. The game's linker connects again by itself."];
+        }
+        public string? RestartApp()
+        {
+            Restarted.Add("app");
+            return null;
+        }
+
         /// <summary>What update was asked to upload, and the lines it answers with.</summary>
         public List<string> Uploads { get; } = [];
         public List<string> UploadLines { get; set; } = ["Uploaded to origin/main."];
@@ -1588,6 +1601,26 @@ internal static class CmdConsoleTests
             Answer(again.Editor, "y");
             Assert(!again.IsWriting && host.Reports.Count == 0 && log.Report is null, "Deleted and closed");
             again.Close();
+        });
+
+        yield return ("restart takes linker or app: linker at once, app after asking", () =>
+        {
+            // User request: after trouble in the game the link (or the whole app) can start again from nothing.
+            var host = new Host();
+            var log = new CmdLog();
+            var session = new CmdSession(host, log);
+            session.Submit("restart");
+            Equal(Output(log), "restart needs one of: linker, app.");
+            session.Submit("restart game");
+            Assert(Output(log).StartsWith("'game' is not one of restart's words.", StringComparison.Ordinal), Output(log));
+            session.Submit("restart linker");
+            Assert(host.Restarted is ["linker"] && LastOutput(log)[^1].StartsWith("The link started again", StringComparison.Ordinal), Output(log));
+            session.Submit("restart app");
+            Assert(session.IsAsking && log.Lines[^1].Contains("Close this app and start it again?", StringComparison.Ordinal), Output(log));
+            session.Submit("n");
+            Assert(host.Restarted is ["linker"] && LastOutput(log)[^1] == "Nothing was restarted.", Output(log));
+            session.Submit("restart -p app");
+            Assert(host.Restarted is ["linker", "app"] && LastOutput(log)[^1] == "Closing to start again. The app comes back in a moment.", Output(log));
         });
 
         yield return ("inspect starts, stops and shows its results; -flow keeps the console until the run ends", () =>

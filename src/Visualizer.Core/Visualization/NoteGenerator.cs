@@ -82,7 +82,8 @@ public sealed class NoteGenerator
             || Enumerable.Range(0, times.Length).Any(i => holdEndsMs[i] is double end && (!double.IsFinite(end) || end <= times[i]))))
             throw new ArgumentException("Long note ends must match the hits and come after them.", nameof(holdEndsMs));
         if (times.Length == 0) return Array.Empty<VisualizerNote>();
-        var groups = SimultaneousNotePlanner.Group(times, settings);
+        // A trill may count as one note, as a chord does (user rule): from here on it is one group of its own.
+        var groups = SimultaneousNotePlanner.MergeTrills(SimultaneousNotePlanner.Group(times, settings), settings, holdEndsMs);
         times = groups.Select(g => g.TimeMs).ToArray();
         // A long note keeps its lane busy until it ends (user rule): a later note on that lane takes the next pattern lane.
         var busyUntil = SimultaneousNotePlanner.NewBusyLanes();
@@ -91,7 +92,7 @@ public sealed class NoteGenerator
         var initialMode = selector.Select(times.Length > 1 ? times[1] - times[0] : double.MaxValue);
         var cursor = new TilePatternCursor(settings, initialMode);
         // The tile count may be held through a magic circle (user rule); the runs are found from the same display times.
-        var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1).ToArray()) : [];
+        var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1 && !g.IsRoll).ToArray()) : [];
         var magicIndex = 0;
         var notes = new List<VisualizerNote>(times.Length);
         // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction

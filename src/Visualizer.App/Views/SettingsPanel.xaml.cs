@@ -77,6 +77,7 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _keepSpeed = new();
     private readonly ComboBox _chordLane = new();
     private readonly CheckBox _trillCenter = new();
+    private readonly CheckBox _trillOne = new();
     private readonly ComboBox _trillLane = new();
     private readonly CheckBox _magicFixedTiles = new();
     private readonly CheckBox _magicChords = new();
@@ -266,6 +267,7 @@ public partial class SettingsPanel : UserControl
         AddField("Chord lane preference", _chordLane, nameof(settings.ChordLanePreference), "ChordLaneHelp");
         // Trills are worked out after the chords and have the same two rules of their own (user request).
         AddText("Trill window (ms)", nameof(settings.TrillWindowMs), "TrillHelp");
+        AddField("Trill as one note", _trillOne, nameof(settings.TrillAsOneNote), "TrillAsOneHelp");
         AddField("Trill center pair last", _trillCenter, nameof(settings.NoTrillCenterPair), "NoTrillCenterHelp");
         AddField("Trill lane preference", _trillLane, nameof(settings.TrillLanePreference), "TrillLaneHelp");
         AddText("Start delay (ms)", nameof(settings.StartDelayMs));
@@ -369,7 +371,7 @@ public partial class SettingsPanel : UserControl
         _immediateDownshift.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Checked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
-        foreach (var box in new[] { _chordLanes, _chordCenter, _trillCenter })
+        foreach (var box in new[] { _chordLanes, _chordCenter, _trillCenter, _trillOne })
         {
             box.Checked += (_, _) => FormChanged();
             box.Unchecked += (_, _) => FormChanged();

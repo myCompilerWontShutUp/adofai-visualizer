@@ -36,6 +36,11 @@ public sealed class GameSyncFollower
     /// is not mistaken for one.
     /// </summary>
     public const double StillMs = 150;
+    /// <summary>
+    /// How far ahead of the song a tile the game names may lie while it is played: an early hit moves the tile on a little
+    /// before its time. A tile further ahead is not the one being played.
+    /// </summary>
+    public const double AheadTileMs = 300;
     /// <summary>How far the game's real rate may be from 100% and still be followed: the falling notes run at 100%.</summary>
     private const double RateTolerance = 0.001;
 
@@ -235,6 +240,13 @@ public sealed class GameSyncFollower
         // The reading is as old as the time since it arrived, and the song has moved on by that much.
         var position = standing ? reading.PositionMs : reading.PositionMs + (nowMs - arrivedMs);
         var target = session.TimelineTimeOf(position - OffsetMs.Value);
+        // The tile the game names can also stay behind for good: after a practice restart that followed a game error it kept
+        // naming the tile the last run died on, seconds ahead of the song, and every note up to there stayed hidden (user
+        // report, Wont Let You Go). Once the player has control the tile being played cannot lie far ahead of the song, so
+        // such a tile is not believed and the notes from where the song is are drawn.
+        if (double.IsFinite(session.HideNotesBeforeMs) && reading.State == "PlayerControl" && !standing
+            && (uint)reading.Floor < (uint)_tileTimes.Count && _tileTimes[reading.Floor] > position + AheadTileMs)
+            session.HideNotesBeforeMs = Math.Min(session.HideNotesBeforeMs, session.NoteTimeOf(position - OffsetMs.Value));
         if (!playing)
         {
             // Nothing to start while the game stands still; it starts with the game.

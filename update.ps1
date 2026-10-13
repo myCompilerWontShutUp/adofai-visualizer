@@ -45,6 +45,11 @@
 
 .PARAMETER Restart
     Starts the app again once the work is done.
+.PARAMETER RestartOnly
+    Only starts the app again once the one running has closed (the console's restart app): nothing is fetched, built or
+    changed, and git is not needed.
+.PARAMETER Build
+    Which build is started again: Release (the default), or Debug for the app that was running from it.
 
 .PARAMETER Progress
     For the app: prints `step <0..1>` lines for its progress bar and `state`/`scan` lines it reads, instead of sentences.
@@ -65,6 +70,9 @@ param(
     [switch]$NoBuild,
     [int]$WaitForProcessId,
     [switch]$Restart,
+    [switch]$RestartOnly,
+    [ValidateSet('Release', 'Debug')]
+    [string]$Build = 'Release',
     [switch]$Progress
 )
 # Every git call is checked by its exit code; 'Stop' would turn git's own stderr into a terminating error.
@@ -130,10 +138,17 @@ function Wait-App {
 }
 
 function Start-App {
-    $app = Join-Path $root 'src\Visualizer.App\bin\Release\net9.0-windows\Visualizer.App.exe'
+    $app = Join-Path $root ('src\Visualizer.App\bin\{0}\net9.0-windows\Visualizer.App.exe' -f $Build)
     if ($Restart -and (Test-Path $app)) { Start-Process -FilePath $app -WorkingDirectory $root }
 }
 
+if ($RestartOnly) {
+    # Nothing of the repository is touched: the app asked to be started again once it has gone.
+    Wait-App
+    $Restart = $true
+    Start-App
+    exit 0
+}
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Fail 'git was not found on this computer.' }
 if (-not (Test-Path (Join-Path $root '.git'))) { Fail 'This copy did not come from the repository, so there is nothing to update.' }
 

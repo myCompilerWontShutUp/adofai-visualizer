@@ -452,6 +452,28 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         NotifyPlayback();
     }
 
+    /// <summary>
+    /// Puts the loaded song back as loading leaves it: from its beginning, stopped, nothing pressed or hidden. Closing the
+    /// game link does this (user rule): without the game the notes must not run on from wherever it left them. Returns
+    /// whether it did.
+    /// </summary>
+    public bool BackToLoaded()
+    {
+        FollowingGame = false;
+        if (Playback.Timeline is null || Playback.State is PlaybackState.Off or PlaybackState.NoTimeline) return false;
+        var prepared = TryPrepare(() => Playback.Reset(Settings, 1));
+        if (prepared)
+        {
+            _checkpoint = 1;
+            _manualCheckpointPending = false;
+            ClearSectionText();
+            Raise(nameof(Checkpoint));
+            SetMessage(Text["LinkClosedReset"]);
+        }
+        NotifyPlayback();
+        return prepared;
+    }
+
     public string SongEndTitle => Text["SongEnded"];
 
     /// <summary>The offer's first button (user rule: always in the same place): the song from its beginning.</summary>

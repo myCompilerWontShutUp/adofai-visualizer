@@ -22,31 +22,56 @@ public sealed class NamedPipeGameSyncServer : IDisposable
 
     /// <summary>How long to wait before trying again when the name is taken, so a second app does not spin on it.</summary>
     private const int BusyDelayMs = 2000;
+    /// <summary>
+    /// How many games may be connected at once. ADOFAI sometimes starts twice (user report), and a game that hangs on to the
+    /// pipe must not keep out the one being played, so more than one is taken in and one of them is followed (see Choose).
+    /// </summary>
+    public const int MaxGames = 4;
+    /// <summary>A game silent this long is not the one being played, and another that still sends is followed instead.</summary>
+    public const double QuietMs = 500;
 
     private readonly GameSyncLink _link;
     private readonly string _name;
+    private readonly Func<uint> _foreground;
+    private readonly object _clientsGate = new();
+    private readonly List<Client> _clients = [];
+    private readonly List<Task> _serving = [];
+    private Client? _active;
     private CancellationTokenSource? _stopping;
     private Task? _loop;
 
+    /// <summary>One connected game: who it is, what it said first, and when it last sent a reading.</summary>
+    private sealed class Client(uint processId)
+    {
+        public uint ProcessId { get; } = processId;
+        public string? Mod { get; set; }
+        public GameSyncLevel? Level { get; set; }
+        public double LastReadingMs { get; set; } = double.NaN;
+    }
+
     /// <summary>
     /// <paramref name="pipeName"/> is only for tests, which must not fight a running app for the one shared name;
-    /// everything else uses <see cref="PipeName"/>, which is what the mod connects to.
+    /// everything else uses <see cref="PipeName"/>, which is what the mod connects to. <paramref name="foreground"/> says which
+    /// process owns the window in front (tests pass their own); the game in front is the one followed.
     /// </summary>
-    public NamedPipeGameSyncServer(GameSyncLink link, string? pipeName = null)
+    public NamedPipeGameSyncServer(GameSyncLink link, string? pipeName = null, Func<uint>? foreground = null)
     {
         _link = link ?? throw new ArgumentNullException(nameof(link));
         _name = string.IsNullOrWhiteSpace(pipeName) ? PipeName : pipeName;
+        _foreground = foreground ?? (() => Input.WindowsForegroundObserver.ForegroundProcessId());
     }
 
     /// <summary>Whether the pipe is open and waiting. A loop that ended on its own is not listening, whatever it was asked.</summary>
     public bool Listening => _loop is { IsCompleted: false };
     /// <summary>Whether a mod is connected right now.</summary>
-    public bool Connected { get; private set; }
+    public bool Connected { get { lock (_clientsGate) return _clients.Count > 0; } }
+    /// <summary>How many games are connected; more than one when the game runs twice.</summary>
+    public int Games { get { lock (_clientsGate) return _clients.Count; } }
     /// <summary>
-    /// The process id of the game the connected mod runs in, 0 when none is or Windows does not say. Only read, never
-    /// opened: the log names it, so a second game running is told apart from the one followed.
+    /// The process id of the game followed, 0 when none is or Windows does not say. Only read, never opened: the log and
+    /// inspect name it, so a second game running is told apart from the one followed.
     /// </summary>
-    public uint ClientProcessId { get; private set; }
+    public uint ClientProcessId { get { lock (_clientsGate) return _active?.ProcessId ?? 0; } }
     /// <summary>The last thing that went wrong, or null. Kept for the console to show; it does not stop the listening.</summary>
     public string? Problem { get; private set; }
 
@@ -66,65 +91,147 @@ public sealed class NamedPipeGameSyncServer : IDisposable
         _loop = null;
         if (stopping == null) return;
         stopping.Cancel();
-        // The loop only waits on the pipe, so it comes back at once; a short wait keeps Dispose from racing it.
-        try { loop?.Wait(TimeSpan.FromSeconds(2)); }
+        Task[] serving;
+        lock (_clientsGate) serving = [.. _serving];
+        // Every loop only waits on its pipe, so they come back at once; a short wait keeps Dispose from racing them.
+        try { Task.WaitAll([.. serving, .. loop is null ? Array.Empty<Task>() : [loop]], TimeSpan.FromSeconds(2)); }
         catch (AggregateException) { }
         stopping.Dispose();
-        Connected = false;
+        lock (_clientsGate)
+        {
+            _clients.Clear();
+            _serving.Clear();
+            _active = null;
+        }
     }
 
     private async Task Listen(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
+            NamedPipeServerStream? pipe = null;
             try
             {
-                using var pipe = new NamedPipeServerStream(_name, PipeDirection.In, 1,
-                    PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+                // With no instance of this app's open, the new one must be the first of its name: another visualizer already
+                // listening keeps it, as when only one instance was ever made.
+                var options = PipeOptions.Asynchronous | (Games == 0 ? PipeOptions.FirstPipeInstance : PipeOptions.None);
+                pipe = new NamedPipeServerStream(_name, PipeDirection.In, MaxGames, PipeTransmissionMode.Byte, options);
                 await pipe.WaitForConnectionAsync(token).ConfigureAwait(false);
-                // A restarted game is a new mod with a clock from zero; what the last one said must not refuse it.
-                _link.BeginConnection();
-                ClientProcessId = GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var client) ? client : 0;
-                Connected = true;
+                var client = new Client(GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var id) ? id : 0);
+                var connected = pipe;
+                pipe = null;
+                lock (_clientsGate)
+                {
+                    _clients.Add(client);
+                    _serving.RemoveAll(task => task.IsCompleted);
+                    _serving.Add(Task.Run(() => Serve(connected, client, token)));
+                }
                 Problem = null;
-                using var reader = new StreamReader(pipe, new UTF8Encoding(false));
-                while (await reader.ReadLineAsync(token).ConfigureAwait(false) is { } line)
-                    Take(line, _link.NowMs);
+                // Every instance taken: wait for a game to leave before offering another.
+                while (Games >= MaxGames) await Task.Delay(BusyDelayMs / 4, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
-            // A mod that dies mid-line, the name already taken by another visualizer, or one made by another account: say
-            // so and try again later, never spin on it and never stop listening for good.
+            // The name already taken by another visualizer, or by another account: say so and try again later, never spin
+            // on it and never stop listening for good.
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 Problem = T("PipeTaken", error.Message);
                 try { await Task.Delay(BusyDelayMs, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
-            finally
+            finally { pipe?.Dispose(); }
+        }
+    }
+
+    /// <summary>Reads one game until it leaves. A game that dies mid-line costs its own connection, never another's.</summary>
+    private async Task Serve(NamedPipeServerStream pipe, Client client, CancellationToken token)
+    {
+        try
+        {
+            using var reader = new StreamReader(pipe, new UTF8Encoding(false));
+            while (await reader.ReadLineAsync(token).ConfigureAwait(false) is { } line)
+                Take(client, line, _link.NowMs);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) when (error is IOException or ObjectDisposedException) { }
+        finally
+        {
+            // The pipe goes before the game is forgotten, so no instance of this app's is left when none is counted.
+            pipe.Dispose();
+            lock (_clientsGate)
             {
-                Connected = false;
-                ClientProcessId = 0;
+                _clients.Remove(client);
+                // The next reading from another game picks it; the link keeps the last word, which goes stale on its own.
+                if (_active == client) _active = null;
             }
         }
+    }
+
+    /// <summary>One line from a game. Whatever is in it, it costs that line at most, never the connection.</summary>
+    private void Take(Client client, string line, double arrivedMs)
+    {
+        if (line.Length == 0) return;
+        lock (_clientsGate)
+        {
+            try
+            {
+                // With no game followed, the first one to speak is: its hello and level count before its first reading,
+                // so link auto can load the song as soon as the game opens it.
+                if (ParseMod(line) is { } mod)
+                {
+                    client.Mod = mod;
+                    if (_active is null) Follow(client);
+                    else if (client == _active) _link.SetMod(mod);
+                }
+                else if (ParseLevel(line) is { } level)
+                {
+                    client.Level = level;
+                    if (_active is null) Follow(client);
+                    else if (client == _active) _link.SetLevel(level);
+                }
+                else if (Parse(line) is { } message)
+                {
+                    client.LastReadingMs = arrivedMs;
+                    if (Choose(arrivedMs) == client) _link.Add(message, arrivedMs);
+                }
+                else if (client == _active) _link.Refuse(T("LineNotReading"));
+            }
+            catch (ArgumentException) { if (client == _active) _link.Refuse(T("LineBadValue")); }
+        }
+    }
+
+    /// <summary>
+    /// Which game is followed (user report: ADOFAI sometimes runs twice, and a game in trouble may keep the pipe while it
+    /// sends nothing): the one whose window is in front while it sends; else the one followed so far while it still sends;
+    /// else the one that sent last. Changing game starts the link over from that game's own hello and level.
+    /// </summary>
+    private Client? Choose(double nowMs)
+    {
+        bool Sends(Client client) => double.IsFinite(client.LastReadingMs) && nowMs - client.LastReadingMs <= QuietMs;
+        var front = _foreground();
+        var pick = _clients.FirstOrDefault(client => front != 0 && client.ProcessId == front && Sends(client))
+            ?? (_active is { } active && Sends(active) ? active : null)
+            ?? _clients.Where(Sends).OrderByDescending(client => client.LastReadingMs).FirstOrDefault();
+        if (pick is not null && pick != _active) Follow(pick);
+        return _active;
+    }
+
+    /// <summary>
+    /// Follows this game from now on. What the link knew belongs to the other connection: a restarted game counts from
+    /// zero again and another game plays another run, so the last word is dropped rather than mixed in, and the link
+    /// starts from this game's own hello and level.
+    /// </summary>
+    private void Follow(Client client)
+    {
+        _active = client;
+        _link.BeginConnection();
+        if (client.Mod is { } mod) _link.SetMod(mod);
+        if (client.Level is { } level) _link.SetLevel(level);
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);
-
-    /// <summary>One line from the mod. Whatever is in it, it costs that line at most, never the connection.</summary>
-    private void Take(string line, double arrivedMs)
-    {
-        if (line.Length == 0) return;
-        try
-        {
-            if (ParseMod(line) is { } mod) _link.SetMod(mod);
-            else if (ParseLevel(line) is { } level) _link.SetLevel(level);
-            else if (Parse(line) is { } message) _link.Add(message, arrivedMs);
-            else _link.Refuse(T("LineNotReading"));
-        }
-        catch (ArgumentException) { _link.Refuse(T("LineBadValue")); }
-    }
 
     /// <summary>Reads one line, or null when it is not a reading. Values are checked by the link, not here.</summary>
     internal static GameSyncMessage? Parse(string line)

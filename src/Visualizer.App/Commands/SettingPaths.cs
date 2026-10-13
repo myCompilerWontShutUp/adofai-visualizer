@@ -95,6 +95,7 @@ public static class SettingPaths
             new("timing", "chord-side", nameof(VisualizerSettings.ChordLanePreference), Choice),
             new("timing", "trill-window", nameof(VisualizerSettings.TrillWindowMs), Number, "ms"),
             new("timing", "no-trill-center-pair", nameof(VisualizerSettings.NoTrillCenterPair), Toggle),
+            new("timing", "trill-as-one", nameof(VisualizerSettings.TrillAsOneNote), Toggle),
             new("timing", "trill-side", nameof(VisualizerSettings.TrillLanePreference), Choice),
             new("judgment", "bar", nameof(VisualizerSettings.JudgmentBarMode), Choice),
             new("judgment", "window", nameof(VisualizerSettings.JudgmentBarDifficulty), Choice),

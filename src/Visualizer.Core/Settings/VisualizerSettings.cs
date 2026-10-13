@@ -100,6 +100,12 @@ public sealed record VisualizerSettings
     /// <summary>Which pair a trill takes first; the same choices as <see cref="ChordLanePreference"/>.</summary>
     public string TrillLanePreference { get; init; } = Text(nameof(TrillLanePreference));
     /// <summary>
+    /// A trill counts as one note, as a chord does (user rule): the tile count comes from the gaps around it, not the short
+    /// one inside it, it is one step of the cycle, and it takes lanes side by side the way a chord does, each note still
+    /// falling at its own time. Off, every note of a trill is a step of its own.
+    /// </summary>
+    public bool TrillAsOneNote { get; init; } = Flag(nameof(TrillAsOneNote));
+    /// <summary>
     /// When enabled, fewer tiles start on the note that asks for them instead of at the end of the running cycle, the 1K→2K
     /// and 2K→4K anticipation switches there too, and a switch never repeats the tile just played. When disabled, every switch
     /// waits for the cycle boundary.
@@ -356,6 +362,7 @@ public sealed record VisualizerSettings
         && FourKeyBoundaryMs == other.FourKeyBoundaryMs && TwoKeyBoundaryMs == other.TwoKeyBoundaryMs && InitialTile == other.InitialTile
         && SimultaneousWindowMs == other.SimultaneousWindowMs && TrillWindowMs == other.TrillWindowMs
         && NoTrillCenterPair == other.NoTrillCenterPair && TrillLanePreference.Trim() == other.TrillLanePreference.Trim()
+        && TrillAsOneNote == other.TrillAsOneNote
         && ImmediateDownshift == other.ImmediateDownshift
         && (!ImmediateDownshift || DownshiftNoteCount == other.DownshiftNoteCount)
         && StartDelayMs == other.StartDelayMs && PlaybackSpeedPercent == other.PlaybackSpeedPercent

@@ -58,9 +58,10 @@ internal static class EnvironmentCompatibilityTests
             playback.ApplySettings(new() { SimultaneousWindowMs = 10, PlaybackSpeedPercent = 200, StartDelayMs = 500 });
             Equal(playback.Notes[0].HitTimeMs, 500d); Equal(playback.Notes[1].HitTimeMs, 500d);
             // The 4K boundary is pinned so editing DefaultSettings.jsonc does not change this check.
-            playback.LoadTimeline(new[] { 0d, 60 }, new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500 });
+            // At 200% the 60ms gap is 30ms, a trill: counted per note here, so the gap itself decides.
+            playback.LoadTimeline(new[] { 0d, 60 }, new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500, TrillAsOneNote = false });
             Equal(playback.Notes[0].Mode, 2);
-            playback.ApplySettings(new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500, PlaybackSpeedPercent = 200 });
+            playback.ApplySettings(new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500, PlaybackSpeedPercent = 200, TrillAsOneNote = false });
             Equal(playback.Notes[0].Mode, 4);
             Throws<NotePlacementException>(() => playback.LoadTimeline(new[] { 0d, double.MaxValue }, new() { PlaybackSpeedPercent = 1 }));
             Equal(playback.Notes.Count, 0); Assert(!playback.Start(), "Overflow cannot leave playable stale notes");

@@ -637,6 +637,17 @@ internal static class GameSyncTests
             Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(-984 - 1200)) < 0.001, "Back on the game's clock: " + session.TimelineTimeMs);
             Equal(session.State, PlaybackState.Playing);
             Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs), "Every note of the new attempt is drawn");
+
+            // A tile that never comes back (user report, Wont Let You Go after a game error: the game kept naming the tile the
+            // last run died on, seconds ahead of the song). The countdown keeps it hidden, but once the player has control a
+            // tile that far ahead is not believed, and the notes from where the song is are drawn.
+            Frame(4100, At(-700, dead: true, floor: 5), 4100);
+            for (var t = 4200; t <= 4296; t += 16) Frame(t, At(-1000 + (t - 4200), floor: 5) with { State = "Countdown" }, t);
+            var staleCut = session.NoteTimeOf(2100 - 1200);
+            Assert(Math.Abs(session.HideNotesBeforeMs - staleCut) < 0.001, "The countdown trusts the tile: " + session.HideNotesBeforeMs);
+            for (var t = 4312; t <= 4408; t += 16) Frame(t, At(-1000 + (t - 4200), floor: 5), t);
+            Assert(session.HideNotesBeforeMs <= session.NoteTimeOf(-1000 + 208 - 1200) + 0.001,
+                $"Control shows the notes from the song's place on: {session.HideNotesBeforeMs} (the tile said {staleCut})");
         });
 
         yield return ("link auto finds an edit by its original, and with it on only the linker moves the playhead", () =>
@@ -759,9 +770,17 @@ internal static class GameSyncTests
 
                 // Closing the link ends link auto too (user rule): with nothing to follow it goes back to manual.
                 host.GameSyncAuto(true);
+                // It also puts the song back as loading leaves it (user rule): the notes used to run on alone from wherever the
+                // game left them, with the tiles a restart hid still hidden.
+                if (model.Playback.State != PlaybackState.Playing) model.Playback.Start();
+                Equal(model.Playback.State, PlaybackState.Playing);
+                model.Playback.HideNotesBeforeMs = 1234;
                 var stopped = host.GameSync(false, true, false);
                 Assert(stopped.Contains("link auto is off as well: the link is closed, so link manual is back.")
                     && stopped.Any(line => line.StartsWith("Auto     off", StringComparison.Ordinal)), string.Join(" | ", stopped));
+                Equal(model.Playback.State, PlaybackState.Waiting);
+                Assert(double.IsNegativeInfinity(model.Playback.HideNotesBeforeMs) && model.Playback.TimelineTimeMs <= 0
+                    && stopped.Contains("The song is back as it was loaded: from its beginning, stopped."), string.Join(" | ", stopped));
                 var reopened = host.GameSync(true, false, false);
                 Assert(reopened.Any(line => line.StartsWith("Auto     off", StringComparison.Ordinal)), "Opening the pipe again does not switch it back on");
                 Assert(Frames(() => host.LogLines().Any(line => line.EndsWith("link: the pipe is closed", StringComparison.Ordinal))),
@@ -1359,6 +1378,16 @@ internal static class GameSyncTests
             using (var client = new NamedPipeClientStream(".", name, PipeDirection.Out))
                 client.Connect(5000);
             Assert(host.GameSync(false, false, true)[^1] == "Measuring again from now.", "A reset says so");
+            // restart linker (user request): the whole link from nothing, listening again at once, link auto as it was.
+            host.GameSyncAuto(true);
+            var restarted = host.RestartLinker();
+            Assert(restarted[0].StartsWith("The link started again", StringComparison.Ordinal)
+                && restarted.Any(line => line.StartsWith("Listening", StringComparison.Ordinal))
+                && restarted.Any(line => line.StartsWith("Auto     on", StringComparison.Ordinal)), string.Join(" | ", restarted));
+            using (var again = new NamedPipeClientStream(".", name, PipeDirection.Out))
+                again.Connect(5000);
+            Assert(host.LogLines().Any(line => line.EndsWith("link: restarted from nothing", StringComparison.Ordinal)), "The log has it");
+            host.GameSyncAuto(false);
             Assert(host.GameSync(false, true, false)[0].Contains("Not listening", StringComparison.Ordinal), "Closed by -off");
             window.Close();
             // Closing while it listens must not leave the pipe or its thread behind.
@@ -1368,6 +1397,53 @@ internal static class GameSyncTests
             using var after = new NamedPipeClientStream(".", name, PipeDirection.Out);
             Throws<TimeoutException>(() => after.Connect(500));
             MainWindow.GameSyncPipeName = NamedPipeGameSyncServer.PipeName;
+        });
+
+        yield return ("The pipe takes in a second game and follows the one that is playing", () =>
+        {
+            // User report: ADOFAI sometimes runs twice, and a game in trouble may keep the pipe while it sends nothing. The pipe
+            // used to take one game at a time, so the game being played could not even connect then.
+            var link = new GameSyncLink();
+            var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+            using var server = new NamedPipeGameSyncServer(link, name, foreground: () => 0);
+            server.Start();
+            static void Send(NamedPipeClientStream pipe, string line)
+            {
+                var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                pipe.Write(bytes, 0, bytes.Length);
+                pipe.Flush();
+            }
+            static string Reading(int clock, int position, string path) =>
+                $$"""{"v":2,"t":{{clock}},"pos":{{position}},"st":"PlayerControl","paused":false,"floor":1,"speed":1,"path":"{{path}}"}""";
+            var first = new NamedPipeClientStream(".", name, PipeDirection.Out);
+            first.Connect(5000);
+            Send(first, """{"v":2,"mod":"1.0.9"}""");
+            Send(first, """{"v":2,"lvl":"A","times":[0,500]}""");
+            Send(first, Reading(1, 100, "A"));
+            Wait(() => link.Latest.Reading?.Path == "A", "the first game to be followed");
+            using var second = new NamedPipeClientStream(".", name, PipeDirection.Out);
+            second.Connect(5000);
+            Send(second, """{"v":2,"mod":"1.0.9"}""");
+            Send(second, """{"v":2,"lvl":"B","times":[0,700]}""");
+            Send(second, Reading(1, 200, "B"));
+            Wait(() => server.Games == 2, "both games to be in");
+            // While the game followed still sends, it stays the one followed: a second game does not pull the notes away.
+            Send(first, Reading(2, 110, "A"));
+            Wait(() => link.Latest.Reading?.PositionMs == 110, "the first game's next reading");
+            Equal(link.Level?.Path, "A");
+            // The first goes quiet (a game in trouble) while the second plays on: the second is followed, from its own level.
+            Thread.Sleep((int)NamedPipeGameSyncServer.QuietMs + 150);
+            Send(second, Reading(2, 210, "B"));
+            Wait(() => link.Latest.Reading?.Path == "B", "the game still playing to be followed");
+            Equal(link.Level?.Path, "B");
+            Assert(server.ClientProcessId != 0, "The followed game is named");
+            // The quiet one leaving takes nothing with it.
+            first.Dispose();
+            Wait(() => server.Games == 1, "the quiet game to be gone");
+            Send(second, Reading(3, 220, "B"));
+            Wait(() => link.Latest.Reading?.PositionMs == 220, "the second game to carry on");
+            server.Stop();
+            Equal(server.Games, 0);
         });
 
         yield return ("Sync pipe takes what a mod writes and refuses nonsense", () =>

@@ -200,8 +200,9 @@ internal static class Program
             }),
             ("2K to 4K anticipates the close run instead of opening one more 2K cycle", () =>
             {
-                // The boundaries are pinned to the values this case was written for (300ms is 2K, 30ms is 4K).
-                var settings = new VisualizerSettings { SimultaneousWindowMs = 0,
+                // The boundaries are pinned to the values this case was written for (300ms is 2K, 30ms is 4K). Each 30ms note is
+                // a step of its own here; counted as one note, a trill would read its gaps from the notes around it instead.
+                var settings = new VisualizerSettings { SimultaneousWindowMs = 0, TrillAsOneNote = false,
                     EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500 };
                 var generator = new NoteGenerator();
                 // User report (Plum - R): lanes "4 3 2 1 4 3 2 1" were shown as "3 2 4 3 2 1 4 3 2 1".
@@ -272,7 +273,7 @@ internal static class Program
                 // The downshift wait and the boundaries are pinned so this anticipation check does not depend on the initial settings.
                 var settings = new VisualizerSettings
                 {
-                    MaximumTileCount = 8, InitialTile = 3, SimultaneousWindowMs = 0, DownshiftNoteCount = 1,
+                    MaximumTileCount = 8, InitialTile = 3, SimultaneousWindowMs = 0, DownshiftNoteCount = 1, TrillAsOneNote = false,
                     EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500,
                     TwoKeyPattern = "3 2", FourKeyPattern = "3 2 1 4", EnableTilePreference = true, FourKeyOrder = "3 2 1 4"
                 };

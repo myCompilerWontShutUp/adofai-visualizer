@@ -158,6 +158,7 @@ public static class CmdCatalog
         new("report", "Console", "report <what> [<title>]",
             "-force, -proceed / -copy / -log", CmdArgument.Note, "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
         new("update", "Console", "update", "-force, -proceed / -version", CmdArgument.None),
+        new("restart", "Console", "restart <what>", "-proceed / -copy", CmdArgument.None, "linker, app"),
         new("clear", "Console", "clear", "", CmdArgument.None),
         new("exit", "Console", "exit", "-keep", CmdArgument.None),
 
@@ -387,6 +388,8 @@ public static class CmdCatalog
         "report state",
         "report colon",
         "report list",
+        "restart linker",
+        "restart app",
         "inspect start",
         "inspect stop",
         "inspect result",

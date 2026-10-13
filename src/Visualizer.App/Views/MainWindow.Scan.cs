@@ -283,6 +283,27 @@ public partial class MainWindow
     /// install -reinstall source and app: the app closes, since a running app holds its own files, and update.ps1 puts the
     /// parts back, builds them and opens it again. Nothing is read back, because this app will not be here to read it.
     /// </summary>
+    string? ICmdHost.RestartApp()
+    {
+        // The build running now is the one started again: Debug from a test run, Release otherwise.
+        var debug = AppContext.BaseDirectory.Contains(Path.DirectorySeparatorChar + "Debug" + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+        if (UpdateScript("-RestartOnly", "-Build", debug ? "Debug" : "Release", "-WaitForProcessId",
+                Environment.ProcessId.ToString(CultureInfo.InvariantCulture)) is not { } start)
+            return T("NotFromRepositoryRestart");
+        start.RedirectStandardOutput = false;
+        start.RedirectStandardError = false;
+        try { Process.Start(start); }
+        catch (Exception error) when (IsExpectedError(error) || error is System.ComponentModel.Win32Exception)
+        {
+            return T("RestartCouldNotStart", error.Message);
+        }
+        // The script waits for this app to be gone before it starts the new one, so the two never run together.
+        Dispatcher.BeginInvoke(new Action(() => System.Windows.Application.Current.Shutdown()),
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        return null;
+    }
+
     string? ICmdHost.ReinstallAndRestart(IReadOnlyList<string> parts)
     {
         var arguments = new List<string> { "-Reinstall", string.Join(",", parts), "-WaitForProcessId",

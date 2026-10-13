@@ -55,6 +55,7 @@ public partial class SettingsPanel
             _keepSpeed.IsChecked = settings.KeepSpeedOnLoad;
             _chordLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.ChordLanePreference.Trim()));
             _trillCenter.IsChecked = settings.NoTrillCenterPair;
+            _trillOne.IsChecked = settings.TrillAsOneNote;
             _trillLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.TrillLanePreference.Trim()));
             _judgmentMode.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentModes, settings.JudgmentBarMode.Trim()));
             _judgmentDifficulty.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentDifficulties, settings.JudgmentBarDifficulty.Trim()));
@@ -458,6 +459,7 @@ public partial class SettingsPanel
             AlignNextNoteOnPause = _pauseAlign.SelectedIndex != 1,
             ChordLanePreference = ChordLanes[Math.Clamp(_chordLane.SelectedIndex, 0, ChordLanes.Length - 1)],
             NoTrillCenterPair = _trillCenter.IsChecked == true,
+            TrillAsOneNote = _trillOne.IsChecked == true,
             TrillLanePreference = ChordLanes[Math.Clamp(_trillLane.SelectedIndex, 0, ChordLanes.Length - 1)],
             JudgmentBarMode = JudgmentModes[Math.Clamp(_judgmentMode.SelectedIndex, 0, JudgmentModes.Length - 1)],
             JudgmentBarDifficulty = JudgmentDifficulties[Math.Clamp(_judgmentDifficulty.SelectedIndex, 0, JudgmentDifficulties.Length - 1)],

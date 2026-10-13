@@ -17,7 +17,7 @@ public partial class MainWindow
     private readonly EventLog _events = new();
 
     /// <summary>What the last frame saw; a line goes into the log for each thing that differs.</summary>
-    private sealed record Seen(bool Listening, bool Connected, uint Client, string? Mod, GameSyncLevel? Level, string? State,
+    private sealed record Seen(bool Listening, bool Connected, uint Client, int Games, string? Mod, GameSyncLevel? Level, string? State,
         bool Paused, GameSyncFollowState Follow, bool Following, string? AutoNote, int Prepared, PlaybackState Playback,
         string? Song, string Message);
 
@@ -53,7 +53,7 @@ public partial class MainWindow
         var reading = _sync?.Latest.Reading;
         var playback = _model.Playback;
         var seen = new Seen(_syncServer?.Listening == true, _syncServer?.Connected == true, _syncServer?.ClientProcessId ?? 0,
-            _sync?.ModVersion, _sync?.Level, reading?.State, reading?.Paused == true, _follower.State, _model.FollowingGame, _autoNote,
+            _syncServer?.Games ?? 0, _sync?.ModVersion, _sync?.Level, reading?.State, reading?.Paused == true, _follower.State, _model.FollowingGame, _autoNote,
             playback.Prepared, playback.State, _model.LoadedSongName, _model.Message);
         var was = _seen;
         _seen = seen;
@@ -65,6 +65,8 @@ public partial class MainWindow
             Log("LogLinkerIn", seen.Client, _processes);
         }
         else if (was is { Connected: true } && !seen.Connected) Log("LogLinkerOut");
+        // A second game connecting, or going (the game starts twice now and then, user report).
+        if (was is not null && seen.Games != was.Games && (seen.Games > 1 || was.Games > 1)) Log("LogGames", seen.Games, seen.Client);
         if (seen.Mod is { } mod && mod != was?.Mod) Log("LogMod", mod);
         if (seen.Level is { } level && !ReferenceEquals(level, was?.Level)) Log("LogLevel", level.Path, level.TimesMs.Count);
         if (reading is not null && (reading.State != was?.State || reading.Paused != was?.Paused))
@@ -86,7 +88,8 @@ public partial class MainWindow
         {
             _lastSnapshotMs = now;
             Log("LogSnapshot", reading?.State ?? "-", reading?.Floor ?? 0, reading is null ? "-" : Ms(reading.PositionMs),
-                Ms(playback.TimelineTimeMs), playback.State, T("Follow." + _follower.State), NotesOnScreen(playback));
+                Ms(playback.TimelineTimeMs), playback.State, T("Follow." + _follower.State), NotesOnScreen(playback, hidden: false),
+                NotesOnScreen(playback, hidden: true));
         }
         // A second game running (a known ADOFAI bug starts it twice) is easy to miss, and only the one connected is followed.
         if (seen.Connected && now - _lastProcessCheckMs >= ProcessCheckMs)
@@ -106,13 +109,18 @@ public partial class MainWindow
         return T("LogProcessList", ids.Count, string.Join(", ", ids));
     }
 
-    /// <summary>How many prepared notes are between the top of the field and the judgment line right now.</summary>
-    private int NotesOnScreen(PlaybackSession playback)
+    /// <summary>
+    /// How many prepared notes are between the top of the field and the judgment line right now: the ones drawn, or with
+    /// <paramref name="hidden"/> the ones a game restart hides (tiles before the one it carries on from).
+    /// </summary>
+    private int NotesOnScreen(PlaybackSession playback, bool hidden)
     {
         var notes = playback.Notes;
         if (notes.Count == 0) return 0;
         var from = playback.TimelineTimeMs - playback.Offsets.TotalMs;
         var until = from + _model.Settings.NoteTravelTimeMs;
+        var cut = Math.Clamp(playback.HideNotesBeforeMs, from, until);
+        (from, until) = hidden ? (from, cut) : (cut, until);
         int First(double time)
         {
             int low = 0, high = notes.Count;
