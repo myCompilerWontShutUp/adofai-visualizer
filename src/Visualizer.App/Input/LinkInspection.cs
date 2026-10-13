@@ -2,12 +2,13 @@ using System.Globalization;
 using Visualizer.Application.Playback;
 using Visualizer.Application.Sync;
 using Visualizer.Core.Visualization;
+using Visualizer.Core.Settings;
 using static Visualizer.Core.Localization.ConsoleText;
 
 namespace Visualizer.App.Input;
 
 /// <summary>One key link inspect sent: the note, its tile, when it was due and when it went, on the playback clock.</summary>
-public sealed record InspectPress(int Note, int Tile, double DueMs, double SentMs)
+public sealed record InspectPress(int Note, int Tile, double DueMs, double SentMs, int? SourceFloor = null, double? PreviousKeyGapMs = null)
 {
     public double LateMs => SentMs - DueMs;
 }
@@ -41,14 +42,17 @@ public sealed class LinkInspection : IDisposable
     private bool _seenFront;
     private int _skipped;
     private readonly IReadOnlyDictionary<int, int> _keyOfTile;
+    private readonly int?[]? _sourceFloors;
     private readonly Dictionary<int, (int Tile, double PressAt, double ReleaseAt)> _plan = [];
     private readonly HashSet<int> _done = [];
     private readonly Dictionary<int, double> _held = [];
+    private readonly Dictionary<int, double> _lastKeyPressMs = [];
     private readonly List<InspectPress> _presses = [];
     /// <summary>Keys to press once before the notes (<see cref="WarmUp"/>), each with when it is due, and the ones sent.</summary>
     private readonly List<(int Key, double At)> _warm = [];
     private readonly List<int> _warmed = [];
     private readonly HashSet<int> _warmHeld = [];
+    private double _lastWarmMs = double.NegativeInfinity;
     private double _warmUntilMs;
     private bool _hasPlannedNotes;
     private double _timelineMs = double.NaN;
@@ -62,9 +66,10 @@ public sealed class LinkInspection : IDisposable
     /// <param name="gameInFront">Whether the game is the window in front right now. Asked before every press, from any thread.</param>
     /// <param name="describeFront">What is in front instead, for the reason a run stops; any thread may ask.</param>
     public LinkInspection(IMonotonicClock clock, IReadOnlyDictionary<int, int> keyOfTile, Action<int, bool> send, Func<bool> gameInFront,
-        Func<string>? describeFront = null)
+        Func<string>? describeFront = null, IReadOnlyList<int?>? sourceFloors = null)
     {
         _describeFront = describeFront;
+        _sourceFloors = sourceFloors?.ToArray();
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _keyOfTile = keyOfTile ?? throw new ArgumentNullException(nameof(keyOfTile));
         _send = send ?? throw new ArgumentNullException(nameof(send));
@@ -85,6 +90,8 @@ public sealed class LinkInspection : IDisposable
 
     /// <summary>How far apart the warm-up keys go, so each is a press of its own.</summary>
     public const double WarmGapMs = 40;
+    /// <summary>Time with no warm-up key held before the first note, leaving room for a 100ms chatter filter.</summary>
+    public const double WarmQuietMs = 100;
 
     /// <summary>The warm-up keys sent so far, in order.</summary>
     public IReadOnlyList<int> Warmed { get { lock (_gate) return _warmed.ToArray(); } }
@@ -100,6 +107,7 @@ public sealed class LinkInspection : IDisposable
         lock (_gate)
         {
             _warmUntilMs = untilMs;
+            _lastWarmMs = double.NegativeInfinity;
             var distinct = keys.Distinct().ToArray();
             for (var k = 0; k < distinct.Length; k++)
             {
@@ -214,10 +222,14 @@ public sealed class LinkInspection : IDisposable
             for (var w = 0; w < _warm.Count; w++)
             {
                 var (key, at) = _warm[w];
-                if (at > nowMs) continue;
+                if (at > nowMs || nowMs - _lastWarmMs < WarmGapMs) continue;
+                // Starting in the console must not consume the warm-up before the game comes forward.
+                if (!_gameInFront()) continue;
                 _warm.RemoveAt(w--);
-                if (!_gameInFront() || _held.ContainsKey(key)) continue;
+                if (_held.ContainsKey(key)) continue;
                 _send(key, true);
+                _lastWarmMs = nowMs;
+                _lastKeyPressMs[key] = nowMs;
                 _held[key] = nowMs + TapMs;
                 _warmHeld.Add(key);
                 _warmed.Add(key);
@@ -241,10 +253,13 @@ public sealed class LinkInspection : IDisposable
                 if (_held.ContainsKey(key)) _send(key, false);
                 _warmHeld.Remove(key);
                 _send(key, true);
+                var previousGap = _lastKeyPressMs.TryGetValue(key, out var previous) ? (double?)(nowMs - previous) : null;
+                _lastKeyPressMs[key] = nowMs;
                 _held[key] = plan.ReleaseAt;
                 _done.Add(note);
                 _lastNote = Math.Max(_lastNote, note);
-                _presses.Add(new InspectPress(note, plan.Tile, plan.PressAt, nowMs));
+                _presses.Add(new InspectPress(note, plan.Tile, plan.PressAt, nowMs,
+                    _sourceFloors is { } floors && note < floors.Length ? floors[note] : null, previousGap));
             }
             return true;
         }
@@ -258,7 +273,9 @@ public sealed class LinkInspection : IDisposable
             var next = double.PositiveInfinity;
             foreach (var (note, plan) in _plan) if (!_done.Contains(note)) next = Math.Min(next, plan.PressAt);
             foreach (var until in _held.Values) next = Math.Min(next, until);
-            foreach (var (_, at) in _warm) next = Math.Min(next, at);
+            // Until the first game foreground, Step keeps polling without spinning on an overdue warm-up.
+            if (_seenFront)
+                foreach (var (_, at) in _warm) next = Math.Min(next, Math.Max(at, _lastWarmMs + WarmGapMs));
             return next;
         }
     }
@@ -334,18 +351,24 @@ public sealed class InspectRun
     private static readonly string[] MarginNames =
         ["TooEarly", "VeryEarly", "EarlyPerfect", "Perfect", "LatePerfect", "VeryLate", "TooLate", "Multipress", "FailMiss", "FailOverload", "Auto", "OverPress"];
 
-    private int[]? _first;
+    private int[]? _changes;
     private int[]? _last;
+    private readonly VisualizerSettings? _settings;
+    private double _gameStampMs = double.NaN;
+    private double _maxGameGapMs;
+    private int _gameGaps;
+    private int _longGameGaps;
     private readonly List<InspectEvent> _events = [];
     private readonly List<double> _stalls = [];
 
-    public InspectRun(int number, DateTime startedAt, string song, string levelPath, string? modVersion)
+    public InspectRun(int number, DateTime startedAt, string song, string levelPath, string? modVersion, VisualizerSettings? settings = null)
     {
         Number = number;
         StartedAt = startedAt;
         Song = song;
         LevelPath = levelPath;
         ModVersion = modVersion;
+        _settings = settings;
     }
 
     public int Number { get; }
@@ -361,14 +384,28 @@ public sealed class InspectRun
     public void Observe(GameSyncMessage reading, InspectPress? lastPress)
     {
         ArgumentNullException.ThrowIfNull(reading);
+        if (double.IsFinite(_gameStampMs) && reading.ModClockMs > _gameStampMs)
+        {
+            var gap = reading.ModClockMs - _gameStampMs;
+            _gameGaps++;
+            _maxGameGapMs = Math.Max(_maxGameGapMs, gap);
+            if (gap > LinkInspection.TapMs) _longGameGaps++;
+        }
+        _gameStampMs = reading.ModClockMs;
         if (reading.Judgments is not { } counts) return;
         var now = counts.ToArray();
-        _first ??= now;
+        if (_changes is null || _changes.Length != now.Length) _changes = new int[now.Length];
+        // On a restart the first observed reading may already contain judgments: a zero reading can be omitted.
+        // Count those against zero for the new attempt instead of losing its first miss or subtracting the old counts.
         if (_last is { } before && before.Length == now.Length)
+        {
+            if (now.Where((count, i) => count < before[i]).Any()) before = new int[now.Length];
+            for (var index = 0; index < now.Length; index++) _changes[index] += now[index] - before[index];
             foreach (var (margin, name) in Watched)
                 if (margin < now.Length)
                     for (var extra = now[margin] - before[margin]; extra > 0; extra--)
                         _events.Add(new InspectEvent(name, reading.Floor, reading.PositionMs, lastPress));
+        }
         _last = now;
     }
 
@@ -394,6 +431,24 @@ public sealed class InspectRun
             T("InspectHeader", Number, StartedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), Song, ModVersion ?? "?"),
             T("InspectLevel", LevelPath)
         };
+        if (_settings is { } settings)
+        {
+            static string Bool(bool value) => value ? "true" : "false";
+            lines.Add(T("InspectSettings", settings.MaximumTileCount, settings.MinimumTileCount,
+                Ms(settings.EightKeyBoundaryMs), Ms(settings.SixKeyBoundaryMs), Ms(settings.FourKeyBoundaryMs), Ms(settings.TwoKeyBoundaryMs),
+                Ms(settings.SimultaneousWindowMs), Ms(settings.TrillWindowMs)));
+            lines.Add(T("InspectPatterns", settings.InitialTile, string.Join(" ", settings.GetPattern(2)), string.Join(" ", settings.GetPattern(4)),
+                string.Join(" ", settings.GetPattern(6)), string.Join(" ", settings.GetPattern(8)), settings.LaneKeys));
+            lines.Add(T("InspectRules", Bool(settings.NextIntervalTiles), Bool(settings.BothIntervalTiles),
+                Bool(settings.ImmediateDownshift), settings.DownshiftNoteCount, Bool(settings.UseRestartOnRun),
+                Bool(settings.UseEnhancedChordRules), Bool(settings.NoTrillCenterPair), Bool(settings.ExtraLanes && settings.CanUseExtraLanes)));
+            lines.Add(T("InspectPlacement", Bool(settings.DynamicTiming), Bool(settings.UseChordSectionLanes), Bool(settings.UseChordAvoidBefore),
+                Bool(settings.UseChordCenterPair), settings.ChordLanePreference, settings.TrillLanePreference));
+            lines.Add(T("InspectTiming", settings.PlaybackSpeedPercent, Ms(settings.StartDelayMs), Ms(settings.GlobalDisplayOffsetMs)));
+            if (settings.UseMagicCircleTiles)
+                lines.Add(T("InspectMagicCircle", settings.MagicCircleTiles, settings.MagicCircleNoteCount,
+                    Ms(settings.MagicCircleMaxIntervalMs), Bool(settings.MagicCircleChords)));
+        }
         var late = Presses.Where(press => press.LateMs > LinkInspection.LateMs).ToArray();
         lines.Add(Presses.Count == 0 ? T("InspectNoPresses")
             : T("InspectPresses", Presses.Count, late.Length, Ms(LinkInspection.LateMs))
@@ -401,10 +456,16 @@ public sealed class InspectRun
               + T("InspectMean", Ms(Presses.Average(press => press.LateMs))));
         if (Skipped > 0) lines.Add(T("InspectWaitingLine", Skipped));
         lines.Add(_stalls.Count == 0 ? T("InspectNoStalls") : T("InspectStalls", _stalls.Count, Ms(_stalls.Max())));
-        if (_first is { } first && _last is { } last && first.Length == last.Length)
+        var repeated = Presses.Where(press => press.PreviousKeyGapMs is not null).OrderBy(press => press.PreviousKeyGapMs).FirstOrDefault();
+        if (repeated is not null)
+            lines.Add(T("InspectShortestRepeat", Ms(repeated.PreviousKeyGapMs!.Value), repeated.Note + 1, repeated.Tile,
+                repeated.SourceFloor?.ToString(CultureInfo.InvariantCulture) ?? "?"));
+        lines.Add(_gameGaps == 0 ? T("InspectNoGameSamples")
+            : T("InspectGameSamples", Ms(_maxGameGapMs), _longGameGaps, Ms(LinkInspection.TapMs)));
+        if (_changes is { } totals)
         {
-            var changed = Enumerable.Range(0, last.Length).Where(margin => last[margin] != first[margin])
-                .Select(margin => $"{(margin < MarginNames.Length ? MarginNames[margin] : margin.ToString(CultureInfo.InvariantCulture))} +{last[margin] - first[margin]}");
+            var changed = Enumerable.Range(0, totals.Length).Where(margin => totals[margin] > 0)
+                .Select(margin => $"{(margin < MarginNames.Length ? MarginNames[margin] : margin.ToString(CultureInfo.InvariantCulture))} +{totals[margin]}");
             lines.Add(T("InspectJudgments", changed.Any() ? string.Join(", ", changed) : T("None")));
         }
         else lines.Add(T("InspectNoJudgments"));
@@ -413,7 +474,9 @@ public sealed class InspectRun
         {
             lines.Add(T("InspectProblems", _events.Count));
             lines.AddRange(_events.Select(problem => "  " + T("InspectProblem", problem.Judgment, problem.Floor, Ms(problem.GameMs / 1000))
-                + (problem.LastPress is { } press ? T("InspectAfterNote", press.Note + 1, press.Tile, Ms(press.LateMs)) : "")));
+                + (problem.LastPress is { } press ? T("InspectAfterNote", press.Note + 1, press.Tile, Ms(press.LateMs))
+                    + (press.SourceFloor is int floor ? T("InspectSourceFloor", floor) : "")
+                    + (press.PreviousKeyGapMs is double gap ? T("InspectKeyGap", Ms(gap)) : "") : "")));
         }
         lines.Add(T("InspectStoppedRun", StopReason ?? T("StillRunning")));
         return lines;

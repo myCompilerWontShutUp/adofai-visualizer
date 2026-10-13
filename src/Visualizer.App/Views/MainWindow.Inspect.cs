@@ -62,13 +62,15 @@ public partial class MainWindow
         _inspectPrepared = _model.Playback.Prepared;
         _inspectFrameMs = double.NaN;
         var (reading, _) = Sync.Latest;
-        _inspectRun = new InspectRun(++_inspectRuns, DateTime.Now, _model.LoadedSongName ?? "", Sync.Level?.Path ?? "", Sync.ModVersion);
+        _inspectRun = new InspectRun(++_inspectRuns, DateTime.Now, _model.LoadedSongName ?? "", Sync.Level?.Path ?? "", Sync.ModVersion,
+            _model.Playback.Settings);
         if (reading is not null) _inspectRun.Observe(reading, null);
         // Only this process's keys may go, and only to the game: the thread asks before every key whether the game's
         // process owns the window in front (found on a frame, never guessed from a name).
         _inspection = new LinkInspection(_model.PlaybackClock, keys, send,
             () => _gameProcess != 0 && WindowsForegroundObserver.ForegroundProcessId() == _gameProcess,
-            () => DescribeFront(WindowsForegroundObserver.ForegroundProcessId()));
+            () => DescribeFront(WindowsForegroundObserver.ForegroundProcessId()),
+            Enumerable.Range(0, _model.Playback.Notes.Count).Select(_model.Playback.SourceFloorOfNote).ToArray());
         _inspection.Start();
         _inspectNote = null;
         _inspectFlow = flow;
@@ -134,7 +136,7 @@ public partial class MainWindow
             var firstDue = _inspection.NextNoteDueMs();
             if (double.IsFinite(firstDue))
             {
-                _inspection.WarmUp([.. _inspectKeys.Values, SpaceKey, EnterKey], now, firstDue - LinkInspection.WarmGapMs);
+                _inspection.WarmUp([.. _inspectKeys.Values, SpaceKey, EnterKey], now, firstDue - LinkInspection.WarmQuietMs);
                 _inspectWarmedUp = true;
             }
         }
@@ -232,7 +234,9 @@ public partial class MainWindow
         foreach (var press in presses.Skip(_flowPresses))
             lines.Add(T("FlowPress", KeyName(_inspectKeys.TryGetValue(press.Tile, out var key) ? key : 0), press.Note + 1, press.Tile,
                 press.Note < notes.Count ? notes[press.Note].HitTimeMs.ToString("0.0", CultureInfo.InvariantCulture) : "-",
-                reading?.Floor ?? 0, press.LateMs.ToString("0.0", CultureInfo.InvariantCulture)));
+                reading?.Floor ?? 0, press.LateMs.ToString("0.0", CultureInfo.InvariantCulture),
+                press.SourceFloor?.ToString(CultureInfo.InvariantCulture) ?? "?")
+                + (press.PreviousKeyGapMs is double gap ? T("InspectKeyGap", gap.ToString("0.0", CultureInfo.InvariantCulture)) : ""));
         _flowPresses = presses.Count;
         foreach (var judged in run.Events.Skip(_flowEvents)) lines.Add(T("FlowJudgment", judged.Judgment, judged.Floor));
         _flowEvents = run.Events.Count;

@@ -93,18 +93,18 @@ ReflectionOnly 조사로 확정(덤프 `.local/sync-signals.txt`·`sync-details.
 - 모드 사용이 리더보드·업적에 주는 영향, 다른 모드(AdofaiTweaks·JALib 등)와의 상호작용(폴링만 하므로 가능성은 낮음).
 - 키뷰어를 끄는 동안 그 모드의 키 개수 세기가 멈추는지(보이는 것만 확인).
 
-## 7. inspect start|stop|result (측정 전용, 1.0.7)
+## 7. inspect start|stop|result (측정 전용, 1.0.8)
 
 - 목적: 비주얼라이저가 그린 노트대로 게임에 키를 눌러, 게임이 비주얼라이저 타이밍을 어떻게 판정하는지 봅니다(게임 타일을 읽고 누르는 것이 아님 — 사용자 규칙).
 - 원칙(모두 지켜질 때만, 시작할 때와 매 프레임): 링크 켜짐·`link auto` 꺼짐, 게임과 같은 곡, 게임의 실패 방지 모드 켜짐(링커가 `scrController.noFail` → 없으면 `GCS.useNoFail`을 `nf`로 보냄; 모르면 거절), 게임 프로세스가 앞에 있음(키를 보낼 때마다 `ForegroundProcessId`로 확인).
-- 판정: 링커가 `scrPlayerManager._instance.mistakesManager.marginTrackers[0].hitMarginsCount`(HitMargin 순서: TooEarly 0, VeryEarly 1, EarlyPerfect 2, Perfect 3, LatePerfect 4, VeryLate 5, TooLate 6, Multipress 7, FailMiss 8, FailOverload 9, Auto 10, OverPress 11)를 `hm`으로 보냅니다(바뀔 때만 새 배열). 앱은 실행 시작과의 차이와, TooEarly·TooLate·FailMiss·FailOverload가 늘어난 타일을 기록합니다.
+- 판정: 링커가 `scrPlayerManager._instance.mistakesManager.marginTrackers[0].hitMarginsCount`(HitMargin 순서: TooEarly 0, VeryEarly 1, EarlyPerfect 2, Perfect 3, LatePerfect 4, VeryLate 5, TooLate 6, Multipress 7, FailMiss 8, FailOverload 9, Auto 10, OverPress 11)를 `hm`으로 보냅니다(바뀔 때만 새 배열). 앱은 양의 증가를 누적하고, 게임 재시작으로 개수가 줄면 새 회차의 0을 기준으로 세어 첫 표본에 이미 있는 판정도 포함합니다. TooEarly·TooLate·FailMiss·FailOverload는 증가를 관측한 현재 타일과 마지막 입력을 기록합니다(실제로 놓친 타일을 확정하지 않음).
 - 키: 설정의 레인 키(`ControlBindings.CreateLaneKeys`를 뒤집음)를 스캔 코드로(`KeyboardInjector`). 탭은 25ms, 롱노트는 끝까지 누름. 전용 스레드가 마지막 20ms를 스핀해 맞춥니다. 같은 레인을 빠르게 누르면 KeyboardChatterBlocker 같은 다른 모드가 막을 수 있습니다(기록에 판정으로 드러남).
 - 게임 찾기: 시작할 때 게임 프로세스를 이름으로 찾습니다(`WindowsForegroundObserver.FindProcess`, 설정의 게임 실행 파일 이름). 예전에는 게임이 앞에 있는 프레임에서야 잡았기 때문에, 콘솔이 앞에 있는 채로 첫 노트가 오면 "the game window is not in front"로 키 하나 없이 끝났습니다(사용자 메모 "inspect test 1").
 - 대기: 게임이 **처음 앞에 올 때까지** 실행은 기다리고, 그동안 판정선에 닿은 노트는 키 없이 넘기며 개수를 셉니다(`LinkInspection.Skipped`, 결과의 `waiting:` 줄). 한 번 앞에 온 뒤 게임이 앞에서 사라지면 바로 멈추고, 이유에 그때 앞에 있던 프로세스 이름·pid와 게임 pid를 적습니다.
-- 사전 입력: 카운트다운의 첫 움직이는 프레임에 설정의 8개 레인 키·Space·Enter를 한 번씩 누릅니다(40ms 간격·25ms 탭). 첫 노트 40ms 전에 끝나도록 제한하며, 시간이 모자라면 들어갈 키만 예약합니다. 카운트다운 종료·일시정지는 예약을 취소하고 사전 입력 키를 뗍니다. 기다리는 시계에서는 노트를 소비하지 않고, 판정선에 정확히 닿은 첫 노트도 누릅니다. 게임 버퍼 원인은 사용자 제보이며 실제 게임 개선은 확인 대기입니다.
+- 사전 입력: 카운트다운의 첫 움직이는 프레임에 설정의 8개 레인 키·Space·Enter를 한 번씩 누릅니다(40ms 간격·25ms 탭). 첫 노트 100ms 전에 끝나도록 제한하며, 시간이 모자라면 들어갈 키만 예약합니다. 콘솔이 앞에 있어도 예약을 소비하지 않고, 게임 창이 앞으로 온 뒤 실제 전송 사이 40ms 간격을 유지합니다. 마지막 사전 입력은 25ms 탭까지 포함해 첫 노트와 125ms 넘게 떨어집니다(확인된 100ms 채터링 필터와의 충돌 방지). 카운트다운 종료·일시정지는 예약을 취소하고 사전 입력 키를 뗍니다. 기다리는 시계에서는 노트를 소비하지 않고, 판정선에 정확히 닿은 첫 노트도 누릅니다. 게임 버퍼 원인은 사용자 제보이며 실제 게임 개선은 확인 대기입니다.
 - 표시: 진행 중에는 노트 영역 가운데에 안내 띠가 뜹니다(`InspectBanner`, 대기 중·누르는 중과 보낸 키 수, Esc로 멈춤 — 사용자 요청).
 - 멈춤: Esc, `inspect stop`, `link stop`, `link auto`, 따라가기 끝, 노트 재준비, 다른 곡, 실패 방지 모드 꺼짐, 게임이 (한 번 앞에 온 뒤) 앞에서 사라짐, 앱 화면이 0.5초 넘게 계획을 안 줌(최소화 등), 곡 끝. 멈출 때 누른 키는 모두 뗍니다.
 - 기록: 콘솔 `log`가 링크·링커(연결된 게임 pid, 실행 중인 게임 수)·레벨·게임 상태·follow·auto·노트 준비와 1초 스냅샷을 메모리에 남깁니다(`docs/console.md`). 얼불춤이 두 번 실행되면 파이프는 한 번에 하나만 받으므로 먼저 붙은 쪽을 따릅니다 — 기록의 pid로 어느 게임인지 봅니다.
 - 재시작: 새 inspect는 앱에 남은 일시정지를 풀고 게임 시계에 맡깁니다. 이전 재생 위치의 지나간 노트만으로 새 측정을 끝내지 않습니다. 게임이 60ms 넘게 뒤로 되감기면 이전 키·예약을 해제하고 그 위치부터 노트를 다시 계획하며 사전 입력도 다시 준비합니다(작은 시계 보정은 노트를 반복하지 않음). 체크포인트가 숨긴 앞 노트는 보내지 않고, 사전 입력의 마감은 다음 표시 노트를 기준으로 정합니다.
-- 실시간 출력: `inspect -flow start`(`-f` 별칭)는 키·노트·레인·곡 시각·게임 타일·늦은 정도와 문제 판정을 한 줄씩 출력합니다. 측정 종료까지 콘솔 프롬프트·입력을 잠그고, 마지막 판정과 종료 이유를 출력한 뒤 돌려줍니다. 콘솔을 다시 열어도 진행 중 세션을 유지합니다.
-- 결과: `InspectRun.Lines()`(보낸 키 수·늦은 키·밀린 프레임·판정 변화·문제 판정과 타일). `inspect result`는 마지막 실행, `inspect -runs:n result`는 최근 n개(기본 1), `inspect -runs:* result`는 전체입니다. 앱을 끌 때까지만 메모리에 둡니다. 기존 -inspect 옵션은 제거했습니다.
+- 실시간 출력: `inspect -flow start`(`-f` 별칭)는 키·노트·레인·곡 시각·원본 맵 타일·관측한 현재 게임 타일·앱 예약 대비 지연·같은 키 전송 간격과 문제 판정을 한 줄씩 출력합니다. 측정 종료까지 콘솔 프롬프트·입력을 잠그고, 마지막 판정과 종료 이유를 출력한 뒤 돌려줍니다. 콘솔을 다시 열어도 진행 중 세션을 유지합니다.
+- 결과: `InspectRun.Lines()`는 시작 당시 노트 설정·실제 패턴 순서·설정 레인 키·배속·시작 대기·표시 보정, 보낸 키 수·앱 예약 대비 전송 지연·앱 프레임 공백, 관측 게임 표본 간격(중간 읽기 생략 가능), 같은 키의 최단 전송 간격(사전 입력 포함), 판정 변화·문제 판정의 관측 타일·마지막 입력 대상 원본 타일을 보여 줍니다. 설정 키 이름은 사용자가 고른 바인딩이며 사용자의 관찰 입력 이력은 수집하지 않습니다. 앱이 늦지 않았다는 결과만으로 게임이 키를 받았다고 판단하지 않습니다. `inspect result`는 마지막 실행, `inspect -runs:n result`는 최근 n개(기본 1), `inspect -runs:* result`는 전체입니다. 앱을 끌 때까지만 메모리에 둡니다. 기존 -inspect 옵션은 제거했습니다.

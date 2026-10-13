@@ -1063,8 +1063,8 @@ internal static class GameSyncTests
             run.Finish("the song ended", [], skipped: 2);
             var lines = run.Lines();
             Assert(lines.Any(line => line.StartsWith("waiting: 2 notes", StringComparison.Ordinal)), "Notes let go while waiting are told");
-            Assert(lines.Any(line => line.Contains("FailMiss at tile 7", StringComparison.Ordinal))
-                && lines.Any(line => line.Contains("FailOverload at tile 7", StringComparison.Ordinal))
+            Assert(lines.Any(line => line.Contains("FailMiss observed at game tile 7", StringComparison.Ordinal))
+                && lines.Any(line => line.Contains("FailOverload observed at game tile 7", StringComparison.Ordinal))
                 && lines.Any(line => line.Contains("Perfect +4", StringComparison.Ordinal)), string.Join(" / ", lines));
         });
 
@@ -1155,6 +1155,7 @@ internal static class GameSyncTests
             inspection.Plan(notes, 1000, 0, 1000);
             inspection.Step(1000);
             Assert(inspection.Presses is [{ Note: 0, LateMs: 0 }], "Warm-up does not consume the first note");
+            Equal(inspection.Presses[0].PreviousKeyGapMs, 1000d);
 
             sent.Clear();
             using var shortCountdown = new Visualizer.App.Input.LinkInspection(clock,
@@ -1179,6 +1180,91 @@ internal static class GameSyncTests
             Equal(checkpoint.NextNoteDueMs(), 100d);
             Assert(checkpointNotes[0].HitTimeMs == 0 && checkpointNotes[1].HitTimeMs == 500,
                 "The checkpoint's hidden prefix only affects scheduling, never source hit times");
+        });
+
+        yield return ("inspection maps hold-end-filtered notes to their original floors without changing timing", () =>
+        {
+            var clock = new Clock();
+            var settings = new VisualizerSettings { MaximumTileCount = 4, StartDelayMs = 0 };
+            var timeline = new ParsedTimeline([0, 200, 500], hitFloors: [11, 12, 14],
+                hitKinds: [HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap]);
+            var playback = new PlaybackSession(clock);
+            playback.LoadParsedTimeline(timeline, settings);
+            playback.Toggle();
+            playback.Reset(settings);
+            Equal(playback.Notes.Count, 2);
+            Equal(playback.SourceFloorOfNote(0), 11);
+            Equal(playback.SourceFloorOfNote(1), 14);
+            Equal(playback.SourceFloorOfNote(-1), null);
+            Equal(playback.SourceFloorOfNote(2), null);
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [settings.InitialTile] = 0x41 }, (_, _) => { }, () => true,
+                sourceFloors: [playback.SourceFloorOfNote(0), playback.SourceFloorOfNote(1)]);
+            inspection.Plan(playback.Notes, -100, 0, 0);
+            inspection.Plan(playback.Notes, 0, 0, 100);
+            inspection.Step(100);
+            Assert(inspection.Presses is [{ SourceFloor: 11, Note: 0, LateMs: 0 }], "The first press records its original floor");
+            Equal(timeline.HitTimesMs[1], 200d);
+        });
+
+        yield return ("inspect results keep measurement settings, observed sample gaps and positive counts across a restart", () =>
+        {
+            var settings = new VisualizerSettings { MaximumTileCount = 4 };
+            var run = new Visualizer.App.Input.InspectRun(1, new DateTime(2026, 10, 13), "Song", "L", "1.0.7", settings);
+            GameSyncMessage Sample(double stamp, int perfect, int miss) => new(GameSyncLink.Protocol, stamp, stamp,
+                "PlayerControl", false, 20, 1, "L", NoFail: true, Judgments: [0, 0, 0, perfect, 0, 0, 0, 0, miss, 0, 0, 0]);
+            run.Observe(Sample(0, 10, 2), null);
+            run.Observe(Sample(16, 11, 2), null);
+            run.Observe(Sample(32, 0, 0), null);
+            var press = new Visualizer.App.Input.InspectPress(0, 3, 60, 60, SourceFloor: 14, PreviousKeyGapMs: 40);
+            run.Observe(Sample(64, 3, 1), press);
+            // A zero reading can be omitted; the first observed reading of a new attempt already has judgments.
+            run.Observe(Sample(80, 1, 1), press);
+            run.Observe(Sample(96, 2, 2), press);
+            run.Finish("stopped", [press]);
+            var lines = run.Lines();
+            Assert(lines.Any(line => line.Contains("Perfect +6, FailMiss +3", StringComparison.Ordinal)), string.Join(" | ", lines));
+            Assert(lines.Any(line => line.StartsWith("settings: max 4K", StringComparison.Ordinal)), "The run retains its original settings");
+            Assert(lines.Any(line => line.Contains("largest 32.0 ms; 1 above", StringComparison.Ordinal)), "Sample gaps are reported separately from app frames");
+            Assert(lines.Any(line => line.Contains("observed at game tile 20", StringComparison.Ordinal)
+                && line.Contains("targeted map tile 14", StringComparison.Ordinal)), "Observed game floor and targeted source floor stay distinct");
+            Assert(lines.Any(line => line.Contains("same key after 40.0 ms", StringComparison.Ordinal)), "The last input's actual repeat gap helps identify chatter filtering");
+        });
+
+        yield return ("inspect countdown warm-up waits for the game foreground and keeps each tap separate", () =>
+        {
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down, double At)>();
+            var front = false;
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x41 }, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
+            VisualizerNote[] notes = [new(1200, 1, 1)];
+            int[] warm = [0x41, 0x53, 0x44, 0x46, 0x4A, 0x4B, 0x4C, 0xBA, 0x20, 0x0D];
+            inspection.Plan(notes, 0, 0, 0);
+            inspection.WarmUp(warm, 0, 1200 - Visualizer.App.Input.LinkInspection.WarmQuietMs);
+            for (var now = 0; now <= 480; now += 40)
+            {
+                clock.NowMs = now;
+                inspection.Plan(notes, now, 0, now);
+                inspection.Step(now);
+            }
+            Equal(sent.Count, 0);
+            front = true;
+            clock.NowMs = 500;
+            inspection.Plan(notes, 500, 0, 500);
+            inspection.Step(500);
+            Assert(sent is [(0x41, true, 500)], "Warm-up must survive the console foreground, and start with one key");
+            for (var now = 505; now <= 900; now += 5)
+            {
+                clock.NowMs = now;
+                inspection.Plan(notes, now, 0, now);
+                inspection.Step(now);
+            }
+            var downs = sent.Where(p => p.Down).ToArray();
+            Assert(downs.Select(p => p.Key).SequenceEqual(warm), "Every queued key goes once after the game comes forward");
+            Assert(downs.Zip(downs.Skip(1)).All(p => p.Second.At - p.First.At >= Visualizer.App.Input.LinkInspection.WarmGapMs),
+                "Delayed warm-up taps never burst together");
+            Assert(sent.Count(p => !p.Down) == warm.Length, "Every warm-up key is released before the first note");
         });
 
         yield return ("link inspect starts only while all its rules hold, in the order the user set them", () =>
@@ -1240,7 +1326,7 @@ internal static class GameSyncTests
                 Wait(() => sync.Latest.Reading?.Judgments?[8] == 1, "a last-frame miss");
                 Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "inspect stop stops it");
                 Equal(ended, 1);
-                Assert(!host.Inspecting && CmdLog.Shared.Lines.Skip(flowStart).Contains("game: FailMiss at tile 0"),
+                Assert(!host.Inspecting && CmdLog.Shared.Lines.Skip(flowStart).Contains("game: FailMiss observed · current tile 0"),
                     "The final judgment is printed before the flow ends");
                 Assert(banner.Visibility == System.Windows.Visibility.Collapsed, "and the banner goes");
                 Equal(pressed.Count, 0);

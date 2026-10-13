@@ -114,6 +114,10 @@ public sealed class PlaybackSession(IMonotonicClock clock)
     /// </summary>
     public int Prepared { get; private set; }
 
+    /// <summary>The source map floor of one prepared note, or null for a synthetic timeline or an invalid index.</summary>
+    public int? SourceFloorOfNote(int index) => (uint)index < (uint)_noteHits.Length && _timeline?.HitFloors is { } floors
+        ? floors[_noteHits[index]] : null;
+
     public bool AutoCheckpointActive => Settings.AutoCheckpointAdvance && Settings.PlaybackSpeedPercent == 100
         && _startTile is null && !ClockFollowsGame;
     public int? ActiveCheckpoint => _timeline is { CheckpointsVerified: true } timeline
