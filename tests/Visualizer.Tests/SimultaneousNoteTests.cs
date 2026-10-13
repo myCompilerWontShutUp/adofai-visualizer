@@ -115,11 +115,11 @@ internal static class SimultaneousNoteTests
             Assert(!Green(left * 75 + 37), $"Lane {left + 1} is empty");
         });
 
-        yield return ("A trill counted as one note is one step: its tile count from the gaps around it, its lanes side by side", () =>
+        yield return ("A trill counted as one note: its tile count from the gaps around it, its lanes in the pattern's flow", () =>
         {
-            // User rule (default on): a trill counts as one note, as a chord does. The rhythm from Wont Let You Go, a trill
-            // (29ms) and a single in turn 172 and 171ms apart, read 4 2-1 4 2-1 note by note: the 29ms asked for 4K and every
-            // note took a step of the cycle, so a lane dropped out. As one note the gaps are 172 and 171ms.
+            // User rule (default on): a trill counts as one note when the tile count is worked out. The rhythm from Wont Let
+            // You Go, a trill (29ms) and a single in turn, asked for 4K note by note; as one note the gaps are 172 and 171ms.
+            // Its lanes are laid by the trill rules either way (user rule: laid like a chord, a machine-gun run lost 4 3 2 1).
             var settings = new VisualizerSettings { MaximumTileCount = 4, SimultaneousWindowMs = 20, TrillWindowMs = 40, FourKeyBoundaryMs = 120,
                 TwoKeyBoundaryMs = 500, MagicCircleFixedTiles = false, NoTrillCenterPair = true };
             Assert(new VisualizerSettings().TrillAsOneNote, "On by default (user rule)");
@@ -147,10 +147,11 @@ internal static class SimultaneousNoteTests
                 }
             }
             Check(one, times);
-            // A 25ms stream: rolls of four, each one step, 4-3-2-1 every time.
+            // A 25ms stream is no trill to count as one note: it walks the pattern at its own pace (4K, 4 3 2 1 going round).
             var stream = Enumerable.Range(0, 16).Select(i => 2000 + i * 25d).ToArray();
-            var rolled = generator.Generate(stream, settings);
-            Sequence(rolled.Select(note => visible.IndexOf(note.Tile) + 1), 4, 3, 2, 1, 4, 3, 2, 1, 4, 3, 2, 1, 4, 3, 2, 1);
+            var rolled = generator.Generate(stream, settings).Select(note => visible.IndexOf(note.Tile) + 1).ToArray();
+            Assert(rolled.Zip(rolled.Skip(1)).All(pair => pair.Second == pair.First - 1 || (pair.First == 1 && pair.Second == 4))
+                && generator.Generate(stream, settings).All(note => note.Mode == 4), "A stream walks the pattern: " + string.Join(" ", rolled));
             // Trills in a row take turns on the pairs, as chords do (user rule: not 1-2 1-2), also across the chord pass's blocks.
             // A single first, as in Wont Let You Go (tile 604), so the blocks of two start with the single and then on a trill
             // right after another.
@@ -167,6 +168,33 @@ internal static class SimultaneousNoteTests
             Equal(placed.Count, mixed.Count);
             // A screen of one lane has nowhere to roll: the notes stay where they are, and nothing fails.
             Equal(generator.Generate(new[] { 0d, 600, 625, 1200 }, settings with { MaximumTileCount = 1, MinimumTileCount = 1 }).Count, 4);
+        });
+
+        yield return ("A fast run over every lane rolls the pattern's way, 4 3 2 1, never 1 2 3 4", () =>
+        {
+            // User report (a machine-gun stretch used to read 4 3 2 1 4 3 2 1): notes 36 ms apart are rolls over all four lanes,
+            // and one rolled back from lane 1 kept every roll after it going back (He He He, Hello (BPM) 2021).
+            var settings = new VisualizerSettings { MaximumTileCount = 4, MinimumTileCount = 2, FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5",
+                InitialTile = 5, SimultaneousWindowMs = 25, TrillWindowMs = 40, FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500,
+                EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 50, NextIntervalTiles = true, BothIntervalTiles = true, MagicCircleFixedTiles = false };
+            var visible = settings.GetVisibleTiles().ToList();
+            var checkedChords = new HashSet<int>();
+            // The run comes right after a chord, as in both songs; what leads into the chord decides its lanes, so a few
+            // lead-ins make sure a chord on 3-4 is among them (it blocks lane 4, where the pattern's roll starts).
+            foreach (var lead in new[] { 0, 1, 2, 3 })
+            foreach (var one in new[] { true, false })
+            {
+                var times = Enumerable.Range(0, lead).Select(i => i * 188d).ToList();
+                var chordAt = lead * 188d + 300;
+                times.AddRange([chordAt, chordAt + 1]);
+                for (var at = chordAt + 36; times.Count < lead + 2 + 32; at += 36) times.Add(at);
+                var notes = new NoteGenerator().Generate(times.ToArray(), settings with { TrillAsOneNote = one });
+                checkedChords.Add(visible.IndexOf(notes[lead].Tile) + 1);
+                var lanes = notes.Skip(lead + 2).Select(note => visible.IndexOf(note.Tile) + 1).ToArray();
+                var walking = lanes.Zip(lanes.Skip(1)).Count(pair => pair.Second == pair.First - 1 || (pair.First == 1 && pair.Second == 4));
+                Assert(walking >= lanes.Length - 2, $"Walks 4 3 2 1 (lead {lead}, trill as one note {one}): " + string.Join(" ", lanes));
+            }
+            Assert(checkedChords.Contains(3), "A chord on 3-4 came before a run: " + string.Join(",", checkedChords));
         });
 
         yield return ("Trills counted as one note never fail a song, lose a note or put a trill's notes on one key", () =>

@@ -100,9 +100,8 @@ public sealed record VisualizerSettings
     /// <summary>Which pair a trill takes first; the same choices as <see cref="ChordLanePreference"/>.</summary>
     public string TrillLanePreference { get; init; } = Text(nameof(TrillLanePreference));
     /// <summary>
-    /// A trill counts as one note, as a chord does (user rule): the tile count comes from the gaps around it, not the short
-    /// one inside it, it is one step of the cycle, and it takes lanes side by side the way a chord does, each note still
-    /// falling at its own time. Off, every note of a trill is a step of its own.
+    /// A trill counts as one note when the tile count is worked out (user rule): the gaps around it decide, not the short one
+    /// inside it. Its lanes are laid note by note as with the switch off. Off, every note of a trill decides on its own gaps.
     /// </summary>
     public bool TrillAsOneNote { get; init; } = Flag(nameof(TrillAsOneNote));
     /// <summary>

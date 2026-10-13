@@ -111,6 +111,9 @@ public sealed class TilePatternCursor
     /// </summary>
     private int[]? OpenRoll(int tile, int length)
     {
+        // A roll over every lane is the pattern's own walk (user report: a fast run reads 4 3 2 1 4 3 2 1). Laid side by
+        // side it could only start on the far lane and turned back whenever that lane had just been played.
+        if (length >= _visible.Count) return null;
         var next = _pattern[(_offset + _emittedInCycle + 1) % _pattern.Count];
         int[]? Run(int start, int step)
         {

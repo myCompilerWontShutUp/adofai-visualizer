@@ -127,8 +127,9 @@ public sealed class NotePressJudge
         if (session.State != PlaybackState.Playing) return;
         var passed = session.TimelineTimeMs - session.Offsets.TotalMs - windowMs;
         // Forward-only: an offset change that moves time back never reports a note twice.
+        // A note hidden by a game's rewind is never played there, so it never misses either.
         for (; _missCursor < notes.Count && notes[_missCursor].HitTimeMs < passed; _missCursor++)
-            if (!_pressed[_missCursor]) missedTiles.Add(notes[_missCursor].Tile);
+            if (!_pressed[_missCursor] && notes[_missCursor].HitTimeMs >= session.HideNotesBeforeMs) missedTiles.Add(notes[_missCursor].Tile);
     }
 
     /// <summary>

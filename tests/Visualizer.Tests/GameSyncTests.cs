@@ -588,6 +588,42 @@ internal static class GameSyncTests
             Assert(follower.Lines()[0].Contains("Use link follow again", StringComparison.Ordinal), "It says how to go back");
         });
 
+        yield return ("After a game over the countdown shows the notes from the checkpoint, and the hidden ones never miss", () =>
+        {
+            // User report: back at a checkpoint after a game over, the notes to play only showed when the countdown ended, and
+            // the hidden ones before the checkpoint went by with red miss marks. The game goes on naming the tile the run died
+            // on (5) through the countdown; the checkpoint respawning at tile 3 is where it carries on.
+            var settings = new VisualizerSettings { StartDelayMs = 0, GlobalDisplayOffsetMs = 0 };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 300, 600, 900],
+                [new TimelineCheckpoint(1, 0), new TimelineCheckpoint(2, 2, SourceFloor: 3, RespawnFloor: 3)], true, [1, 2, 4, 5]), settings);
+            session.Toggle();
+            session.Reset(settings);
+            var follower = new GameSyncFollower();
+            Equal(follower.Prepare(new GameSyncLevel("L", [1050, 1200, 1500, 1700, 1800, 2100]), session), null);
+            var judge = new NotePressJudge();
+            var misses = new List<int>();
+            GameSyncMessage At(double position, string state = "PlayerControl", int floor = 5, bool dead = false) =>
+                new(GameSyncLink.Protocol, 0, position, dead ? "Fail" : state, false, floor, 1, "L", Dead: dead);
+            void Frame(double nowMs, GameSyncMessage reading)
+            {
+                clock.NowMs = nowMs;
+                follower.Follow(reading, nowMs, nowMs, session);
+                judge.CollectMisses(session, 100, misses);
+            }
+            for (var t = 1000; t <= 2100; t += 16) Frame(t, At(1300 + (t - 1000), floor: t < 1900 ? 4 : 5));
+            Frame(2116, At(2216, dead: true));
+            misses.Clear();
+            // The countdown: the song well before the checkpoint, the tile still the one the run died on.
+            for (var t = 3000; t <= 3400; t += 16) Frame(t, At(1300 + (t - 3000), "Countdown"));
+            Assert(Math.Abs(session.HideNotesBeforeMs - session.NoteTimeOf(1700 - 1200)) < 0.001,
+                $"Hidden only up to the respawn tile: {session.HideNotesBeforeMs}");
+            Assert(session.Notes.Any(note => note.HitTimeMs >= session.HideNotesBeforeMs && note.HitTimeMs < session.NoteTimeOf(900)),
+                "The note after the checkpoint falls during the countdown");
+            Assert(misses.Count == 0, "The note hidden before the checkpoint went by without a miss: " + string.Join(",", misses));
+        });
+
         yield return ("A game over holds the notes until the game starts again, through the reload in between", () =>
         {
             // User report: after dying with the game followed, the notes ran on until the level started again. The song keeps
@@ -1336,10 +1372,18 @@ internal static class GameSyncTests
                 var started = host.GameSyncInspect(true, flow: true, ended: () => ended++);
                 Assert(started[0].StartsWith("Inspecting", StringComparison.Ordinal), string.Join(" / ", started));
                 Assert(host.GameSync(false, false, false).Any(line => line.StartsWith("Inspect  running", StringComparison.Ordinal)), "link shows it");
-                // The middle of the notes says a run is on (user rule) while it is, and nothing once it stops.
+                // The top of the lanes says a run is on (user rule) while it is, and nothing once it stops. It sits over the
+                // song's band in the middle, which used to cover it (user report).
                 var banner = (System.Windows.FrameworkElement)window.FindName("InspectBanner");
                 Assert(banner.Visibility == System.Windows.Visibility.Visible
-                    && ((System.Windows.Controls.TextBlock)window.FindName("InspectBannerText")).Text.Contains("link inspect", StringComparison.Ordinal), "The banner shows");
+                    && ((System.Windows.Controls.TextBlock)window.FindName("InspectBannerText")).Text.StartsWith("inspect is", StringComparison.Ordinal), "The banner shows");
+                var lanes = (System.Windows.Controls.Grid)((System.Windows.FrameworkElement)window.FindName("Field")).Parent;
+                var top = (System.Windows.FrameworkElement)banner.Parent;
+                var band = (System.Windows.FrameworkElement)window.FindName("OverlayArea");
+                Assert(top.VerticalAlignment == System.Windows.VerticalAlignment.Top
+                    && lanes.Children.IndexOf((System.Windows.UIElement)top) > lanes.Children.IndexOf(band)
+                    && lanes.Children.IndexOf((System.Windows.UIElement)top) == lanes.Children.Count - 1,
+                    "At the top of the lanes and over the song's band");
                 // The last reading arrives between the last frame and stop: -flow must still print its judgment.
                 Send("""{"v":2,"t":4,"pos":-440,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\a\\main.adofai","nf":true,"hm":[0,0,0,0,0,0,0,0,1,0,0,0]}""");
                 Wait(() => sync.Latest.Reading?.Judgments?[8] == 1, "a last-frame miss");

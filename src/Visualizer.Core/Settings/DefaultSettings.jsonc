@@ -51,7 +51,7 @@
   "TrillWindowMs": 40,
   "NoTrillCenterPair": true,
   "TrillLanePreference": "1-2,3-4",
-  // On: a trill counts as one note, as a chord does: tile count from the gaps around it, one cycle step, lanes side by side.
+  // On: a trill counts as one note when the tile count is worked out (the gaps around it decide); lanes are laid as with it off.
   "TrillAsOneNote": true,
   // On: fewer tiles start mid-cycle (after DownshiftNoteCount notes in a row) and never repeat the tile just played.
   // Off: the app 0.1.2 rule, where every switch waits for the running cycle to end.

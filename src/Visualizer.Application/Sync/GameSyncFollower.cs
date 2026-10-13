@@ -41,6 +41,11 @@ public sealed class GameSyncFollower
     /// before its time. A tile further ahead is not the one being played.
     /// </summary>
     public const double AheadTileMs = 300;
+    /// <summary>
+    /// How far ahead of a rewound song a checkpoint's respawn tile may lie and still be where the rewind carries on: the
+    /// countdown before it, a few beats.
+    /// </summary>
+    public const double LeadInMs = 6000;
     /// <summary>How far the game's real rate may be from 100% and still be followed: the falling notes run at 100%.</summary>
     private const double RateTolerance = 0.001;
 
@@ -277,7 +282,7 @@ public sealed class GameSyncFollower
                 // The game rewound to the tile it will carry on from; the tiles before it are not going to be played,
                 // so they must not fall during its countdown.
                 if ((uint)reading.Floor < (uint)_tileTimes.Count)
-                    session.HideNotesBeforeMs = session.NoteTimeOf(_tileTimes[reading.Floor] - OffsetMs.Value);
+                    session.HideNotesBeforeMs = session.NoteTimeOf(_tileTimes[RestartFloor(reading.Floor, position, session)] - OffsetMs.Value);
             }
             _lastAppliedMs = target;
             _snaps++;
@@ -296,6 +301,22 @@ public sealed class GameSyncFollower
         _lastAppliedMs = moved;
         _pulls++;
         return true;
+    }
+
+    /// <summary>
+    /// The tile a rewind carries on from. After a game over the game goes on naming the tile the run died on through the
+    /// countdown (user report: the notes to play only showed at the start); the first checkpoint respawn after the
+    /// rewound song, no later than that tile, is where it carries on.
+    /// </summary>
+    private int RestartFloor(int floor, double position, PlaybackSession session)
+    {
+        if (session.Timeline is not { CheckpointsVerified: true } timeline) return floor;
+        var best = floor;
+        foreach (var checkpoint in timeline.Checkpoints)
+            if (checkpoint.RespawnFloor is int respawn && respawn < best && (uint)respawn < (uint)_tileTimes.Count
+                && _tileTimes[respawn] - position is var ahead && ahead >= -SnapMs && ahead <= LeadInMs)
+                best = respawn;
+        return best;
     }
 
     /// <summary>The follower's state as the console prints it, in the console's language.</summary>

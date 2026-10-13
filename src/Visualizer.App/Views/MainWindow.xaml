@@ -262,19 +262,6 @@
                     <!-- The mini-game (free roam) has no notes, so the band says so and counts to the next one. -->
                     <!-- The wash behind every one of these is what keeps the letters readable while notes run past them
                          (user rule); it is the opposite of the text color, so it works on light lanes too. -->
-                    <Border x:Name="SectionNoticeCard" IsHitTestVisible="False" VerticalAlignment="Top"
-                            Margin="0,16,0,0" Padding="14,6" Background="{Binding OverlayBackBrush}"
-                            Visibility="{Binding ShowSectionNotice, Converter={StaticResource VisibleWhen}}">
-                        <TextBlock x:Name="SectionNotice" Text="{Binding SectionNotice}" FontSize="15" FontWeight="SemiBold"
-                                   TextAlignment="Center" TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
-                    </Border>
-                    <!-- link -inspect start (measuring only) says in the middle of the notes that it is pressing keys into the game
-                         (user rule); the window sets it, shown only while a run is on. -->
-                    <Border x:Name="InspectBanner" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center"
-                            Margin="16,0" Padding="16,8" Background="{Binding OverlayBackBrush}" Visibility="Collapsed">
-                        <TextBlock x:Name="InspectBannerText" FontSize="16" FontWeight="SemiBold" TextAlignment="Center"
-                                   TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
-                    </Border>
                     <!-- Once the song is over and nothing has been touched for a second, it offers to play again (user rule).
                          The band fits what it holds, and the first button keeps its place whether the second one is there
                          or not (user rule): an invisible twin of the second button stands above the band whenever the
@@ -389,6 +376,21 @@
                                           Content="{Binding HideOverlayLabel}" Click="HideOverlayClick"
                                           Visibility="{Binding ShowHideOverlay, Converter={StaticResource VisibleWhen}}" />
                     </Grid>
+                    <!-- The top of the lanes, over everything else here: the mini-game band, and inspect start (measuring only)
+                         saying it is pressing keys into the game for as long as the run lasts (user rule). The song's band in
+                         the middle used to cover the inspect one (user report), so it is no longer in the middle. -->
+                    <StackPanel x:Name="TopNotices" VerticalAlignment="Top" Margin="0,16,0,0" IsHitTestVisible="False">
+                        <Border x:Name="SectionNoticeCard" Padding="14,6" Background="{Binding OverlayBackBrush}"
+                                Visibility="{Binding ShowSectionNotice, Converter={StaticResource VisibleWhen}}">
+                            <TextBlock x:Name="SectionNotice" Text="{Binding SectionNotice}" FontSize="15" FontWeight="SemiBold"
+                                       TextAlignment="Center" TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
+                        </Border>
+                        <Border x:Name="InspectBanner" HorizontalAlignment="Center" Margin="16,6,16,0" Padding="16,8"
+                                Background="{Binding OverlayBackBrush}" Visibility="Collapsed">
+                            <TextBlock x:Name="InspectBannerText" FontSize="16" FontWeight="SemiBold" TextAlignment="Center"
+                                       TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
+                        </Border>
+                    </StackPanel>
                 </Grid>
             </Border>
         </DockPanel>

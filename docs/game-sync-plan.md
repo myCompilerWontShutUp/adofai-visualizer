@@ -93,7 +93,7 @@ ReflectionOnly 조사로 확정(덤프 `.local/sync-signals.txt`·`sync-details.
 - 모드 사용이 리더보드·업적에 주는 영향, 다른 모드(AdofaiTweaks·JALib 등)와의 상호작용(폴링만 하므로 가능성은 낮음).
 - 키뷰어를 끄는 동안 그 모드의 키 개수 세기가 멈추는지(보이는 것만 확인).
 
-## 7. inspect start|stop|result (측정 전용, 1.0.8)
+## 10. inspect start|stop|result (측정 전용)
 
 - 목적: 비주얼라이저가 그린 노트대로 게임에 키를 눌러, 게임이 비주얼라이저 타이밍을 어떻게 판정하는지 봅니다(게임 타일을 읽고 누르는 것이 아님 — 사용자 규칙).
 - 원칙(모두 지켜질 때만, 시작할 때와 매 프레임): 링크 켜짐·`link auto` 꺼짐, 게임과 같은 곡, 게임의 실패 방지 모드 켜짐(링커가 `scrController.noFail` → 없으면 `GCS.useNoFail`을 `nf`로 보냄; 모르면 거절), 게임 프로세스가 앞에 있음(키를 보낼 때마다 `ForegroundProcessId`로 확인).

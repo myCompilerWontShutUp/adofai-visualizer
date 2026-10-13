@@ -82,51 +82,75 @@ public sealed class NoteGenerator
             || Enumerable.Range(0, times.Length).Any(i => holdEndsMs[i] is double end && (!double.IsFinite(end) || end <= times[i]))))
             throw new ArgumentException("Long note ends must match the hits and come after them.", nameof(holdEndsMs));
         if (times.Length == 0) return Array.Empty<VisualizerNote>();
-        // A trill may count as one note, as a chord does (user rule): from here on it is one group of its own.
-        var groups = SimultaneousNotePlanner.MergeTrills(SimultaneousNotePlanner.Group(times, settings), settings, holdEndsMs);
+        var groups = SimultaneousNotePlanner.Group(times, settings);
         times = groups.Select(g => g.TimeMs).ToArray();
+        // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction
+        // (user rule), as many lanes as the roll has notes.
+        var trillAt = SimultaneousNotePlanner.TrillRuns(groups, settings, holdEndsMs, out var trillLength);
+        // The gaps that decide the tile count. A trill standing alone may count as one note (user rule); its lanes are
+        // still laid note by note (laid like a chord, a machine-gun run lost 4 3 2 1). A longer run of close notes is a
+        // stream: counted as a few notes it fell to 2K.
+        bool Close(int k) => k >= 0 && k + 1 < times.Length && groups[k].Count == 1 && groups[k + 1].Count == 1
+            && times[k + 1] - times[k] is var gap && gap > 0 && gap <= settings.TrillWindowMs
+            && holdEndsMs?[groups[k].SourceIndex] is null && holdEndsMs?[groups[k + 1].SourceIndex] is null;
+        var unit = new int[times.Length];
+        var unitTimes = new List<double>(times.Length);
+        for (var i = 0; i < times.Length; i++)
+        {
+            var start = i - Math.Max(0, trillAt[i] - 1);
+            var alone = trillAt[i] >= 2 && !Close(start - 1) && !Close(start + trillLength[start] - 1);
+            if (!settings.TrillAsOneNote || !alone) unitTimes.Add(times[i]);
+            unit[i] = unitTimes.Count - 1;
+        }
         // A long note keeps its lane busy until it ends (user rule): a later note on that lane takes the next pattern lane.
         var busyUntil = SimultaneousNotePlanner.NewBusyLanes();
         var selector = new DynamicTimingSelector(settings);
         // No interval exists for a single note: dynamic mode uses the slowest (1K) case.
-        var initialMode = selector.Select(times.Length > 1 ? times[1] - times[0] : double.MaxValue);
+        var initialMode = selector.Select(unitTimes.Count > 1 ? unitTimes[1] - unitTimes[0] : double.MaxValue);
         var cursor = new TilePatternCursor(settings, initialMode);
         // The tile count may be held through a magic circle (user rule); the runs are found from the same display times.
-        var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1 && !g.IsRoll).ToArray()) : [];
+        var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1).ToArray()) : [];
         var magicIndex = 0;
         var notes = new List<VisualizerNote>(times.Length);
-        // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction
-        // (user rule), as many lanes as the roll has notes.
-        var trillAt = SimultaneousNotePlanner.TrillRuns(groups, settings, holdEndsMs, out var trillLength);
         // Notes in a row that ask for fewer tiles; the smaller pattern waits until there are DownshiftNoteCount of them.
         var lowerRun = 0;
         // When each tile was last given, so a trill can keep off a lane that would come back too soon.
         var played = SimultaneousNotePlanner.NewBusyLanes();
+        var lastRequested = initialMode;
         for (var i = 0; i < times.Length; i++)
         {
+            var u = unit[i];
+            var inside = i > 0 && unit[i - 1] == u;
             // Which gap decides this note's tile count. The gap after it is what the hand has to be ready for; the gap
             // before it is what the note just came from (user rule, the long-standing behaviour); both takes the shorter.
             // The last note has no gap after it, so it keeps the one it came from and stays with its run.
-            var before = i > 0 ? selector.Select(times[i] - times[i - 1]) : initialMode;
-            var after = i + 1 < times.Length ? selector.Select(times[i + 1] - times[i]) : before;
-            var requested = settings.BothIntervalTiles ? i == 0 ? after : Math.Max(before, after)
+            var before = u > 0 ? selector.Select(unitTimes[u] - unitTimes[u - 1]) : initialMode;
+            var after = u + 1 < unitTimes.Count ? selector.Select(unitTimes[u + 1] - unitTimes[u]) : before;
+            var requested = settings.BothIntervalTiles ? u == 0 ? after : Math.Max(before, after)
                 : settings.NextIntervalTiles ? after : before;
             // Anticipate 1K -> 2K and 2K -> 4K only: start the faster cycle on the first member of the close run, rather
             // than opening one more slow cycle that repeats its tiles. Reading the gap after already does that, so this
             // only applies to the other way round.
-            var anticipated = !settings.NextIntervalTiles && !settings.BothIntervalTiles && i > 0 && cursor.CurrentMode == requested
-                && requested is 1 or 2 && i + 1 < times.Length
-                && selector.Select(times[i + 1] - times[i]) == requested * 2;
+            var anticipated = !settings.NextIntervalTiles && !settings.BothIntervalTiles && u > 0 && cursor.CurrentMode == requested
+                && requested is 1 or 2 && u + 1 < unitTimes.Count
+                && selector.Select(unitTimes[u + 1] - unitTimes[u]) == requested * 2;
             if (anticipated) requested *= 2;
             // In 2K a lane comes back two notes later. When the gaps on both sides of this note together are shorter than
             // twice the faster boundary, the lane before it would be back faster than 4K allows, so the count goes up on this
             // note instead of at the end of the cycle (user rule: in 2K, 2 3 2 3 at 43 ms left lanes 1 and 4 empty). Twice the
             // boundary, so one short gap among long ones is not enough; 4K brings a lane back only every fourth note.
-            var pair = i > 0 && i + 1 < times.Length ? selector.Select((times[i + 1] - times[i - 1]) / 2) : 0;
+            var pair = u > 0 && u + 1 < unitTimes.Count ? selector.Select((unitTimes[u + 1] - unitTimes[u - 1]) / 2) : 0;
             var crowded = cursor.CurrentMode == 2 && pair > cursor.CurrentMode;
             if (crowded) requested = Math.Max(requested, pair);
+            // A trill counted as one note asks once; its later notes go on with that answer and count no second time.
+            if (inside)
+            {
+                requested = lastRequested;
+                anticipated = false;
+                crowded = false;
+            }
             // A single slow note does not drop the tile count (user rule): the request has to repeat.
-            if (settings.ImmediateDownshift && requested < cursor.CurrentMode)
+            else if (settings.ImmediateDownshift && requested < cursor.CurrentMode)
             {
                 lowerRun++;
                 if (lowerRun < settings.DownshiftNoteCount) requested = cursor.CurrentMode;
@@ -134,6 +158,7 @@ public sealed class NoteGenerator
             }
             else lowerRun = 0;
             if (crowded) anticipated = true;
+            lastRequested = requested;
             while (magicIndex < magic.Count && magic[magicIndex].EndMs < times[i]) magicIndex++;
             if (magicIndex < magic.Count && magic[magicIndex].Contains(times[i]))
             {

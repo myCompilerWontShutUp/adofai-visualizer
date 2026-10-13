@@ -212,10 +212,10 @@ internal static class Program
                 Sequence(notes.Select(n => n.Mode), 2, 2, 4, 4, 4, 4, 4, 4, 4, 4);
                 Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                 // Mid-cycle the faster pattern also starts on the note before the close run: the 2K cycle is not
-                // opened again just to be completed. 300 to 390 are each within the trill window of the last, so they are one
-                // roll over the four lanes (user rule: a trill takes as many notes as come that close, cut at the lanes on
-                // screen), 6-5-4-3; 420 starts what is left, alone, and after a roll into the edge the pattern goes on.
-                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 6, 5, 4, 3, 6);
+                // opened again just to be completed. 300 to 390 are a roll over all four lanes, which is the pattern's own walk
+                // (user report: a fast run reads 4 3 2 1 4 3 2 1); its first tile would bring 5 straight back, so it goes on
+                // from 5 instead (user rule: 3 4 3 reads 3 2-1).
+                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 4, 3, 6, 5, 4);
                 // 4K -> 8K keeps the preceding-interval rule.
                 var eight = settings with { MaximumTileCount = 8, InitialTile = 6 };
                 Sequence(generator.Generate(new[] { 0d, 30, 40, 50, 60, 70 }, eight).Select(n => n.Mode), 4, 4, 4, 4, 8, 8);

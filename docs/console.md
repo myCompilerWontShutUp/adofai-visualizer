@@ -314,7 +314,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
 | `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
 | `timing.no-trill-center-pair` | NoTrillCenterPair | 토글 |
-| `timing.trill-as-one` | TrillAsOneNote | 토글 (트릴을 노트 한 개로 판정, 기본 켜짐) |
+| `timing.trill-as-one` | TrillAsOneNote | 토글 (키 수를 정할 때 트릴을 노트 한 개로, 기본 켜짐) |
 | `timing.trill-side` | TrillLanePreference | 선택 (chord-side와 같은 값) |
 | `timing.start-delay` | StartDelayMs | ms |
 | `timing.calibration` | CalibrationNoteCount | 노트 수 |

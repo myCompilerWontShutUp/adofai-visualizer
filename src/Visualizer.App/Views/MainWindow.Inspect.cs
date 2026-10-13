@@ -195,8 +195,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The banner in the middle of the notes while a run is on (user rule): it says keys are being pressed into the game, or
-    /// that the run waits for the game to come to the front, and how to stop it.
+    /// The banner at the top of the lanes for as long as a run is on (user rule): it says keys are being pressed into the
+    /// game, or that the run waits for the game to come to the front, and how to stop it.
     /// </summary>
     private void ShowInspectBanner()
     {
