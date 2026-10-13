@@ -51,6 +51,7 @@ public sealed class LinkInspection : IDisposable
     private readonly HashSet<int> _warmHeld = [];
     private double _warmUntilMs;
     private bool _hasPlannedNotes;
+    private double _timelineMs = double.NaN;
     private double _plannedAt = double.NaN;
     private int _lastNote = -1;
     private Thread? _thread;
@@ -135,9 +136,12 @@ public sealed class LinkInspection : IDisposable
     /// <summary>
     /// Plans the coming presses from what the window draws: a note is due when it reaches the judgment line, which is when the
     /// timeline is at its hit time plus the offsets. Notes already past on the first plan are not pressed (the run starts at
-    /// the next one), and a note pressed once is never pressed again.
+    /// the next one), and a note pressed once is never pressed again within the same forward play. A game rewind releases
+    /// the previous keys and restores the notes of the replay.
     /// </summary>
-    public void Plan(IReadOnlyList<VisualizerNote> notes, double timelineMs, double offsetsMs, double nowMs, bool advancing = true)
+    /// <returns>Whether the game rewound far enough to re-arm countdown warm-up.</returns>
+    public bool Plan(IReadOnlyList<VisualizerNote> notes, double timelineMs, double offsetsMs, double nowMs, bool advancing = true,
+        double hideBeforeMs = double.NegativeInfinity)
     {
         ArgumentNullException.ThrowIfNull(notes);
         lock (_gate)
@@ -145,25 +149,46 @@ public sealed class LinkInspection : IDisposable
             _plannedAt = nowMs;
             _plan.Clear();
             // Waiting for the game's first moving reading must not consume tile 1 or press a frozen note.
-            if (!advancing) return;
+            if (!advancing) return false;
+            // A game restart can happen after this run already planned against the previous play's clock.
+            // Use the follower's restart threshold so its small clock corrections never press a note twice.
+            var rewound = double.IsFinite(_timelineMs) && timelineMs < _timelineMs - GameSyncFollower.SnapMs;
+            if (rewound)
+            {
+                ReleaseAll();
+                _warm.Clear();
+                _done.Clear();
+                _lastNote = -1;
+                _hasPlannedNotes = false;
+            }
+            _timelineMs = timelineMs;
             var first = !_hasPlannedNotes;
             _hasPlannedNotes = true;
             for (var index = 0; index < notes.Count; index++)
             {
                 if (_done.Contains(index)) continue;
                 var note = notes[index];
+                // The game's checkpoint hides earlier notes; a stale floor can lower this boundary next frame.
+                if (note.HitTimeMs < hideBeforeMs) continue;
                 var due = nowMs + (note.HitTimeMs + offsetsMs - timelineMs);
                 if (first && due < nowMs)
                 {
                     _done.Add(index);
-                    _lastNote = Math.Max(_lastNote, index);
                     continue;
                 }
                 if (due > nowMs + AheadMs) break;
                 var release = note.HoldEndMs is double end ? nowMs + (end + offsetsMs - timelineMs) : due + TapMs;
                 _plan[index] = (note.Tile, due, Math.Max(release, due + 1));
             }
+            return rewound;
         }
+    }
+
+    /// <summary>The first remaining note's due time, for countdown warm-up at a checkpoint too.</summary>
+    public double NextNoteDueMs()
+    {
+        lock (_gate) return _plan.Where(entry => !_done.Contains(entry.Key))
+            .Select(entry => entry.Value.PressAt).DefaultIfEmpty(double.PositiveInfinity).Min();
     }
 
     /// <summary>

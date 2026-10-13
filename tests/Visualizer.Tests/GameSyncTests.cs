@@ -1083,6 +1083,54 @@ internal static class GameSyncTests
             Assert(sent is [(0x44, true)], "The tile on the judgment line is pressed, not skipped as already past");
         });
 
+        yield return ("restarted inspect waits beyond the old song end and restores notes when the game rewinds", () =>
+        {
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down)>();
+            VisualizerNote[] notes = [new(0, 1, 1), new(500, 1, 1)];
+            using (var previous = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x44 }, (key, down) => sent.Add((key, down)), () => true))
+            {
+                previous.Plan(notes, -100, 0, 0);
+                previous.Plan(notes, 0, 0, 100);
+                previous.Step(100);
+            }
+            sent.Clear();
+            using var restarted = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x44 }, (key, down) => sent.Add((key, down)), () => true);
+            restarted.Plan(notes, 600, 0, 700);
+            restarted.Step(700);
+            Assert(!restarted.Finished(notes.Length), "The old clock must not end a new inspect before the game restarts");
+            restarted.Plan(notes, -100, 0, 800);
+            restarted.Step(800);
+            Equal(sent.Count, 0);
+            restarted.Plan(notes, 0, 0, 900);
+            restarted.Step(900);
+            Assert(sent is [(0x44, true)], "The first note is restored after rewind, even if the old clock consumed it");
+            Assert(restarted.Presses is [{ Note: 0, LateMs: 0 }], "The first tile is sent on time");
+        });
+
+        yield return ("inspect replay releases the previous hold and does not duplicate a note during small clock corrections", () =>
+        {
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down)>();
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x44 }, (key, down) => sent.Add((key, down)), () => true);
+            VisualizerNote[] notes = [new(0, 1, 1, HoldEndMs: 500), new(1000, 1, 1)];
+            inspection.Plan(notes, -100, 0, 0);
+            inspection.Plan(notes, 0, 0, 100);
+            inspection.Step(100);
+            inspection.Plan(notes, -1, 0, 101);
+            inspection.Step(101);
+            Equal(sent.Count, 1);
+            inspection.Plan(notes, -200, 0, 200);
+            inspection.Step(200);
+            Assert(sent is [(0x44, true), (0x44, false)], "Rewinding releases the old hold immediately");
+            inspection.Plan(notes, 0, 0, 400);
+            inspection.Step(400);
+            Assert(sent is [(0x44, true), (0x44, false), (0x44, true)], "A replay presses the same first tile again");
+        });
+
         yield return ("inspect warms every key during countdown and cancels warm-up before notes or a pause", () =>
         {
             var clock = new Clock();
@@ -1121,6 +1169,16 @@ internal static class GameSyncTests
             shortCountdown.Step(110);
             Equal(sent.Count, 2);
             Assert(shortCountdown.Warmed.Count == 1, "A late scheduler cannot send a warm-up key after the cutoff");
+
+            using var checkpoint = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x41 }, (_, _) => { }, () => true);
+            VisualizerNote[] checkpointNotes = [new(0, 1, 1), new(500, 1, 1), new(1000, 1, 1)];
+            checkpoint.Plan(checkpointNotes, 400, 0, 0, hideBeforeMs: 1000);
+            Equal(checkpoint.NextNoteDueMs(), 600d);
+            checkpoint.Plan(checkpointNotes, 420, 0, 20, hideBeforeMs: 500);
+            Equal(checkpoint.NextNoteDueMs(), 100d);
+            Assert(checkpointNotes[0].HitTimeMs == 0 && checkpointNotes[1].HitTimeMs == 500,
+                "The checkpoint's hidden prefix only affects scheduling, never source hit times");
         });
 
         yield return ("link inspect starts only while all its rules hold, in the order the user set them", () =>
@@ -1187,6 +1245,12 @@ internal static class GameSyncTests
                 Assert(banner.Visibility == System.Windows.Visibility.Collapsed, "and the banner goes");
                 Equal(pressed.Count, 0);
                 Assert(host.InspectLines(1) is { Count: > 0 } kept && kept[0].StartsWith("link inspect #1", StringComparison.Ordinal), "The run is kept");
+                model.Playback.Start();
+                Assert(model.Playback.Pause() && model.FollowingGame, "The previous follow can remain locally paused after Esc");
+                Assert(host.GameSyncInspect(true)[0].StartsWith("Inspecting", StringComparison.Ordinal), "Inspection starts again");
+                Assert(model.Playback.State == PlaybackState.Playing,
+                    "Restarting inspection hands a locally paused clock back to the game instead of leaving it held");
+                host.GameSyncInspect(false);
             }
             finally
             {

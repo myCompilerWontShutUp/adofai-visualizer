@@ -51,6 +51,9 @@ public partial class MainWindow
             var said = ((ICmdHost)this).GameSyncFollow(true);
             if (!_model.FollowingGame) return [T("CannotInspect", said.FirstOrDefault())];
         }
+        // Esc after stopping inspect may have paused the app while the link still owns its clock.
+        // A fresh inspection hands it back to the game; the follower waits if the game itself is paused.
+        if (_model.Playback.State == Visualizer.Application.Playback.PlaybackState.Paused) _model.Start();
         var keys = ControlBindings.CreateLaneKeys(_model.Settings).ToDictionary(pair => pair.Value, pair => pair.Key);
         var send = KeySender ?? (OperatingSystem.IsWindows() ? KeyboardInjector.Send : null);
         if (send is null) return [T("CannotInspect", T("WindowsOnly"))];
@@ -121,16 +124,19 @@ public partial class MainWindow
         var playback = _model.Playback;
         var advancing = playback.State == Visualizer.Application.Playback.PlaybackState.Playing
             && _follower.State == Visualizer.Application.Sync.GameSyncFollowState.Following;
-        _inspection.Plan(playback.Notes, playback.TimelineTimeMs, playback.Offsets.TotalMs, now, advancing);
+        if (_inspection.Plan(playback.Notes, playback.TimelineTimeMs, playback.Offsets.TotalMs, now, advancing, playback.HideNotesBeforeMs))
+            _inspectWarmedUp = false;
         var (reading, _) = Sync.Latest;
         if (reading is not null) _inspectRun.Observe(reading, _inspection.LastPress);
         // Into the countdown: every lane key, Space and Enter once (user request), so the game's input is awake for tile 1.
         if (reading?.State == "Countdown" && advancing && !_inspectWarmedUp)
         {
-            var firstDue = playback.Notes.Count == 0 ? now
-                : now + playback.Notes[0].HitTimeMs + playback.Offsets.TotalMs - playback.TimelineTimeMs;
-            _inspection.WarmUp([.. _inspectKeys.Values, SpaceKey, EnterKey], now, firstDue - LinkInspection.WarmGapMs);
-            _inspectWarmedUp = true;
+            var firstDue = _inspection.NextNoteDueMs();
+            if (double.IsFinite(firstDue))
+            {
+                _inspection.WarmUp([.. _inspectKeys.Values, SpaceKey, EnterKey], now, firstDue - LinkInspection.WarmGapMs);
+                _inspectWarmedUp = true;
+            }
         }
         else if (reading?.State != "Countdown" || !advancing) _inspection.CancelWarmUp();
         if (_inspectFlow)
