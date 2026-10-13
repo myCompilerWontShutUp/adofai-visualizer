@@ -45,6 +45,12 @@ public sealed class LinkInspection : IDisposable
     private readonly HashSet<int> _done = [];
     private readonly Dictionary<int, double> _held = [];
     private readonly List<InspectPress> _presses = [];
+    /// <summary>Keys to press once before the notes (<see cref="WarmUp"/>), each with when it is due, and the ones sent.</summary>
+    private readonly List<(int Key, double At)> _warm = [];
+    private readonly List<int> _warmed = [];
+    private readonly HashSet<int> _warmHeld = [];
+    private double _warmUntilMs;
+    private bool _hasPlannedNotes;
     private double _plannedAt = double.NaN;
     private int _lastNote = -1;
     private Thread? _thread;
@@ -76,6 +82,47 @@ public sealed class LinkInspection : IDisposable
     /// <summary>Notes that came due before the game had ever been in front, let go without a key.</summary>
     public int Skipped { get { lock (_gate) return _skipped; } }
 
+    /// <summary>How far apart the warm-up keys go, so each is a press of its own.</summary>
+    public const double WarmGapMs = 40;
+
+    /// <summary>The warm-up keys sent so far, in order.</summary>
+    public IReadOnlyList<int> Warmed { get { lock (_gate) return _warmed.ToArray(); } }
+
+    /// <summary>
+    /// Presses each of these keys once, one after another from <paramref name="nowMs"/> (user request: in the countdown, so
+    /// the game's input is awake before the first note; the first tile was judged a miss every time). Only into the game, like
+    /// every other key, and never one a note is holding.
+    /// </summary>
+    public void WarmUp(IReadOnlyList<int> keys, double nowMs, double untilMs)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        lock (_gate)
+        {
+            _warmUntilMs = untilMs;
+            var distinct = keys.Distinct().ToArray();
+            for (var k = 0; k < distinct.Length; k++)
+            {
+                var at = nowMs + k * WarmGapMs;
+                if (at + TapMs < untilMs) _warm.Add((distinct[k], at));
+            }
+        }
+    }
+
+    /// <summary>Countdown ended: no warm-up key may carry into the song.</summary>
+    public void CancelWarmUp()
+    {
+        lock (_gate)
+        {
+            _warm.Clear();
+            foreach (var key in _warmHeld.ToArray())
+            {
+                _send(key, false);
+                _held.Remove(key);
+            }
+            _warmHeld.Clear();
+        }
+    }
+
     /// <summary>The last key sent, or null.</summary>
     public InspectPress? LastPress { get { lock (_gate) return _presses.Count > 0 ? _presses[^1] : null; } }
 
@@ -90,20 +137,23 @@ public sealed class LinkInspection : IDisposable
     /// timeline is at its hit time plus the offsets. Notes already past on the first plan are not pressed (the run starts at
     /// the next one), and a note pressed once is never pressed again.
     /// </summary>
-    public void Plan(IReadOnlyList<VisualizerNote> notes, double timelineMs, double offsetsMs, double nowMs)
+    public void Plan(IReadOnlyList<VisualizerNote> notes, double timelineMs, double offsetsMs, double nowMs, bool advancing = true)
     {
         ArgumentNullException.ThrowIfNull(notes);
         lock (_gate)
         {
-            var first = double.IsNaN(_plannedAt);
             _plannedAt = nowMs;
             _plan.Clear();
+            // Waiting for the game's first moving reading must not consume tile 1 or press a frozen note.
+            if (!advancing) return;
+            var first = !_hasPlannedNotes;
+            _hasPlannedNotes = true;
             for (var index = 0; index < notes.Count; index++)
             {
                 if (_done.Contains(index)) continue;
                 var note = notes[index];
                 var due = nowMs + (note.HitTimeMs + offsetsMs - timelineMs);
-                if (first && due < nowMs + TapMs)
+                if (first && due < nowMs)
                 {
                     _done.Add(index);
                     _lastNote = Math.Max(_lastNote, index);
@@ -133,6 +183,19 @@ public sealed class LinkInspection : IDisposable
             {
                 _send(key, false);
                 _held.Remove(key);
+                _warmHeld.Remove(key);
+            }
+            if (_warm.Count > 0 && nowMs + TapMs >= _warmUntilMs) _warm.Clear();
+            for (var w = 0; w < _warm.Count; w++)
+            {
+                var (key, at) = _warm[w];
+                if (at > nowMs) continue;
+                _warm.RemoveAt(w--);
+                if (!_gameInFront() || _held.ContainsKey(key)) continue;
+                _send(key, true);
+                _held[key] = nowMs + TapMs;
+                _warmHeld.Add(key);
+                _warmed.Add(key);
             }
             foreach (var (note, plan) in _plan.Where(entry => !_done.Contains(entry.Key) && entry.Value.PressAt <= nowMs)
                          .OrderBy(entry => entry.Value.PressAt).ToArray())
@@ -151,6 +214,7 @@ public sealed class LinkInspection : IDisposable
                 }
                 _seenFront = true;
                 if (_held.ContainsKey(key)) _send(key, false);
+                _warmHeld.Remove(key);
                 _send(key, true);
                 _held[key] = plan.ReleaseAt;
                 _done.Add(note);
@@ -169,6 +233,7 @@ public sealed class LinkInspection : IDisposable
             var next = double.PositiveInfinity;
             foreach (var (note, plan) in _plan) if (!_done.Contains(note)) next = Math.Min(next, plan.PressAt);
             foreach (var until in _held.Values) next = Math.Min(next, until);
+            foreach (var (_, at) in _warm) next = Math.Min(next, at);
             return next;
         }
     }
@@ -219,6 +284,7 @@ public sealed class LinkInspection : IDisposable
                 try { _send(key, false); }
                 catch (Exception error) when (error is System.ComponentModel.Win32Exception or ArgumentException) { }
                 _held.Remove(key);
+                _warmHeld.Remove(key);
             }
         }
     }
@@ -232,7 +298,7 @@ public sealed class LinkInspection : IDisposable
     }
 }
 
-/// <summary>What one link inspect run left behind, kept in memory until the app closes and written out by report -inspect.</summary>
+/// <summary>What one link inspect run left behind, kept in memory until the app closes and shown by inspect result.</summary>
 public sealed class InspectRun
 {
     /// <summary>The judgments looked at one by one (HitMargin): TooEarly 0, TooLate 6, FailMiss 8, FailOverload 9.</summary>
@@ -294,7 +360,7 @@ public sealed class InspectRun
     /// <summary>Notes let go without a key because the game had not been in front yet.</summary>
     public int Skipped { get; private set; }
 
-    /// <summary>The run as the lines report -inspect writes, in the console's language.</summary>
+    /// <summary>The run as the lines inspect result shows, in the console's language.</summary>
     public IReadOnlyList<string> Lines()
     {
         static string Ms(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);

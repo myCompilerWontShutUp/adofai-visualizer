@@ -740,6 +740,32 @@ internal static class GameSyncTests
                 Level("2924697157");
                 Frames(() => false, 300);
                 Equal(model.LoadedEntry?.Id, "s");
+                // The log kept what happened, frame by frame (user request), and no key is in it.
+                var kept = host.LogLines();
+                Assert(kept.Any(line => line.EndsWith("link: the pipe is open", StringComparison.Ordinal))
+                    && kept.Any(line => line.Contains("linker: connected from game process", StringComparison.Ordinal))
+                    && kept.Any(line => line.EndsWith(@"level: C:\Steam\3011005213\main.adofai, 4 tiles", StringComparison.Ordinal))
+                    && kept.Any(line => line.EndsWith("song: a", StringComparison.Ordinal))
+                    && kept.Any(line => line.Contains("auto: ", StringComparison.Ordinal))
+                    && kept.All(line => System.Text.RegularExpressions.Regex.IsMatch(line, @"^\d{2}:\d{2}:\d{2}\.\d{3}  ")),
+                    "The log: " + string.Join(" | ", kept.TakeLast(12)));
+                // load link still names the song the game is playing with link auto off (user report: it did not work then),
+                // by the console's eight-character id, not the cache's own key; the level alone is enough.
+                Equal(host.GameSongId(out var noId), null);
+                Assert(noId is not null && noId.Contains("no id", StringComparison.Ordinal), "A song without an id says so: " + noId);
+                model.SongIdMap = new Dictionary<string, string> { ["a"] = "10000001", ["b"] = "10000002", ["s"] = "10000003" };
+                Equal(host.GameSongId(out var problem), "10000002");
+                Equal(problem, null);
+
+                // Closing the link ends link auto too (user rule): with nothing to follow it goes back to manual.
+                host.GameSyncAuto(true);
+                var stopped = host.GameSync(false, true, false);
+                Assert(stopped.Contains("link auto is off as well: the link is closed, so link manual is back.")
+                    && stopped.Any(line => line.StartsWith("Auto     off", StringComparison.Ordinal)), string.Join(" | ", stopped));
+                var reopened = host.GameSync(true, false, false);
+                Assert(reopened.Any(line => line.StartsWith("Auto     off", StringComparison.Ordinal)), "Opening the pipe again does not switch it back on");
+                Assert(Frames(() => host.LogLines().Any(line => line.EndsWith("link: the pipe is closed", StringComparison.Ordinal))),
+                    "The log has the pipe closing");
             }
             finally
             {
@@ -1042,6 +1068,61 @@ internal static class GameSyncTests
                 && lines.Any(line => line.Contains("Perfect +4", StringComparison.Ordinal)), string.Join(" / ", lines));
         });
 
+        yield return ("inspect keeps the first tile when its first plan arrives at the judgment line", () =>
+        {
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down)>();
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x44 }, (key, down) => sent.Add((key, down)), () => true);
+            VisualizerNote[] notes = [new(0, 1, 1), new(500, 1, 1)];
+            inspection.Plan(notes, 0, 0, 0, advancing: false);
+            inspection.Step(0);
+            Equal(sent.Count, 0);
+            inspection.Plan(notes, 0, 0, 0);
+            inspection.Step(0);
+            Assert(sent is [(0x44, true)], "The tile on the judgment line is pressed, not skipped as already past");
+        });
+
+        yield return ("inspect warms every key during countdown and cancels warm-up before notes or a pause", () =>
+        {
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down)>();
+            int[] keys = [0x41, 0x53, 0x44, 0x46, 0x4A, 0x4B, 0x4C, 0xBA, 0x20, 0x0D];
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x41 }, (key, down) => sent.Add((key, down)), () => true);
+            VisualizerNote[] notes = [new(1000, 1, 1)];
+            inspection.Plan(notes, 0, 0, 0);
+            inspection.WarmUp([.. keys, 0x41], 0, 960);
+            for (var now = 0; now <= 400; now += 5)
+            {
+                clock.NowMs = now;
+                inspection.Plan(notes, now, 0, now);
+                inspection.Step(now);
+            }
+            Assert(inspection.Warmed.SequenceEqual(keys), "Eight lane keys, Space and Enter each go once, in order");
+            Equal(inspection.Presses.Count, 0);
+            foreach (var key in keys)
+                Assert(sent.Count(p => p == (key, true)) == 1 && sent.Count(p => p == (key, false)) == 1,
+                    "Every warm-up key is released before tile 1");
+            inspection.Plan(notes, 1000, 0, 1000);
+            inspection.Step(1000);
+            Assert(inspection.Presses is [{ Note: 0, LateMs: 0 }], "Warm-up does not consume the first note");
+
+            sent.Clear();
+            using var shortCountdown = new Visualizer.App.Input.LinkInspection(clock,
+                new Dictionary<int, int> { [1] = 0x41 }, (key, down) => sent.Add((key, down)), () => true);
+            shortCountdown.Plan(notes, 0, 0, 0);
+            shortCountdown.WarmUp(keys, 0, 100);
+            shortCountdown.Step(0);
+            shortCountdown.CancelWarmUp();
+            shortCountdown.Step(40);
+            Assert(sent is [(0x41, true), (0x41, false)], "Leaving countdown releases its key and cancels every queued tap");
+            shortCountdown.WarmUp(keys, 40, 100);
+            shortCountdown.Step(110);
+            Equal(sent.Count, 2);
+            Assert(shortCountdown.Warmed.Count == 1, "A late scheduler cannot send a warm-up key after the cutoff");
+        });
+
         yield return ("link inspect starts only while all its rules hold, in the order the user set them", () =>
         {
             var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
@@ -1087,14 +1168,22 @@ internal static class GameSyncTests
                 Wait(() => sync.Latest.Reading?.NoFail == true, "No Fail");
                 Assert(sync.Latest.Reading!.Judgments is { Count: 12 }, "The judgment counts come through");
                 // Every rule holds: it starts (following first), and nothing is pressed before the game has been in front.
-                var started = host.GameSyncInspect(true);
+                var ended = 0;
+                var flowStart = CmdLog.Shared.Lines.Count;
+                var started = host.GameSyncInspect(true, flow: true, ended: () => ended++);
                 Assert(started[0].StartsWith("Inspecting", StringComparison.Ordinal), string.Join(" / ", started));
                 Assert(host.GameSync(false, false, false).Any(line => line.StartsWith("Inspect  running", StringComparison.Ordinal)), "link shows it");
                 // The middle of the notes says a run is on (user rule) while it is, and nothing once it stops.
                 var banner = (System.Windows.FrameworkElement)window.FindName("InspectBanner");
                 Assert(banner.Visibility == System.Windows.Visibility.Visible
                     && ((System.Windows.Controls.TextBlock)window.FindName("InspectBannerText")).Text.Contains("link inspect", StringComparison.Ordinal), "The banner shows");
-                Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "link -inspect stop stops it");
+                // The last reading arrives between the last frame and stop: -flow must still print its judgment.
+                Send("""{"v":2,"t":4,"pos":-440,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\a\\main.adofai","nf":true,"hm":[0,0,0,0,0,0,0,0,1,0,0,0]}""");
+                Wait(() => sync.Latest.Reading?.Judgments?[8] == 1, "a last-frame miss");
+                Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "inspect stop stops it");
+                Equal(ended, 1);
+                Assert(!host.Inspecting && CmdLog.Shared.Lines.Skip(flowStart).Contains("game: FailMiss at tile 0"),
+                    "The final judgment is printed before the flow ends");
                 Assert(banner.Visibility == System.Windows.Visibility.Collapsed, "and the banner goes");
                 Equal(pressed.Count, 0);
                 Assert(host.InspectLines(1) is { Count: > 0 } kept && kept[0].StartsWith("link inspect #1", StringComparison.Ordinal), "The run is kept");

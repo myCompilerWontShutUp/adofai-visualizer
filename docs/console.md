@@ -61,7 +61,9 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | | `keyword [<cmd>]` | -options, -copy | `[list]`, last | 키워드 표 또는 그 명령의 키워드(키워드 낱말 하나를 주면 그 뜻) |
 | | `version` | -number \| -check, -copy | | 앱 버전(-check: 적용 날짜·빌드 시각·최신 여부) |
 | | `fps` | -restart, -copy | | 앱 자신의 프레임 진단 |
-| | `link [<what>]` | -proceed / -copy / -inspect | start, stop, tiles, follow, unfollow, again, auto, manual | 게임 링크 상태와 조작 |
+| | `link [<what>]` | -proceed / -copy | start, stop, tiles, follow, unfollow, again, auto, manual | 게임 링크 상태와 조작 |
+| | `inspect <what>` | -proceed, -flow, -runs, -copy | start, stop, result | 비주얼라이저 노트로 게임 타이밍 측정 |
+| | `log [<what>]` | -copy | `[list]`, all, erase | 앱이 남기는 기록(링크·게임·따라가기·노트) |
 | | `install <what>[, …]` | -reinstall, -proceed | all, app, source, linker, maps, edits, data | 링커 설치, 이 버전 부분 재설치 |
 | | `scannow [<area>, …]` | -copy | `[all]`, app, source, linker, maps, edits, data | 무결성 검사(결과만) |
 | 곡 | `song` | -id \| -title, -copy | | 불러온 곡 정보 |
@@ -97,7 +99,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | 콘솔 | `copy [<count>]` | -commands, -answers, -count, -paste | | 화면 메시지 복사 |
 | | `paste [<count>]` | -commands, -answers, -count, -copy | | 화면 메시지 다시 찍기 |
 | | `prompt [<title>]` | -copy | `[list]` | 저장된 프롬프트 채우기 |
-| | `report <what> [<title>]` | -force \| -proceed, -copy | list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon | 다음 작업용 메모 |
+| | `report <what> [<title>]` | -force \| -proceed, -copy, -log | list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon | 다음 작업용 메모 |
 | | `update` | -force \| -proceed, -version | | 저장소에서 새 버전 받기 |
 | | `clear` | | | 화면 지우기 |
 | | `exit` | -keep | | 콘솔 닫기 |
@@ -116,7 +118,9 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`keyword [<cmd>]`** — 인자가 없거나 `list`면 키워드와 그것을 받는 명령의 표, 명령을 주면 그 명령의 키워드, **키워드 낱말 하나**를 주면 그 뜻과 받는 명령(명령마다 뜻이 다르면 줄마다). `-options`면 옵션까지.
 - **`version`** — 앱 버전만 **바로** 찍습니다(`Visualizer 1.0.5`, 사용자 규칙: 저장소에 묻느라 기다리지 않게). `-check`는 예전 동작으로, 적용 날짜·빌드 시각(실행 파일의 시각)을 더하고 저장소에 물어 **최신인지** 알립니다(`update.ps1 -Check`의 `git fetch`라 잠시 걸림). `-number`는 숫자만 찍고 묻지 않습니다. `-number`와 `-check`는 함께 쓸 수 없습니다. 적용 날짜는 빌드에 적힌 릴리스 날짜이며 맵 캐시의 갱신 시각이 아닙니다. 파서가 바뀐 릴리스는 최신 앱에서도 Map Sync 후 곡을 다시 불러와야 새 타이밍을 씁니다.
 - **`fps`** — 앱이 자기 프레임만 재는 진단: 도착 간격과 합성기 간격, 앱이 한 프레임에 쓴 시간, GC 횟수, 렌더 티어, 원인을 짚는 마지막 줄(MMCSS·GC 지연 모드 상태 포함). `-restart`는 찍은 뒤 측정을 새로 시작합니다. 게임이나 시스템에서 읽는 값은 없습니다.
-- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. `-inspect start`(측정 전용, 늘 [Y/n]): link auto 꺼짐·같은 곡·게임의 실패 방지 모드 켜짐일 때만, 비주얼라이저 노트가 판정선에 닿는 순간 그 레인 키를 게임에 누르고 게임의 판정을 기록 · `-inspect stop`·Esc로 멈춤, `-inspect`는 start·stop 말고는 받지 않음(규칙이 깨지면 스스로 멈춤). 자세한 원칙은 AGENTS 안전 규칙 6.
+- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. **`stop`은 link auto도 끕니다**(manual로 돌아옴, 사용자 규칙: 링크가 닫히면 스스로 맞출 것이 없음). 파이프를 다시 열어도 auto는 꺼진 채입니다.
+- **`inspect <what>`** — 측정 전용 독립 명령. `start`는 물어본 뒤 비주얼라이저 노트대로 레인 키를 게임에 보내고, `stop`·Esc는 모두 떼며 종료합니다. 링크 켜짐·link auto 꺼짐·같은 곡·게임 실패 방지 모드가 필요하고, 게임이 전경일 때만 키를 보냅니다(AGENTS 안전 규칙 6). 카운트다운 중에는 설정의 8개 레인 키와 Space·Enter를 한 번씩 사전 입력합니다(40ms 간격·25ms 탭, 첫 노트 40ms 전 마감, 늦게 시작하면 들어갈 키만). **`-flow start`**(`-f` 별칭)는 키·노트·레인·곡 시각(ms)·게임 타일·늦은 정도(ms)와 문제 판정을 한 줄씩 출력하며 **종료까지 `Visualizer>`를 내놓지 않고 입력을 버립니다**. 콘솔을 닫았다 열어도 진행 중 잠금은 유지됩니다. 측정이 끝나거나 Esc로 멈추면 마지막 판정·종료 이유를 출력하고 프롬프트가 돌아옵니다. 이미 측정 중이면 새 실행을 거절합니다. **`result`**는 마지막 결과, **`-runs:3 result`**는 최근 세 개, **`-runs:* result`**는 남은 전체(기본 1)입니다. 결과는 메모리만 사용하며 앱 종료 때 사라집니다. `-flow`는 start, `-runs`는 result에만 씁니다. 기존 -inspect 옵션은 제거했습니다.
+- **`log [<what>]`** — 앱이 실행되는 동안 메모리에 남기는 기록(사용자 요청: 플레이 중 노트가 사라진 경위를 나중에 읽기 위해). 바뀐 것만 한 줄씩, 시각(밀리초까지)과 함께: 파이프 열림·닫힘, 링커 연결(**연결된 게임 프로세스 id**와 실행 중인 게임 프로세스 수·id — 얼불춤이 두 번 실행되는 버그를 알아보려고, 10초마다 다시 셈), 링커 버전, 레벨(경로·타일 수), 게임 상태·일시정지·게임 오버, follow 상태와 오프셋, auto의 시도 결과, 곡, 노트 준비(개수·시작 타일·배속), 재생 상태, 메인 화면 메시지, 0.5초 넘는 프레임 공백, 그리고 게임이 플레이 중이거나 follow 중이면 1초마다 지금(게임 상태·타일·위치 | 노트 시각·재생 상태·follow·화면에 있는 노트 수). 최근 5000줄만, 앱을 끄면 사라지고, 누른 키는 남기지 않습니다. 인자 없으면 최근 40줄, `all`은 남은 모든 줄, `erase`는 비우기. `report -log create|write <title>`이 메모에 씁니다. 앱이 최소화되어 프레임이 없으면 그동안은 남지 않습니다(그 공백이 한 줄로 남음).
 - **`install <what>[, …]`** — `install linker`는 앱에 들어 있는 링커(앱 옆 `plugins\linker\`)를 게임의 `Mods\AdofaiVisualizerSync\`에 씁니다. Unity Mod Manager가 있는 게임 폴더에서만, **어느 폴더에 쓸지 적고 [Y/n]**을 묻고, 두 파일만 쓰며, 같은 버전이 있으면 그대로 둡니다(다른 버전이면 바꿀지 물음). **`-reinstall`**은 이 버전대로 다시 씁니다: `source`(저장소 파일을 이 버전으로 되돌림 — 바뀔 파일 목록을 먼저 보여 주고 **언제나 묻고 `-proceed` 불가**) · `app`(Release 다시 빌드) · `linker`(링커를 다시 씀, 빌드 없음, 앱은 그대로) · `maps`(= `sync rebuild`) · `all`·`*`(source·app·설치된 링커). `source`·`app`은 앱을 닫고 `update.ps1 -Reinstall`이 한 뒤 다시 엽니다. **`edits`·`data`는 사용자의 것이라 재설치하지 않고** 무엇을 쓰면 되는지만 알려 줍니다. 링커가 없는데 `-reinstall linker`면 `install linker`부터 하라고 합니다. 키워드 없이 오면 받는 낱말만 알려 줍니다.
 - **`scannow [<area>, …]`** — 영역마다 온전한지 검사해 **결과만** 찍고 아무것도 바꾸지 않습니다. `app` 이 빌드와 그 소스·언어·테마 파일 · `source` 저장소 파일 대 이 버전(`update.ps1 -Scan`, git status) · `linker` 설치된 링커 대 이 버전 · `maps` 맵 사본 대 곡 목록 · `edits` 모든 수정본(사본·레인·원본 해시) · `data` 설정과 곡 목록·id·표시·메모·핀 파일. 기본 `all`. 링커가 설치되지 않았으면, 콕 집었을 때는 `install linker`부터 하라고, 전체 검사에서는 한 줄로 알립니다. 문제가 있으면 맨 끝에 `install -reinstall …`을 권합니다.
 
@@ -167,7 +171,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`paste [<count>]`** — 같은 범위를 화면에 다시 찍습니다. `-copy`면 복사까지. 프롬프트 빈칸에서는 `/paste`로 값을 넣습니다.
 - **`prompt [<title>]`** — 언어 모델에 붙여 넣을 프롬프트를 채웁니다(6절). 인자 없거나 `list`면 제목 목록. 아무 곳에도 보내지 않습니다.
 - **`report <what> [<title>]`** — 7절.
-- **`update`** — 저장소에 이 복사본이 최신인지 묻고, 최신이면 그렇다고 끝납니다. 새 버전이 있으면 대상 버전과 재시작을 알리며 [Y/n](`-proceed`로 건너뜀), 예라면 앱을 닫고 `update.ps1`이 받기 → Release 빌드 → 앱 다시 열기를 하며, **링커가 설치되어 있으면 그 버전의 링커도 다시 씁니다**(질문에 적음). 이 복사본에 자기 수정이 있거나 앞서 있으면 거절하고 `-force`를 알려 줍니다. `-force`는 자기 수정을 버리고 가고, `-version:1.0.0`(`-v:1.0.0`)은 그 버전으로 갑니다(최신이 아닌 버전은 `-force` 필요) — **언제나 묻고** 위험은 사용자 책임이라고 적습니다. 없는 버전은 오류만(목록 보기 없음). 곡·설정·메모는 건드리지 않습니다.
+- **`update`** — 저장소에 이 복사본이 최신인지 묻고, 최신이면 그렇다고 끝납니다. 새 버전이 있으면 대상 버전과 재시작을 알리며 [Y/n](`-proceed`로 건너뜀), 예라면 앱을 닫고 `update.ps1`이 받기 → Release 빌드 → 앱 다시 열기를 하며, **링커가 설치되어 있으면 그 버전의 링커도 다시 씁니다**(질문에 적음). 이 복사본에 자기 수정이 있거나 앞서 있으면 거절하고 `-force`를 알려 줍니다. `-force`는 자기 수정을 버리고 가고, `-version:1.0.0`(`-v:1.0.0`)은 그 버전으로 갑니다(최신이 아닌 버전은 `-force` 필요) — **언제나 묻고** 위험은 사용자 책임이라고 적습니다. 없는 버전은 오류만(목록 보기 없음). 곡·설정·메모는 건드리지 않습니다. **저장소에 새 커밋이 없어도 실행 중인 앱이 이 복사본의 파일보다 오래된 빌드면**(소스 버전이 다르거나 빌드 뒤에 바뀐 `src` 파일이 있으면, `scannow app`과 같은 검사) 그렇다고 알리고 다시 빌드할지 묻습니다(사용자 요청 — 코드를 고치는 이 복사본은 `update`만으로는 새 빌드를 받지 못했음). 예라면 `install -reinstall app`과 같은 길로 앱을 닫고 빌드해 다시 열며, 이 복사본의 자체 변경도 함께 빌드된다고 질문에 적고, 설치된 링커가 이 복사본의 링커보다 오래됐으면 함께 다시 씁니다. `version -check`의 최신 여부 줄도 이 경우를 말합니다.
 - **`clear`** — 화면 지우기. **`exit`** — 화면을 지우고 콘솔 닫기(`-keep`은 다음에 열 때를 위해 화면을 남김, 창을 닫는 것과 같음). **`date`** — 이 컴퓨터의 날짜·시각. **`whoami`** — 그림 한 장.
 
 ## 5. load
@@ -210,7 +214,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 ## 8. 진행률 막대
 
-시간이 걸리는 명령(`sync`, `sync rebuild`, `install linker`)은 프롬프트 대신 `Map sync  [#########...............]  38%`를 띄우고, **끝날 때까지 `Visualizer>`를 내놓지 않아** 다른 명령을 칠 수 없습니다. 그동안 Ctrl+T와 복사만 통하고, 들어온 입력은 쌓지 않고 버립니다. 끝나면 결과 줄을 적고 프롬프트가 돌아옵니다. 메인 화면 설명줄도 같은 퍼센트를 적습니다(복사 40% + 세 폴더 파싱 60%).
+시간이 걸리는 명령(`sync`, `sync rebuild`, `install linker`, `inspect -flow start`)은 프롬프트 대신 `Map sync  [#########...............]  38%`를 띄우고, **끝날 때까지 `Visualizer>`를 내놓지 않아** 다른 명령을 칠 수 없습니다. 그동안 Ctrl+T와 복사만 통하고, 들어온 입력은 쌓지 않고 버립니다. 끝나면 결과 줄을 적고 프롬프트가 돌아옵니다. 메인 화면 설명줄도 같은 퍼센트를 적습니다(복사 40% + 세 폴더 파싱 60%).
 
 ## 9. 공통 동작 규칙
 
@@ -223,8 +227,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 | 옵션 | 별칭 | 기본값 | 뜻 | 쓰는 명령 |
 | --- | --- | --- | --- | --- |
-| `-copy` | `-c` | | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, scannow, song, info, id, title, playlist, checkpoint, pin, note, property, export, paste, prompt, report, date |
-| `-proceed` | `-p` | | 모든 질문에 Y로 답하고 진행 | install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update |
+| `-copy` | `-c` | | 출력하고 클립보드에도 복사 | cmd, help, option, keyword, version, fps, link, inspect, log, scannow, song, info, id, title, playlist, checkpoint, pin, note, property, export, paste, prompt, report, date |
+| `-proceed` | `-p` | | 모든 질문에 Y로 답하고 진행 | inspect, install, edit, note, override, retitle, sync, remove, restore, delete, import, rollback, reset, report, update |
 | `-id` | | | id만 / `title`과 함께면 id도 / `load`는 id로 찾기 | song, title, load, playlist |
 | `-title` | `-tl` | | 제목만 / `id`와 함께면 제목도 | song, info, id, playlist |
 | `-hidden` | `-h` | | 숨긴 곡만 / `load`는 숨긴 곡도 | load, playlist |
@@ -247,23 +251,27 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `-count[:all\|others]` | | `others` | 셀 때 복사 명령 자신을 셀지 | copy, paste |
 | `-version[:latest\|<version>]` | `-v` | `latest` | 갈 버전 | update |
 | `-reinstall` | | | 있어도 이 버전대로 다시 씀 | install |
+| `-log` | | | 앱이 남기는 기록 전체 | report (create·write) |
+| `-flow` | `-f` | | 실행 종료까지 보낸 키를 순서대로 출력하고 콘솔 입력 잠금 | inspect (start) |
+| `-runs[:<n>\|*]` | | `1` | 최근 실행 n개, *면 남은 전체 | inspect (result) |
 
 ## 11. 키워드 표
 
 | 키워드 | 뜻 (명령) |
 | --- | --- |
-| `list` | 나열 (help·option·keyword: 전부 · prompt: 제목 · checkpoint: 체크포인트, 지금 자리에 `>` · report: 메모, 뒤 글자로 거름) |
+| `list` | 나열 (help·option·keyword: 전부 · prompt: 제목 · checkpoint: 체크포인트, 지금 자리에 `>` · report: 메모, 뒤 글자로 거름 · log: 최근 40줄) |
 | `last` | 바로 앞 명령 (help·option·keyword) · 마지막 체크포인트 (checkpoint) |
-| `all` | 전부 (playlist·id·title: 모든 곡 · note: 모든 노트 · scannow: 모든 영역 · install: 이 버전 전체(`-reinstall`)) · 핀 목록 (pin) |
+| `all` | 전부 (playlist·id·title: 모든 곡 · note: 모든 노트 · scannow: 모든 영역 · install: 이 버전 전체(`-reinstall`) · log: 남은 모든 줄) · 핀 목록 (pin) |
 | `now` | 불러온 곡 (info·id·title·playlist·hide·show·edit·remove·delete·pin·unpin) · 지금 화면, 수정 중이면 수정 중인 레인 (note) |
 | `base` · `custom` · `edited` · `main` · `family` · `origin` | 곡 묶음 (id·title·playlist) — 기본 맵 · 커스텀 · 수정본 · 메인 화면 목록 · 원곡과 모든 수정본 · 원곡 |
 | `origin` · `edited` | 불러온 수정본의 원곡 · 불러온 원곡의 수정본 (load) |
 | `first` · `next` · `previous` | 곡 처음 · 다음 · 이전 체크포인트 (checkpoint) |
-| `start` · `stop` · `tiles` · `follow` · `unfollow` · `again` · `auto` · `manual` | 게임 링크 (link) |
+| `start` · `stop` · `tiles` · `follow` · `unfollow` · `again` · `auto` · `manual` | 게임 링크 (link), start·stop은 측정 시작·종료 (inspect) |
 | `app` · `source` · `linker` · `maps` · `edits` · `data` | 영역 (scannow·install) |
 | `rebuild` | 커스텀 맵을 처음부터 (sync) |
+| `result` | 측정 결과 (inspect) |
 | `on` · `off` | 켜기 · 끄기 (autosave) |
-| `create` · `write` · `print` · `done` · `undone` · `ask` · `state` · `erase` · `sweep` · `rename` · `colon` | 메모 동작 (report) |
+| `create` · `write` · `print` · `done` · `undone` · `ask` · `state` · `erase` · `sweep` · `rename` · `colon` | 메모 동작 (report) · `erase`는 기록 비우기 (log) |
 | `clear-previous-checkpoint-key` · `clear-next-checkpoint-key` · `clear-settings-key` · `map-folder` · `data-folder` · `view-playlist-details` | 설정판 동작 (do) |
 
 ## 12. 설정 이름 (`구역.설정`)

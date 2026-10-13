@@ -110,7 +110,9 @@ public static class CmdCatalog
         new("version", "Help", "version", "-number, -check / -copy", CmdArgument.None),
         new("fps", "Help", "fps", "-restart / -copy", CmdArgument.None),
         new("link", "Help", "link [<what>]",
-            "-proceed / -copy / -inspect", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual"),
+            "-proceed / -copy", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual"),
+        new("inspect", "Help", "inspect <what>", "-proceed / -flow / -runs / -copy", CmdArgument.None, "start, stop, result"),
+        new("log", "Help", "log [<what>]", "-copy", CmdArgument.None, "list*, all, erase"),
         new("install", "Help", "install <what>[, …]",
             "-reinstall / -proceed", CmdArgument.Areas, "all, app, source, linker, maps, edits, data"),
         new("scannow", "Help", "scannow [<area>, …]", "-copy", CmdArgument.Areas, "all*, app, source, linker, maps, edits, data"),
@@ -154,7 +156,7 @@ public static class CmdCatalog
         new("paste", "Console", "paste [<count>]", "-commands / -answers / -count / -copy", CmdArgument.Range),
         new("prompt", "Console", "prompt [<title>]", "-copy", CmdArgument.Prompt, "list*"),
         new("report", "Console", "report <what> [<title>]",
-            "-force, -proceed / -copy / -inspect", CmdArgument.Note, "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
+            "-force, -proceed / -copy / -log", CmdArgument.Note, "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
         new("update", "Console", "update", "-force, -proceed / -version", CmdArgument.None),
         new("clear", "Console", "clear", "", CmdArgument.None),
         new("exit", "Console", "exit", "-keep", CmdArgument.None),
@@ -209,8 +211,10 @@ public static class CmdCatalog
         new("-answers", "", "with,skip", "skip"),
         new("-count", "", "all,others", "others"),
         new("-version", "-v", "latest," + VersionMark, "latest"),
+        new("-log"),
         new("-reinstall"),
-        new("-inspect", "", NumberMark + ",*", "1")
+        new("-flow", "-f"),
+        new("-runs", "", NumberMark + ",*", "1")
     ];
 
     /// <summary>The areas scannow checks and install -reinstall names, in the order both work through them.</summary>
@@ -299,7 +303,7 @@ public static class CmdCatalog
         if (option.Values == NumberMark)
             return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number is >= 1 and <= 9
                 ? (option, value) : null;
-        // A count with words beside it (-inspect:3, -inspect:*): any whole number from 1, or one of the words.
+        // A count with words beside it (-runs:3, -runs:*): any whole number from 1, or one of the words.
         if (option.ValueNames.Contains(NumberMark, StringComparer.Ordinal))
             return option.ValueNames.Contains(value, StringComparer.Ordinal)
                 || (int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count >= 1) ? (option, value) : null;
@@ -383,6 +387,12 @@ public static class CmdCatalog
         "report state",
         "report colon",
         "report list",
+        "inspect start",
+        "inspect stop",
+        "inspect result",
+        "log list",
+        "log all",
+        "log erase",
         "load origin",
         "checkpoint last",
         "load edited",
@@ -452,8 +462,8 @@ public static class CmdCatalog
         var letters = 1;
         while (letters < word.Length && char.IsAsciiLetter(word[letters])) letters++;
         var rest = word[letters..];
-        // -slot3 as it used to be written, or -slot:3 and -speed:keep as help writes them now.
-        if (rest.Length > 0 && rest[0] is ':' or '=') return rest.Length > 1 && rest[1..].All(c => char.IsAsciiLetterOrDigit(c) || c == '.');
+        // -slot3 as it used to be written, or -slot:3, -speed:keep and -runs:* as help writes them now.
+        if (rest.Length > 0 && rest[0] is ':' or '=') return rest.Length > 1 && rest[1..].All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '*');
         return rest.All(c => char.IsAsciiDigit(c) || c == '.');
     }
 

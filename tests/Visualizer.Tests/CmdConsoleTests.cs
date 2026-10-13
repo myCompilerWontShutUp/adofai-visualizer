@@ -266,6 +266,15 @@ internal static class CmdConsoleTests
             done(["The linker is built from this version and written into the game again."]);
         }
 
+        /// <summary>The log the window keeps, as its lines.</summary>
+        public List<string> Logged { get; } = [];
+        public IReadOnlyList<string> LogLines() => Logged;
+        public void ClearLog() => Logged.Clear();
+
+        /// <summary>Why the app running is older than the copy's files, as the window would say; null when it is not.</summary>
+        public string? Stale { get; set; }
+        public string? StaleBuild() => Stale;
+
         public string? ReinstallAndRestart(IReadOnlyList<string> parts)
         {
             Reinstalled.Add(string.Join(",", parts));
@@ -313,8 +322,21 @@ internal static class CmdConsoleTests
         /// <summary>The notes report writes, kept in memory here instead of the app store.</summary>
         public Dictionary<string, List<string>> Reports { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>What link inspect found, as report -inspect asks for it, and how many runs it last asked for.</summary>
+        /// <summary>What link inspect found, as inspect result asks for it, and how many runs it last asked for.</summary>
         public IReadOnlyList<string>? Inspected { get; set; }
+        /// <summary>Whether inspect -flow start begins a run here, and what the window was handed for it.</summary>
+        public bool FlowRuns { get; set; }
+        public IProgress<double>? FlowProgress { get; private set; }
+        public Action? FlowEnded { get; private set; }
+        public bool Inspecting { get; private set; }
+        public IReadOnlyList<string> GameSyncInspect(bool on, bool flow = false, IProgress<double>? progress = null, Action? ended = null)
+        {
+            if (!on) return ["link inspect is not available here."];
+            if (Inspecting) return ["Already inspecting."];
+            Inspecting = FlowRuns;
+            if (FlowRuns) { FlowProgress = progress; FlowEnded = () => { Inspecting = false; ended?.Invoke(); }; }
+            return [FlowRuns ? "Inspecting." : "Cannot inspect: the link is not on."];
+        }
         public int InspectAsked { get; private set; } = -1;
         public IReadOnlyList<string>? InspectLines(int count)
         {
@@ -672,6 +694,48 @@ internal static class CmdConsoleTests
             // The old options are gone, so nothing else can collide with them.
             Assert(!CmdCatalog.All.Single(c => c.Name == "sync").OptionNames.Any(o => o is "-on" or "-off" or "-t" or "-f" or "-n"),
                 "sync keeps no options of its own but -c");
+        });
+
+        yield return ("log shows what the app did lately, every line on asking, and report -log keeps it in a note", () =>
+        {
+            // User request: when the notes go missing in play, what the link, the game and following did can be read
+            // afterwards. The window keeps the lines, stamped to the millisecond and the newest few thousand only.
+            var stamped = new EventLog(() => new DateTime(2026, 10, 13, 17, 30, 1, 250));
+            stamped.Add("link: the pipe is open");
+            Equal(stamped.Lines()[0], "17:30:01.250  link: the pipe is open");
+            for (var i = 0; i < EventLog.Capacity + 10; i++) stamped.Add("line " + i);
+            Assert(stamped.Count == EventLog.Capacity && stamped.Lines()[0].EndsWith("  line 10", StringComparison.Ordinal), "The oldest go first");
+            stamped.Clear();
+            Equal(stamped.Count, 0);
+
+            var host = new Host();
+            var log = new CmdLog();
+            var session = new CmdSession(host, log);
+            session.Submit("log");
+            Equal(Output(log), "Nothing is in the log yet.");
+            host.Logged.AddRange(Enumerable.Range(1, 50).Select(i => $"17:30:{i:00}.000  event {i}"));
+            session.Submit("log");
+            var latest = LastOutput(log);
+            Assert(latest.Count == 42 && latest[0] == "The last 40 of 50 lines; log all shows every one."
+                && latest[1].EndsWith("event 11", StringComparison.Ordinal) && latest[^2].EndsWith("event 50", StringComparison.Ordinal)
+                && latest[^1] == "50 lines kept; report -log create <title> writes them into a note.", string.Join(" | ", latest));
+            session.Submit("log all");
+            Assert(LastOutput(log).Count == 51 && LastOutput(log)[0].EndsWith("event 1", StringComparison.Ordinal), "log all: every line");
+            session.Submit("log nothing");
+            Assert(Output(log).StartsWith("The syntax of the command is incorrect.", StringComparison.Ordinal), Output(log));
+
+            // report -log writes it into a note, with create and write: create starts one, write adds below.
+            session.Submit("report -log create run");
+            Assert(host.Reports.TryGetValue("run", out var note) && note.Count == 50 && Output(log) == "Wrote 50 lines of the log to \"run\".", Output(log));
+            session.Submit("report write -log run");
+            Assert(host.Reports["run"].Count == 101 && host.Reports["run"][50] == "", "Added below, after a blank line");
+            session.Submit("report -log create run");
+            Assert(Output(log).StartsWith("\"run\" is already there.", StringComparison.Ordinal), Output(log));
+
+            session.Submit("log erase");
+            Assert(host.Logged.Count == 0 && Output(log) == "The log is empty now.", "erase empties it");
+            session.Submit("report -log create empty");
+            Equal(Output(log), "Nothing is in the log yet.");
         });
 
         yield return ("The console speaks the app's language: Korean from the banner on, the typed words as they are", () =>
@@ -1396,7 +1460,7 @@ internal static class CmdConsoleTests
             Assert(!Complete("report create ").Any() && !Complete("report sweep ").Any(), "A new title or no title has nothing to offer");
             Assert(!Complete("report lane ").Any(), "A title where the word goes is not offered on");
             // Options are offered on either side of the words, as they are read on either side (user rule).
-            Lines(Complete("report print -"), "-force", "-proceed", "-copy", "-inspect");
+            Lines(Complete("report print -"), "-force", "-proceed", "-copy", "-log");
             Lines(Complete("playlist base -i"), "-id");
             Lines(Complete("playlist -c base -"), "-id", "-title", "-hidden", "-shown");
             Lines(Complete("prompt "), "list", "note-lanes");
@@ -1518,43 +1582,86 @@ internal static class CmdConsoleTests
             again.Close();
         });
 
-        yield return ("report -inspect writes what link inspect found: create starts with it, write adds it below", () =>
+        yield return ("inspect starts, stops and shows its results; -flow keeps the console until the run ends", () =>
         {
-            // User rule: report -inspect[:n|*] create <title> keeps the results, n the last runs (1 when nothing follows), *
-            // every run; write adds them below what the note holds. link inspect itself always asks first.
+            // User rule: inspect is a command of its own. start always asks first; result shows the last run, -runs:n the
+            // last n and -runs:* every run kept; -flow goes with start and -runs with result only.
             var host = new Host();
             var log = new CmdLog();
             var session = new CmdSession(host, log);
-            session.Submit("report -inspect create run");
-            Assert(LastOutput(log)[^1].Contains("No inspect run is kept", StringComparison.Ordinal), Output(log));
+            session.Submit("inspect");
+            Equal(Output(log), "inspect needs one of: start, stop, result.");
+            session.Submit("inspect nothing");
+            Assert(Output(log).StartsWith("'nothing' is not one of inspect's words.", StringComparison.Ordinal), Output(log));
+            session.Submit("inspect result");
+            Equal(Output(log), "No inspect run is kept. inspect start makes one.");
             host.Inspected = ["link inspect #1", "problems: none"];
-            session.Submit("report -inspect create run");
-            Equal(host.InspectAsked, 1);
-            Lines(host.Reports["run"], "link inspect #1", "problems: none");
-            session.Submit("report create -inspect run");
-            Assert(LastOutput(log)[^1].Contains("is already there", StringComparison.Ordinal), Output(log));
-            session.Submit("report write -inspect:* run");
+            session.Submit("inspect result");
+            Assert(host.InspectAsked == 1 && LastOutput(log).SequenceEqual(new[] { "link inspect #1", "problems: none" }), Output(log));
+            session.Submit("inspect -runs:* result");
             Equal(host.InspectAsked, 0);
-            Lines(host.Reports["run"], "link inspect #1", "problems: none", "", "link inspect #1", "problems: none");
-            session.Submit("report -inspect:3 write run");
+            session.Submit("inspect -runs:3 result");
             Equal(host.InspectAsked, 3);
-            session.Submit("report -inspect:0 write run");
-            Assert(LastOutput(log)[^1].Contains("is not a count", StringComparison.Ordinal), Output(log));
-            session.Submit("report write -inspect nothing");
-            Assert(LastOutput(log)[^1].Contains("There is no note called", StringComparison.Ordinal), Output(log));
-
-            // link -inspect takes start and stop only (user rule); start always asks first.
-            session.Submit("link -inspect start");
+            session.Submit("inspect -runs:0 result");
+            Assert(Output(log).Contains("is not a count", StringComparison.Ordinal), Output(log));
+            session.Submit("inspect -flow stop");
+            Equal(Output(log), "-flow goes with start: inspect -flow start.");
+            session.Submit("inspect -runs:2 start");
+            Equal(Output(log), "-runs goes with result: inspect -runs:3 result.");
+            session.Submit("inspect start");
             Assert(session.IsAsking && log.Lines[^1].Contains("presses the lane key", StringComparison.Ordinal), Output(log));
             session.Submit("n");
             Equal(LastOutput(log)[^1], "Nothing was pressed.");
-            session.Submit("link -inspect stop");
+            session.Submit("inspect stop");
             Equal(LastOutput(log)[^1], "link inspect is not available here.");
-            foreach (var other in new[] { "link -inspect tiles", "link -inspect", "link -inspect follow" })
+            // -inspect is no option any more (user rule).
+            session.Submit("link -inspect start");
+            Assert(Output(log).StartsWith("-inspect is not an option of link.", StringComparison.Ordinal), Output(log));
+
+            // -flow: the console belongs to the run, no prompt and nothing typed taken, until the window says it ended.
+            host.FlowRuns = true;
+            session.Submit("inspect -f -proceed start");
+            Assert(session.Busy && host.FlowEnded is not null && session.JobText().StartsWith("Inspect", StringComparison.Ordinal), session.JobText());
+            var lines = log.Lines.Count;
+            session.Submit("version");
+            Equal(log.Lines.Count, lines);
+            host.FlowProgress!.Report(0.5);
+            Assert(session.JobText().Contains(" 50%", StringComparison.Ordinal), session.JobText());
+            host.FlowEnded!();
+            Assert(!session.Busy && session.Prompt == CmdSession.PromptText, "The prompt is back when the run ends");
+            // A run that does not start gives the prompt straight back.
+            host.FlowRuns = false;
+            session.Submit("inspect -flow -proceed start");
+            Assert(!session.Busy, "Refused: no bar");
+
+            // A normal run already owns the measurement; asking for -flow must not leave a job without its callback.
+            host.FlowRuns = true;
+            session.Submit("inspect -proceed start");
+            Assert(host.Inspecting && !session.Busy, "The normal run starts without owning the console");
+            session.Submit("inspect -flow -proceed start");
+            Assert(!session.Busy && LastOutput(log)[^1] == "Already inspecting.", "A duplicate start returns the prompt");
+            host.FlowEnded!();
+        });
+
+        yield return ("inspect -flow hides the terminal prompt and discards pasted text until it ends", () =>
+        {
+            var host = new Host { FlowRuns = true };
+            var session = new CmdSession(host, new CmdLog());
+            var window = new CmdWindow(session, "space") { Left = -20000, Top = -20000, ShowActivated = false };
+            try
             {
-                session.Submit(other);
-                Assert(LastOutput(log)[^1].StartsWith("-inspect goes with start or stop only", StringComparison.Ordinal), other + ": " + Output(log));
+                window.Show();
+                window.Run("inspect -flow -proceed start");
+                Assert(session.Busy && window.OutputText.TrimEnd().EndsWith("0%", StringComparison.Ordinal), "The bar replaces the prompt");
+                var screen = FindAll<TextBox>(window).First(box => box.Text == window.OutputText);
+                screen.AppendText("version");
+                Equal(window.InputText, "");
+                Assert(window.OutputText.TrimEnd().EndsWith("0%", StringComparison.Ordinal), "Pasted input is discarded immediately");
+                host.FlowEnded!();
+                Assert(!session.Busy && window.OutputText.TrimEnd().EndsWith(CmdSession.PromptText, StringComparison.Ordinal),
+                    "Ending inspect restores the prompt");
             }
+            finally { window.Close(); }
         });
 
         yield return ("report create starts a note and write opens one, each refusing what the other is for", () =>
@@ -1890,7 +1997,7 @@ internal static class CmdConsoleTests
                 // 3. An option that takes a value always has a default, so the name alone means something (user rule).
                 Assert(!option.TakesValue || option.Default.Length > 0 || option.Values == CmdCatalog.NumberMark,
                     $"{option.Name} takes a value but has no default");
-                // A count with words beside it (-inspect:3, -inspect:*) defaults to a count.
+                // A count with words beside it (-runs:3, -runs:*) defaults to a count.
                 Assert(!option.TakesValue || option.Values == CmdCatalog.NumberMark || option.ValueNames.Contains(option.Default, StringComparer.Ordinal)
                     || (option.ValueNames.Contains(CmdCatalog.NumberMark, StringComparer.Ordinal) && int.TryParse(option.Default, out var count) && count >= 1),
                     $"{option.Name}'s default is not one of its values"); 
@@ -1991,6 +2098,29 @@ internal static class CmdConsoleTests
             Lines(host.Calls, "update");
             Assert(!session.IsAsking && Output(log) == "This copy is already the latest version (1.0.0).", Output(log));
             Equal(host.Applied, 0);
+
+            // Nothing newer on the repository, but the app running is an older build of this copy (user report: update said
+            // the latest while the old build stayed): update says so and offers to build it again, as install -reinstall app does.
+            host.Stale = "this build is from 2026-10-13 12:49, and 12 file(s) of this copy changed after it";
+            session.Submit("update");
+            Assert(session.IsAsking && log.Lines.Contains("This copy is the latest version (1.0.0), but the app running is an older build of it: "
+                + host.Stale + ".") && log.Lines[^1].StartsWith("Build it again?", StringComparison.Ordinal), string.Join(" | ", LastOutput(log)));
+            session.Submit("n");
+            Assert(LastOutput(log)[^1] == "Cancelled. This copy stays as it is." && host.Reinstalled.Count == 0, "A no builds nothing");
+            session.Submit("version -check");
+            Equal(LastOutput(log)[^1], "Latest  yes, but the app running is an older build of it; update builds it again");
+            // Its own changes go into the build too, and an installed linker older than this copy's goes with it.
+            host.Check = new("1.0.0", "1.0.0", true, 0, true, 3, 0, []);
+            host.Place = new(@"C:\Game", @"C:\copy\plugins\linker", "1.0.5", "1.0.4", @"C:\Game\Mods\AdofaiVisualizerSync");
+            session.Submit("update -p");
+            Assert(log.Lines.Any(line => line.Contains("This copy's own 3 changed file(s) go into it too.", StringComparison.Ordinal)
+                && line.Contains("The linker in the game is updated with it.", StringComparison.Ordinal)), string.Join(" | ", LastOutput(log)));
+            Assert(host.Reinstalled is ["app,linker"] && LastOutput(log)[^1] == "Closing to build it again. The app comes back when it is done.",
+                string.Join(" | ", host.Reinstalled));
+            host.Reinstalled.Clear();
+            host.Stale = null;
+            host.Place = new(null, null, null, null, "");
+            host.Check = new("1.0.0", "1.0.0", true, 0, true, 0, 0, []);
 
             // A newer one: what it is, then the question, which says the app closes and opens again; a no changes nothing.
             host.Check = new("1.0.0", "1.0.1", true, 2, false, 0, 0, []);

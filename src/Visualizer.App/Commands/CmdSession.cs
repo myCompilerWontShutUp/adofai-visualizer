@@ -135,9 +135,19 @@ public interface ICmdHost
     /// <summary>
     /// link inspect (measurement only): presses the visualizer's notes into the game while every rule of it holds, or stops.
     /// </summary>
-    IReadOnlyList<string> GameSyncInspect(bool on) => [T("InspectNotHere")];
+    /// <param name="flow">inspect -flow: every key goes to the console as it is sent.</param>
+    /// <param name="progress">How far the run has got, 0..1, for the bar the console shows meanwhile.</param>
+    /// <param name="ended">Called once when a run that started ends, by itself, by Esc or by inspect stop.</param>
+    IReadOnlyList<string> GameSyncInspect(bool on, bool flow = false, IProgress<double>? progress = null, Action? ended = null) =>
+        [T("InspectNotHere")];
+    /// <summary>Whether an inspect run is going on.</summary>
+    bool Inspecting => false;
     /// <summary>The lines of the last <paramref name="count"/> inspect runs (every run for 0), or null when none is kept.</summary>
     IReadOnlyList<string>? InspectLines(int count) => null;
+    /// <summary>The log's lines, oldest first (log, report -log).</summary>
+    IReadOnlyList<string> LogLines() => [];
+    /// <summary>Empties the log.</summary>
+    void ClearLog() { }
 
     /// <summary>Where the link mod would come from and go to, so the console can say what it will write before it writes.</summary>
     LinkerPlace FindLinker();
@@ -265,6 +275,12 @@ public interface ICmdHost
     /// </summary>
     void CheckUpdate(string? version, IProgress<double> progress, Action<UpdateCheck> done) =>
         done(UpdateCheck.Failed(T("UpdateNotHere")));
+
+    /// <summary>
+    /// Why the app running is an older build than this copy's own files say, or null when it is not: its source version
+    /// differs, or files changed after it was built. update then offers to build it again (user request).
+    /// </summary>
+    string? StaleBuild() => null;
 
     /// <summary>
     /// Takes it: the app closes and the script puts the version in place, builds it and starts it again, since a running
@@ -616,6 +632,12 @@ public sealed class CmdSession
             case "link":
                 // One way: the app only listens for the mod, and never sends anything into the game.
                 Link(line, copy);
+                break;
+            case "log":
+                ShowLog(line, copy);
+                break;
+            case "inspect":
+                Inspect(line, copy);
                 break;
             case "install":
                 Install(line, yes);
@@ -1387,7 +1409,7 @@ public sealed class CmdSession
         RunJob(T("JobVersion"), (progress, done) => _host.CheckUpdate(null, progress, check =>
         {
             var latest = check.Problems.Count > 0 ? T("LatestUnknown", check.Problems[0])
-                : check.Behind == 0 ? T("LatestYes") : T("LatestNo", check.Target);
+                : check.Behind == 0 ? _host.StaleBuild() is null ? T("LatestYes") : T("LatestStale") : T("LatestNo", check.Target);
             done([]);
             Show([.. about, latest], copy);
         }));
@@ -1415,7 +1437,22 @@ public sealed class CmdSession
             if (!check.Found) { done([T("NoSuchVersion", asked)]); return; }
             if (!force)
             {
-                if (check.Behind == 0) { done([T("AlreadyLatest", check.Mine)]); return; }
+                if (check.Behind == 0)
+                {
+                    // Nothing newer on the repository, yet the app running may be an older build of this very copy: the copy
+                    // the code is written in gets a new build only this way (user request), the way install -reinstall app does.
+                    if (_host.StaleBuild() is not { } stale) { done([T("AlreadyLatest", check.Mine)]); return; }
+                    done([T("LatestButStale", check.Mine, stale)]);
+                    var place = _host.FindLinker();
+                    var withLinker = place.Installed is { } installed && place.SourceVersion is { Length: > 0 } made && installed != made;
+                    Confirm(yes, T("AskRebuildApp", check.Changed + check.Unpublished > 0 ? T("RebuildOwnChanges", Own(check)) : "",
+                        withLinker ? T("LinkerAlong") : ""), answer =>
+                    {
+                        if (!answer) { Write(T("CancelledStays")); return; }
+                        Write(_host.ReinstallAndRestart(withLinker ? ["app", "linker"] : ["app"]) is { } reason ? reason : T("ClosingToRebuild"));
+                    });
+                    return;
+                }
                 if (check.Changed > 0 || check.Unpublished > 0)
                 {
                     done([T("WaitingButOwn", check.Target, Own(check)), T("ForceTakesIt")]);
@@ -1890,24 +1927,6 @@ public sealed class CmdSession
         {
             Syntax<object>(line);
             return;
-        }
-        // -inspect drives the inspect run and nothing else (user rule): start and stop are the only words it takes.
-        if (line.Options.ContainsKey("-inspect"))
-        {
-            switch (what)
-            {
-                case "start":
-                    // It presses keys into the game, so it always asks (user rule), even though every rule is checked first.
-                    Confirm(line.Has("-proceed"), T("AskInspect"),
-                        answer => Show(answer ? _host.GameSyncInspect(true) : [T("NothingPressed")], copy));
-                    return;
-                case "stop":
-                    Show(_host.GameSyncInspect(false), copy);
-                    return;
-                default:
-                    Write(T("InspectStartStopOnly"));
-                    return;
-            }
         }
         Show(what switch
         {
@@ -2600,7 +2619,7 @@ public sealed class CmdSession
     /// opens a window would leave two things waiting for the same typed line.
     /// </summary>
     private static readonly HashSet<string> BlankCommands = new(StringComparer.Ordinal)
-        { "paste", "note", "id", "title", "info", "song", "playlist", "get", "property", "export", "version", "date", "fps", "link",
+        { "paste", "note", "id", "title", "info", "song", "playlist", "get", "property", "export", "version", "date", "fps", "link", "log",
           "cmd", "help", "option", "keyword", "whoami" };
 
     /// <summary>prompt: shows one stored prompt, or lists their titles; one with blanks is filled in first.</summary>
@@ -2890,8 +2909,8 @@ public sealed class CmdSession
         {
             case "create":
             case "write":
-                if (line.Options.TryGetValue("-inspect", out var which) || after.TryGetValue("-inspect", out which))
-                    InspectReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), which, Has("-force"), Has("-proceed"));
+                if (line.Options.ContainsKey("-log") || after.ContainsKey("-log"))
+                    LogReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), Has("-force"), Has("-proceed"));
                 else NewReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), Has("-force"), Has("-proceed"));
                 return;
             case "colon":
@@ -2994,17 +3013,15 @@ public sealed class CmdSession
     }
 
     /// <summary>
-    /// report -inspect[:n|*] create / write <title>: writes what link inspect found into a note (user rule). create starts the note with
-    /// it, write adds it below what the note holds; n is how many of the latest runs (1, the last one, when nothing follows),
-    /// * every run kept since the app opened.
+    /// report -log create / write <title>: writes the log into a note (user request):
+    /// create starts the note with it, write adds it below what the note holds.
     /// </summary>
-    private void InspectReport(string title, bool creating, string? which, bool force, bool yes)
+    private void LogReport(string title, bool creating, bool force, bool yes)
     {
         var word = creating ? "create" : "write";
-        if (title.Length == 0) { Write(T("InspectReportNeedsTitle", word)); return; }
-        var count = which is null or "" ? 1 : which == "*" ? 0 : int.Parse(which, System.Globalization.CultureInfo.InvariantCulture);
-        if (_host.InspectLines(count) is not { } found) { Write(T("NoInspectRun")); return; }
-        var lines = found.ToArray();
+        if (title.Length == 0) { Write(T("LogReportNeedsTitle", word)); return; }
+        var lines = _host.LogLines().ToArray();
+        if (lines.Length == 0) { Write(T("LogEmpty")); return; }
         var existing = _host.ReadReport(title, out var problem);
         if (problem is { } reason) { Write(reason); return; }
         void Save(IReadOnlyList<string> text, string done)
@@ -3014,23 +3031,94 @@ public sealed class CmdSession
         }
         if (!creating)
         {
-            if (existing is null) { Write(T("NoNoteCalledInspect", title)); return; }
-            Save([.. existing, "", .. lines], T("InspectAdded", lines.Length, title));
+            if (existing is null) { Write(T("NoNoteCalledLog", title)); return; }
+            Save([.. existing, "", .. lines], T("LogAdded", lines.Length, title));
             return;
         }
-        if (existing is null) { Save(lines, T("InspectWrote", lines.Length, title)); return; }
+        if (existing is null) { Save(lines, T("LogWrote", lines.Length, title)); return; }
         if (!force)
         {
-            Write(T("InspectNoteAlreadyThere", title));
+            Write(T("LogNoteAlreadyThere", title));
             return;
         }
-        Confirm(yes, T("AskReplaceInspect", title, existing.Count),
-            answer =>
-            {
-                if (!answer) { Write(T("NothingReplaced")); return; }
-                Save(lines, T("InspectReplaced", title, lines.Length));
-            });
+        Confirm(yes, T("AskReplaceLog", title, existing.Count), answer =>
+        {
+            if (!answer) { Write(T("NothingReplaced")); return; }
+            Save(lines, T("LogReplaced", title, lines.Length));
+        });
     }
+
+    /// <summary>
+    /// inspect start | stop | result (user request; measuring only, AGENTS.md rule 6): start presses the visualizer's notes
+    /// into the game after asking, and with -flow prints every key as it goes until the run ends; stop ends it; result shows
+    /// what the last runs found, -runs:n the last n and -runs:* every one kept.
+    /// </summary>
+    private void Inspect(CmdLine line, bool copy)
+    {
+        var words = string.Join(", ", line.Command.KeywordNames);
+        var what = line.Arguments.Count == 0 ? "" : line.Arguments[0].ToLowerInvariant();
+        if (line.Arguments.Count > 1) { Syntax<object>(line); return; }
+        if (what.Length == 0) { Write(T("InspectNeeds", words)); return; }
+        if (!line.Command.KeywordNames.Contains(what)) { Write(T("NotInspectWord", what, words)); return; }
+        if (line.Has("-flow") && what != "start") { Write(T("FlowWithStart")); return; }
+        if (line.Options.ContainsKey("-runs") && what != "result") { Write(T("RunsWithResult")); return; }
+        switch (what)
+        {
+            case "start":
+                // It presses keys into the game, so it always asks (user rule), even though every rule is checked first.
+                var flow = line.Has("-flow");
+                Confirm(line.Has("-proceed"), T("AskInspect"), answer =>
+                {
+                    if (!answer) { Show([T("NothingPressed")], copy); return; }
+                    if (!flow || _host.Inspecting) { Show(_host.GameSyncInspect(true), copy); return; }
+                    // With -flow the console belongs to the run until it ends (user rule): no prompt and nothing typed is
+                    // taken, the keys come up line by line, and the bar says how far it has got. Esc or the end of the song
+                    // gives the prompt back.
+                    RunJob(T("JobInspect"), (progress, done) =>
+                    {
+                        var running = false;
+                        var said = _host.GameSyncInspect(true, true, progress, () => { if (running) done([]); });
+                        Write([.. said]);
+                        running = _host.Inspecting;
+                        if (!running) done([]);
+                    });
+                });
+                return;
+            case "stop":
+                Show(_host.GameSyncInspect(false), copy);
+                return;
+            default:
+                var runs = line.Options.TryGetValue("-runs", out var value) ? value : "1";
+                var count = runs == "*" ? 0 : int.Parse(runs, CultureInfo.InvariantCulture);
+                if (_host.InspectLines(count) is { } lines) Show(lines, copy);
+                else Write(T("NoInspectRun"));
+                return;
+        }
+    }
+
+    /// <summary>log: the latest lines of what the app did, every line kept, or none any more (user request).</summary>
+    private void ShowLog(CmdLine line, bool copy)
+    {
+        var what = line.Arguments.Count == 0 ? "list" : line.Arguments[0].ToLowerInvariant();
+        if (line.Arguments.Count > 1 || !line.Command.KeywordNames.Contains(what))
+        {
+            Syntax<object>(line);
+            return;
+        }
+        if (what == "erase")
+        {
+            _host.ClearLog();
+            Write(T("LogErased"));
+            return;
+        }
+        var lines = _host.LogLines();
+        if (lines.Count == 0) { Write(T("LogEmpty")); return; }
+        if (what == "all" || lines.Count <= LogShown) Show([.. lines, T("LogHint", lines.Count)], copy);
+        else Show([T("LogLatest", LogShown, lines.Count), .. lines.Skip(lines.Count - LogShown), T("LogHint", lines.Count)], copy);
+    }
+
+    /// <summary>How many of the latest lines a bare log shows; log all shows the rest.</summary>
+    private const int LogShown = 40;
 
     /// <summary>Opens the note in the console's own editor, with the lines it is to hold.</summary>
     private void Edit(string title, IReadOnlyList<string>? lines)

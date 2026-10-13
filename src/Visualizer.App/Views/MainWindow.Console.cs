@@ -109,10 +109,15 @@ public partial class MainWindow
             _follower.Stop();
             _model.FollowingGame = false;
             _followProblem = T("FollowingStopped", error.Message);
+            Log("LogFollowProblem", error.Message);
+            _autoRefusedAt = _model.PlaybackClock.NowMs;
         }
         // After following, so a run plans its presses from where this frame put the notes.
         try { InspectFrame(); }
         catch (Exception error) when (IsExpectedError(error)) { StopInspect(T("InspectCouldNotGoOn", error.Message)); }
+        // Last, so it sees what this frame did; the log never costs the frame.
+        try { LogFrame(); }
+        catch (Exception error) when (IsExpectedError(error)) { }
     }
 
     /// <summary>Why following last stopped on its own, for link to show.</summary>
@@ -126,15 +131,24 @@ public partial class MainWindow
         var (reading, arrived) = Sync.Latest;
         _follower.Follow(reading, arrived, _model.PlaybackClock.NowMs, _model.Playback, Sync.Level);
         // The follower ends following by itself when the app changes the song under it, so the app has to come back out
-        // of it here; the setter puts everything it took over back.
-        if (_follower.OffsetMs is null) _model.FollowingGame = false;
+        // of it here; the setter puts everything it took over back. link auto tries again after its usual wait, since the
+        // same level, song and notes would otherwise never be tried again (user report: notes gone mid-play).
+        if (_follower.OffsetMs is null)
+        {
+            _model.FollowingGame = false;
+            _autoRefusedAt = _model.PlaybackClock.NowMs;
+        }
         // The view model did not make this change, so nothing else would tell the window about it.
         else if (_model.Playback.State != before) _model.NotifyPlaybackChanged();
     }
 
     IReadOnlyList<string> ICmdHost.GameSync(bool start, bool stop, bool restart)
     {
+        // Closing the link ends link auto as well (user rule): there is nothing left to match by itself, and it must not
+        // start again on its own the next time the pipe opens.
+        var manual = stop && _linkAuto;
         if (stop) StopGameSync();
+        if (manual) ((ICmdHost)this).GameSyncAuto(false);
         if (start)
         {
             _syncServer ??= new NamedPipeGameSyncServer(Sync, GameSyncPipeName);
@@ -147,6 +161,7 @@ public partial class MainWindow
         if (_followProblem is { } problem) lines.Add(T("ProblemLine", problem));
         lines.Add(_linkAuto ? T("AutoOn") + (_autoNote is { } note ? " \u00b7 " + note : "") : T("AutoOff"));
         lines.Add(InspectLine());
+        if (manual) lines.Add(T("AutoOffWithStop"));
         if (restart) lines.Add(T("MeasuringAgain"));
         return lines;
     }
@@ -275,14 +290,22 @@ public partial class MainWindow
     {
         problem = null;
         if (_syncServer is not { Listening: true }) { problem = T("LinkNotOn"); return null; }
+        // The level the linker sent names the song, or failing that the path in its latest reading; link auto has no part
+        // in it (user report: load link did nothing with link auto off).
         var (reading, _) = Sync.Latest;
         var path = Sync.Level?.Path is { Length: > 0 } level ? level : reading?.Path;
-        if (!_syncServer.Connected || reading is null || string.IsNullOrEmpty(path))
+        if (!_syncServer.Connected || string.IsNullOrEmpty(path))
         {
             problem = T("LinkerNotConnected");
             return null;
         }
-        if (SongFor(path, _model.AllSongs, OriginalPathOf) is { } song) return song.Id;
+        if (SongFor(path, _model.AllSongs, OriginalPathOf) is { } song)
+        {
+            // The console knows a song by its eight-character id, not by the cache's own key.
+            if (_model.SongIdMap.TryGetValue(song.Id, out var id)) return id;
+            problem = T("GameSongNoId", song.SongName);
+            return null;
+        }
         problem = T("GamePlayingUnlisted", path);
         return null;
     }

@@ -110,7 +110,11 @@ public sealed class CmdWindow : Window
         _screen.PreviewKeyDown += ScreenKeyDown;
         _screen.PreviewTextInput += (_, e) => { if (_session.Busy) e.Handled = true; else ToPromptLine(); };
         _screen.TextChanged += ScreenChanged;
-        DataObject.AddPastingHandler(_screen, (_, _) => ToPromptLine());
+        DataObject.AddPastingHandler(_screen, (_, e) =>
+        {
+            if (_session.Busy) e.CancelCommand();
+            else ToPromptLine();
+        });
         // Cut over the transcript copies instead, since the transcript cannot change.
         CommandManager.AddPreviewExecutedHandler(_screen, (_, e) =>
         {
@@ -288,6 +292,7 @@ public sealed class CmdWindow : Window
     private void ScreenChanged(object sender, TextChangedEventArgs e)
     {
         if (_rendering) return;
+        if (_session.Busy) { Render(); return; }
         _choice = -1;
         var text = _screen.Text;
         if (text.Length >= _fixed.Length && string.CompareOrdinal(text, 0, _fixed, 0, _fixed.Length) == 0)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using Visualizer.App.Commands;
 using static Visualizer.Core.Localization.ConsoleText;
@@ -9,7 +10,7 @@ namespace Visualizer.App.Views;
 /// <summary>
 /// link inspect: precise measurement only (user rule). It presses the lane key of every note the visualizer draws at the
 /// moment the note reaches the judgment line, so the game judges the visualizer's timing; the user watches the notes and
-/// where each press lands, and the game's Miss and Overload judgments are kept with their tiles for report -inspect.
+/// where each press lands, and the game's Miss and Overload judgments are kept with their tiles for inspect result.
 /// It runs only while all four rules hold, checked when it starts and on every frame: the link is on with link auto off,
 /// the game plays the loaded song, No Fail is on in the game (a clear with it never counts), and the game is in front.
 /// </summary>
@@ -30,15 +31,17 @@ public partial class MainWindow
     private uint _gameProcess;
     /// <summary>Why the last run stopped, for link to show.</summary>
     private string? _inspectNote;
-    /// <summary>Every run since the app opened, kept for report -inspect and gone when it closes (user rule).</summary>
+    /// <summary>Every run since the app opened, kept for inspect result and gone when it closes (user rule).</summary>
     private readonly List<InspectRun> _inspected = [];
 
-    IReadOnlyList<string> ICmdHost.GameSyncInspect(bool on)
+    bool ICmdHost.Inspecting => _inspection is not null;
+
+    IReadOnlyList<string> ICmdHost.GameSyncInspect(bool on, bool flow, IProgress<double>? progress, Action? ended)
     {
         if (!on)
         {
             if (_inspection is null) return [T("NotInspecting")];
-            StopInspect("link -inspect stop");
+            StopInspect("inspect stop");
             return [T("StoppedInspecting")];
         }
         if (_inspection is not null) return [T("AlreadyInspecting")];
@@ -65,6 +68,16 @@ public partial class MainWindow
             () => DescribeFront(WindowsForegroundObserver.ForegroundProcessId()));
         _inspection.Start();
         _inspectNote = null;
+        _inspectFlow = flow;
+        _flowProgress = flow ? progress : null;
+        _flowEnded = flow ? ended : null;
+        _flowPercent = -1;
+        _flowPresses = 0;
+        _flowEvents = 0;
+        _flowWarmed = 0;
+        _inspectWarmedUp = false;
+        _inspectKeys = keys;
+        Log("LogInspectOn", _inspectRun.Number);
         ShowInspectBanner();
         return
         [
@@ -106,13 +119,31 @@ public partial class MainWindow
         if (!double.IsNaN(_inspectFrameMs) && now - _inspectFrameMs > InspectStallMs) _inspectRun.Stall(now - _inspectFrameMs);
         _inspectFrameMs = now;
         var playback = _model.Playback;
-        _inspection.Plan(playback.Notes, playback.TimelineTimeMs, playback.Offsets.TotalMs, now);
+        var advancing = playback.State == Visualizer.Application.Playback.PlaybackState.Playing
+            && _follower.State == Visualizer.Application.Sync.GameSyncFollowState.Following;
+        _inspection.Plan(playback.Notes, playback.TimelineTimeMs, playback.Offsets.TotalMs, now, advancing);
         var (reading, _) = Sync.Latest;
         if (reading is not null) _inspectRun.Observe(reading, _inspection.LastPress);
+        // Into the countdown: every lane key, Space and Enter once (user request), so the game's input is awake for tile 1.
+        if (reading?.State == "Countdown" && advancing && !_inspectWarmedUp)
+        {
+            var firstDue = playback.Notes.Count == 0 ? now
+                : now + playback.Notes[0].HitTimeMs + playback.Offsets.TotalMs - playback.TimelineTimeMs;
+            _inspection.WarmUp([.. _inspectKeys.Values, SpaceKey, EnterKey], now, firstDue - LinkInspection.WarmGapMs);
+            _inspectWarmedUp = true;
+        }
+        else if (reading?.State != "Countdown" || !advancing) _inspection.CancelWarmUp();
+        if (_inspectFlow)
+        {
+            FlowLines(playback.Notes, reading);
+            // The console's bar: notes pressed of the notes there are, told only when the percent moves.
+            var percent = playback.Notes.Count == 0 ? 0 : _inspection.Presses.Count * 100 / playback.Notes.Count;
+            if (percent != _flowPercent) { _flowPercent = percent; _flowProgress?.Report(percent / 100.0); }
+        }
         if (_inspection.Finished(playback.Notes.Count)) StopInspect(T("SongEnded"));
     }
 
-    /// <summary>Stops a run: every key goes up, and what it found is kept for report -inspect.</summary>
+    /// <summary>Stops a run: every key goes up, and what it found is kept for inspect result.</summary>
     private void StopInspect(string reason)
     {
         if (_inspection is not { } inspection || _inspectRun is not { } run) return;
@@ -122,6 +153,17 @@ public partial class MainWindow
         var (reading, _) = Sync.Latest;
         if (reading is not null) run.Observe(reading, inspection.LastPress);
         run.Finish(reason, inspection.Presses, inspection.Skipped);
+        if (_inspectFlow)
+        {
+            FlowLines(_model.Playback.Notes, reading, inspection, run);
+            CmdLog.Shared.Write([T("FlowStopped", run.Number, reason)]);
+            _inspectFlow = false;
+            var ended = _flowEnded;
+            _flowEnded = null;
+            _flowProgress = null;
+            ended?.Invoke();
+        }
+        Log("LogInspectOff", run.Number, reason);
         ShowInspectBanner();
         _inspected.Add(run);
         _inspectNote = reason;
@@ -151,6 +193,46 @@ public partial class MainWindow
             : _model.Text.Format("InspectRunning", inspection.Presses.Count);
         if (!Equals(InspectBannerText.Text, text)) InspectBannerText.Text = text;
         InspectBanner.Visibility = Visibility.Visible;
+    }
+
+    private bool _inspectFlow;
+    private IProgress<double>? _flowProgress;
+    private Action? _flowEnded;
+    private int _flowPercent;
+    private int _flowPresses;
+    private int _flowEvents;
+    private int _flowWarmed;
+    private bool _inspectWarmedUp;
+    private IReadOnlyDictionary<int, int> _inspectKeys = new Dictionary<int, int>();
+    private const int SpaceKey = 0x20;
+    private const int EnterKey = 0x0D;
+
+    /// <summary>
+    /// inspect -flow (user request): every key the run sent since the last frame, and every judgment worth a look, goes
+    /// to the console as it happens, one line each, so the run can be watched while it plays.
+    /// </summary>
+    private void FlowLines(IReadOnlyList<Visualizer.Core.Visualization.VisualizerNote> notes,
+        Visualizer.Application.Sync.GameSyncMessage? reading, LinkInspection? from = null, InspectRun? finished = null)
+    {
+        if ((from ?? _inspection) is not { } inspection || (finished ?? _inspectRun) is not { } run) return;
+        var lines = new List<string>();
+        var warmed = inspection.Warmed;
+        if (warmed.Count > _flowWarmed)
+        {
+            lines.Add(T("FlowWarm", string.Join(" ", warmed.Skip(_flowWarmed).Select(KeyName))));
+            _flowWarmed = warmed.Count;
+        }
+        var presses = inspection.Presses;
+        foreach (var press in presses.Skip(_flowPresses))
+            lines.Add(T("FlowPress", KeyName(_inspectKeys.TryGetValue(press.Tile, out var key) ? key : 0), press.Note + 1, press.Tile,
+                press.Note < notes.Count ? notes[press.Note].HitTimeMs.ToString("0.0", CultureInfo.InvariantCulture) : "-",
+                reading?.Floor ?? 0, press.LateMs.ToString("0.0", CultureInfo.InvariantCulture)));
+        _flowPresses = presses.Count;
+        foreach (var judged in run.Events.Skip(_flowEvents)) lines.Add(T("FlowJudgment", judged.Judgment, judged.Floor));
+        _flowEvents = run.Events.Count;
+        if (lines.Count > 0) CmdLog.Shared.Write(lines);
+
+        static string KeyName(int key) => key == 0 ? "?" : System.Windows.Input.KeyInterop.KeyFromVirtualKey(key).ToString();
     }
 
     /// <summary>The link status line about inspect.</summary>

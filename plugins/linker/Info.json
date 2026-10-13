@@ -2,7 +2,7 @@
   "Id": "AdofaiVisualizerSync",
   "DisplayName": "ADOFAI Visualizer Sync (read-only)",
   "Author": "personal",
-  "Version": "1.0.5",
+  "Version": "1.0.6",
   "AssemblyName": "AdofaiVisualizerSync.dll",
   "EntryMethod": "AdofaiVisualizerSync.Main.Load"
 }

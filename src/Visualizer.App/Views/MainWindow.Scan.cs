@@ -59,22 +59,41 @@ public partial class MainWindow
         done(results);
     }
 
+    /// <summary>
+    /// The app running against this copy's files: the version its source says, and how many source files changed after it
+    /// was built (then the app running is not what the files say). Null outside a copy of the repository.
+    /// </summary>
+    private (string Source, int Newer)? BuildAge()
+    {
+        if (Repository is not { } repository) return null;
+        var source = Regex.Match(File.ReadAllText(Path.Combine(repository, "Directory.Build.props")), "<Version>([^<]+)</Version>").Groups[1].Value;
+        var built = File.GetLastWriteTimeUtc(typeof(MainWindow).Assembly.Location);
+        var newer = Directory.EnumerateFiles(Path.Combine(repository, "src"), "*", SearchOption.AllDirectories)
+            .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
+                && !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+            .Count(file => File.GetLastWriteTimeUtc(file) > built);
+        return (source, newer);
+    }
+
+    string? ICmdHost.StaleBuild()
+    {
+        try
+        {
+            if (BuildAge() is not { } age) return null;
+            if (age.Source != AppInfo.Version) return T("StaleVersion", AppInfo.Version, age.Source);
+            return age.Newer > 0 ? T("StaleFiles", AppInfo.BuildTime, age.Newer) : null;
+        }
+        catch (Exception error) when (IsExpectedError(error)) { return null; }
+    }
+
     /// <summary>The build against its source, and the language and theme files it carries.</summary>
     private ScanArea ScanApp()
     {
         var problems = new List<string>();
-        if (Repository is { } repository)
+        if (BuildAge() is { } age)
         {
-            var source = Regex.Match(File.ReadAllText(Path.Combine(repository, "Directory.Build.props")), "<Version>([^<]+)</Version>").Groups[1].Value;
-            if (source != AppInfo.Version) problems.Add(T("ScanBuildVsSource", AppInfo.Version, source));
-            // A source file newer than the build means the app running is not what the files say.
-            var built = File.GetLastWriteTimeUtc(typeof(MainWindow).Assembly.Location);
-            var root = Path.Combine(repository, "src");
-            var newer = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
-                    && !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
-                .Count(file => File.GetLastWriteTimeUtc(file) > built);
-            if (newer > 0) problems.Add(T("ScanNewerSource", newer));
+            if (age.Source != AppInfo.Version) problems.Add(T("ScanBuildVsSource", AppInfo.Version, age.Source));
+            if (age.Newer > 0) problems.Add(T("ScanNewerSource", age.Newer));
         }
         var reference = Languages.Keys(Languages.Default);
         var console = Languages.ConsoleKeys(Languages.Default);

@@ -1,5 +1,7 @@
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Microsoft.Win32.SafeHandles;
 using System.Text;
 using System.Text.Json;
 using Visualizer.Application.Sync;
@@ -40,6 +42,11 @@ public sealed class NamedPipeGameSyncServer : IDisposable
     public bool Listening => _loop is { IsCompleted: false };
     /// <summary>Whether a mod is connected right now.</summary>
     public bool Connected { get; private set; }
+    /// <summary>
+    /// The process id of the game the connected mod runs in, 0 when none is or Windows does not say. Only read, never
+    /// opened: the log names it, so a second game running is told apart from the one followed.
+    /// </summary>
+    public uint ClientProcessId { get; private set; }
     /// <summary>The last thing that went wrong, or null. Kept for the console to show; it does not stop the listening.</summary>
     public string? Problem { get; private set; }
 
@@ -77,6 +84,7 @@ public sealed class NamedPipeGameSyncServer : IDisposable
                 await pipe.WaitForConnectionAsync(token).ConfigureAwait(false);
                 // A restarted game is a new mod with a clock from zero; what the last one said must not refuse it.
                 _link.BeginConnection();
+                ClientProcessId = GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var client) ? client : 0;
                 Connected = true;
                 Problem = null;
                 using var reader = new StreamReader(pipe, new UTF8Encoding(false));
@@ -92,9 +100,17 @@ public sealed class NamedPipeGameSyncServer : IDisposable
                 try { await Task.Delay(BusyDelayMs, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
-            finally { Connected = false; }
+            finally
+            {
+                Connected = false;
+                ClientProcessId = 0;
+            }
         }
     }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe, out uint clientProcessId);
 
     /// <summary>One line from the mod. Whatever is in it, it costs that line at most, never the connection.</summary>
     private void Take(string line, double arrivedMs)

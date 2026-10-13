@@ -62,6 +62,7 @@ public partial class MainWindow : Window, ICmdHost
     /// <summary>The settings dialog while it is open, so the console can apply its unapplied changes.</summary>
     private SettingsPanel? _settingsPanel;
     private CmdWindow? _console;
+    private CmdSession? _consoleSession;
 
     public MainWindow()
     {
@@ -1133,7 +1134,9 @@ public partial class MainWindow : Window, ICmdHost
             return open;
         }
         // It opens the way this window was shown: with the focus in the app, without it in tests.
-        var console = new CmdWindow(new CmdSession(this), _appliedTheme) { ShowActivated = ShowActivated, Shortcut = ConsoleKeyInWindow };
+        // A running inspect -flow keeps owning the console even if its window is closed and opened again.
+        if (_consoleSession is not { Busy: true }) _consoleSession = new CmdSession(this);
+        var console = new CmdWindow(_consoleSession, _appliedTheme) { ShowActivated = ShowActivated, Shortcut = ConsoleKeyInWindow };
         console.Closed += (_, _) => _console = null;
         _console = console;
         // An unshown main window (tests, captures) only creates it.

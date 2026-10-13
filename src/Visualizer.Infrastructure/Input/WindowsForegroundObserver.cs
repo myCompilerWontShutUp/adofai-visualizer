@@ -45,10 +45,13 @@ public static class WindowsForegroundObserver
     public static string? ProcessName(uint processId) => processId == 0 ? null : QueryProcessName(processId);
 
     /// <summary>The id of a running process with this name, 0 when there is none. Lists processes, so never on a hot path.</summary>
-    public static uint FindProcess(string processName)
+    public static uint FindProcess(string processName) => FindProcesses(processName) is [var first, ..] ? first : 0;
+
+    /// <summary>The ids of every running process with this name, in order. Lists processes, so never on a hot path.</summary>
+    public static IReadOnlyList<uint> FindProcesses(string processName)
     {
         var found = Process.GetProcessesByName(NormalizeProcessName(processName));
-        try { return found.Length > 0 ? (uint)found[0].Id : 0; }
+        try { return found.Select(process => (uint)process.Id).Order().ToArray(); }
         finally { foreach (var process in found) process.Dispose(); }
     }
 
