@@ -23,9 +23,12 @@
   "AutoSaveSettings": true,
   // A note's tile count from the gap after it rather than before it. Off keeps the long-standing behaviour.
   "NextIntervalTiles": false,
+  // A note's tile count from the shorter of its two gaps, before and after; over NextIntervalTiles when on.
+  "BothIntervalTiles": false,
   // Experimental (they apply only while ExperimentalFeatures is on).
   "ChordAvoidBeforeLanes": false,
   "RestartPatternOnRun": false,
+  "EnhancedChordRules": false,
   "ResetKey": "Enter",
   "StartTriggerKey": "J",
   "VisualizerToggleKey": "F8",
@@ -107,6 +110,9 @@
   "MagicCircleJudgmentLine": true,
   "MagicCircleNoteCount": 40,
   "MagicCircleMaxIntervalMs": 200,
+  // A chord counts as one note of a run among singles. Off, a run ends where chords and singles meet; a run of chords alone
+  // still counts.
+  "MagicCircleChords": true,
   "MagicCircleFadeInMs": 500,
   "MagicCircleLeadMs": 500,
   "MagicCircleFadeOutMs": 500,

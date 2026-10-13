@@ -429,7 +429,7 @@ internal static class LocalizationThemeTests
         yield return ("Unpressed notes leave when their press window ends; the judgment line slowdown slides passed notes to the bottom line", () =>
         {
             const int width = 200, height = 400;
-            // Defaults: judgment line 72px above the bottom line (y 298 of 370), travel 720ms, press window ±150ms. Tile 5 is lane 3 (x 125).
+            // Pinned below: judgment line 72px above the bottom line (y 298 of 370), travel 720ms, press window ±150ms. Tile 5 is lane 3 (x 125).
             byte Blue((PlaybackSession Session, Clock Clock) run, NotePressJudge? judge, double timelineMs, int y)
             {
                 run.Clock.NowMs = timelineMs;

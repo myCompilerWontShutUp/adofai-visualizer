@@ -163,8 +163,8 @@ public sealed class SongListWindow : Window
 
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(12, 6, 12, 8) };
         scroll.Content = _list;
-        // Only the rows took the drop before, so letting go in the gap between two of them, or below the last one, did
-        // nothing at all. The whole list is the target now, and dragging near an edge scrolls it.
+        // The whole list takes the drop, so letting go between two rows or below the last one still lands; dragging
+        // near an edge scrolls it.
         _list.AllowDrop = true;
         scroll.AllowDrop = true;
         _list.DragOver += (_, e) => { MoveDropLine(GapAt(e.GetPosition(_list).Y)); Held(e); };

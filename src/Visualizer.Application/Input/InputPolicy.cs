@@ -6,18 +6,23 @@ public enum InputAction { Reset, Start, Toggle, OpenSettings, PreviousCheckpoint
 
 public static class InputPolicy
 {
-    /// <param name="adofaiForeground">True while ADOFAI or this visualizer is the foreground app.</param>
     /// <summary>
-    /// Whether the console shortcut seen outside this app should open it. The app's own windows already handle it while
-    /// they have the focus, so acting on it there as well would toggle it twice; otherwise it follows the global input
-    /// scope like every other observed key (user rule).
+    /// Whether the observed console shortcut toggles the console: always with this app in front, otherwise by the global
+    /// input scope like every other observed key, so with the game in front while the scope is on (user rule: the game or
+    /// the visualizer).
     /// </summary>
     public static bool ShouldOpenConsole(VisualizerSettings settings, bool appForeground, bool gameForeground)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        if (appForeground) return false;
-        return !settings.OnlyReactWhenAdofaiForeground || gameForeground;
+        return appForeground || !settings.OnlyReactWhenAdofaiForeground || gameForeground;
     }
+
+    /// <summary>
+    /// Keys that put the playhead somewhere or stop it. With link auto on the linker alone does that (user rule: pressing
+    /// Enter in the game brought the start of the song back in front of the notes the game was playing).
+    /// </summary>
+    public static bool MovesPlayhead(InputAction action) => action is InputAction.Reset or InputAction.Start or InputAction.Pause
+        or InputAction.PreviousCheckpoint or InputAction.NextCheckpoint;
 
     public static bool ShouldReact(InputAction action, VisualizerSettings settings, bool adofaiForeground, bool editingUi)
     {

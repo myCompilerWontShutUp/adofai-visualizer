@@ -61,7 +61,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | | `keyword [<cmd>]` | -options, -copy | `[list]`, last | 키워드 표 또는 그 명령의 키워드(키워드 낱말 하나를 주면 그 뜻) |
 | | `version` | -number, -copy | | 앱 버전·적용 날짜·빌드 시각·최신 여부 |
 | | `fps` | -restart, -copy | | 앱 자신의 프레임 진단 |
-| | `link [<what>]` | -copy | start, stop, tiles, follow, unfollow, again, auto, manual | 게임 링크 상태와 조작 |
+| | `link [<what>]` | -proceed / -copy | start, stop, tiles, follow, unfollow, again, auto, manual, inspect, uninspect | 게임 링크 상태와 조작 |
 | | `install <what>[, …]` | -reinstall, -proceed | all, app, source, linker, maps, edits, data | 링커 설치, 이 버전 부분 재설치 |
 | | `scannow [<area>, …]` | -copy | `[all]`, app, source, linker, maps, edits, data | 무결성 검사(결과만) |
 | 곡 | `song` | -id \| -title, -copy | | 불러온 곡 정보 |
@@ -114,9 +114,9 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`help [<cmd>]`** — 명령의 사용법·긴 설명·옵션(뜻 포함)·키워드(뜻 포함, 기본은 대괄호). 인자가 없거나 `list`면 모든 명령, `last`는 바로 앞에 친 명령.
 - **`option [<cmd>]`** — 인자가 없거나 `list`면 옵션 표를 한 번(명령마다가 아님), 명령을 주면 그 명령의 옵션. `-keywords`면 키워드까지.
 - **`keyword [<cmd>]`** — 인자가 없거나 `list`면 키워드와 그것을 받는 명령의 표, 명령을 주면 그 명령의 키워드, **키워드 낱말 하나**를 주면 그 뜻과 받는 명령(명령마다 뜻이 다르면 줄마다). `-options`면 옵션까지.
-- **`version`** — 앱 버전, 적용 날짜, 빌드 시각(실행 파일의 시각), 그리고 저장소에 물어 **최신인지**. `-number`는 숫자만 찍고 묻지 않습니다.
+- **`version`** — 앱 버전, 적용 날짜, 빌드 시각(실행 파일의 시각), 그리고 저장소에 물어 **최신인지**. `-number`는 숫자만 찍고 묻지 않습니다. 적용 날짜는 빌드에 적힌 릴리스 날짜이며 맵 캐시의 갱신 시각이 아닙니다. 파서가 바뀐 릴리스는 최신 앱에서도 Map Sync 후 곡을 다시 불러와야 새 타이밍을 씁니다.
 - **`fps`** — 앱이 자기 프레임만 재는 진단: 도착 간격과 합성기 간격, 앱이 한 프레임에 쓴 시간, GC 횟수, 렌더 티어, 원인을 짚는 마지막 줄(MMCSS·GC 지연 모드 상태 포함). `-restart`는 찍은 뒤 측정을 새로 시작합니다. 게임이나 시스템에서 읽는 값은 없습니다.
-- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 같은 곡에 들어가면 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`.
+- **`link [<what>]`** — 인자 없으면 읽기 전용 링커가 보내는 상태(읽기 간격·지연의 흔들림·게임 상태·배속·레벨·상태 변화, `Mod`·`Auto` 줄). `start` 파이프 열기 · `stop` 닫기 · `tiles` 게임의 타일 시각과 불러온 곡 대조 · `follow` 게임 시계 따라가기 · `unfollow` 그만 · `again` 측정 새로 · `auto` 게임이 옮긴 곡을 불러오고 스스로 대조·따라가기 · `manual` 그만. 게임에 아무것도 보내지 않고 저장하지 않습니다. 따라가기의 거절 규칙(곡 중간부터 준비됨·배속≠100%·타일 불일치)은 `docs/game-sync-plan.md`. `inspect`(측정 전용, 늘 [Y/n]): link auto 꺼짐·같은 곡·게임의 실패 방지 모드 켜짐일 때만, 비주얼라이저 노트가 판정선에 닿는 순간 그 레인 키를 게임에 누르고 게임의 판정을 기록 · `uninspect`·Esc로 멈춤(규칙이 깨지면 스스로 멈춤). 자세한 원칙은 AGENTS 안전 규칙 6.
 - **`install <what>[, …]`** — `install linker`는 앱에 들어 있는 링커(앱 옆 `plugins\linker\`)를 게임의 `Mods\AdofaiVisualizerSync\`에 씁니다. Unity Mod Manager가 있는 게임 폴더에서만, **어느 폴더에 쓸지 적고 [Y/n]**을 묻고, 두 파일만 쓰며, 같은 버전이 있으면 그대로 둡니다(다른 버전이면 바꿀지 물음). **`-reinstall`**은 이 버전대로 다시 씁니다: `source`(저장소 파일을 이 버전으로 되돌림 — 바뀔 파일 목록을 먼저 보여 주고 **언제나 묻고 `-proceed` 불가**) · `app`(Release 다시 빌드) · `linker`(링커를 다시 씀, 빌드 없음, 앱은 그대로) · `maps`(= `sync rebuild`) · `all`·`*`(source·app·설치된 링커). `source`·`app`은 앱을 닫고 `update.ps1 -Reinstall`이 한 뒤 다시 엽니다. **`edits`·`data`는 사용자의 것이라 재설치하지 않고** 무엇을 쓰면 되는지만 알려 줍니다. 링커가 없는데 `-reinstall linker`면 `install linker`부터 하라고 합니다. 키워드 없이 오면 받는 낱말만 알려 줍니다.
 - **`scannow [<area>, …]`** — 영역마다 온전한지 검사해 **결과만** 찍고 아무것도 바꾸지 않습니다. `app` 이 빌드와 그 소스·언어·테마 파일 · `source` 저장소 파일 대 이 버전(`update.ps1 -Scan`, git status) · `linker` 설치된 링커 대 이 버전 · `maps` 맵 사본 대 곡 목록 · `edits` 모든 수정본(사본·레인·원본 해시) · `data` 설정과 곡 목록·id·표시·메모·핀 파일. 기본 `all`. 링커가 설치되지 않았으면, 콕 집었을 때는 `install linker`부터 하라고, 전체 검사에서는 한 줄로 알립니다. 문제가 있으면 맨 끝에 `install -reinstall …`을 권합니다.
 
@@ -310,6 +310,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
 | `magic.notes` | MagicCircleNoteCount | 노트 수 |
 | `magic.max-interval` · `magic.fade-in` · `magic.lead` · `magic.fade-out` | MagicCircleMaxIntervalMs · …FadeInMs · …LeadMs · …FadeOutMs | ms |
+| `magic.chords` | MagicCircleChords | 토글 |
 | `magic.fixed` | MagicCircleFixedTiles | 토글 |
 | `magic.fixed-count` | MagicCircleTileCount | 선택 |
 | `display.travel` | NoteTravelTimeMs | ms |
@@ -327,11 +328,13 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `advanced.chord-lanes` | ChordSectionLanes | 토글 |
 | `advanced.keep-speed` | KeepSpeedOnLoad | 토글 |
 | `advanced.next-gap` | NextIntervalTiles | 토글 |
+| `advanced.both-gaps` | BothIntervalTiles | 토글 (켜면 next-gap보다 우선) |
 | `advanced.map-folder` | MapRootDirectory | 폴더 |
 | `advanced.data-folder` | DataRootDirectory | 폴더 또는 `auto` |
 | `advanced.process` | AdofaiProcessName | 글자 |
 | `experimental.chord-before` | ChordAvoidBeforeLanes | 토글 |
 | `experimental.run-restart` | RestartPatternOnRun | 토글 |
+| `experimental.enhanced-chords` | EnhancedChordRules | 토글 |
 
 새 설정을 추가하면 `SettingPaths`에 이름을 넣어야 `CmdConsoleTests`의 "every setting has a name" 검사를 통과합니다.
 
@@ -341,4 +344,4 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 - **`list`를 `all`로 통합**(사용자 결정): 두 낱말의 경계가 모호해서 하나로 합칩니다. 규칙은 "`all`(`*`)은 그 명령이 다루는 것 전부이고, 하나에만 할 수 있는 일을 하는 명령(`checkpoint`·`prompt`·`report`)에서는 전부를 보여 준다". `help`·`option`·`keyword`·`prompt`의 `list*` → `all*`, `checkpoint`·`report`의 `list` → `all`, `copy`·`paste`는 `all`을 정식 키워드로(지금도 범위로는 받음). 예전 `list`를 치면 "이제 `all`"이라고 한 줄 알려 줍니다. `pin all`은 이미 이 방식입니다.
 - **`report find <글자>`**(사용자 결정): `report list <글자>`의 거르기를 동작 낱말로 분리합니다.
-- **중복 명령 정리안**과 **가변 인자 후보**: `docs/future-plans.md` 4·5절.
+- **중복 명령 정리안**과 **가변 인자 후보**: `docs/future-plans.md` 2·3절.

@@ -79,6 +79,7 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _trillCenter = new();
     private readonly ComboBox _trillLane = new();
     private readonly CheckBox _magicFixedTiles = new();
+    private readonly CheckBox _magicChords = new();
     private readonly ComboBox _magicTiles = new() { ItemsSource = VisualizerSettings.Modes.ToArray() };
     private readonly Button _browseFolder = new() { MinWidth = 64 };
     private readonly Button _browseData = new() { MinWidth = 64 };
@@ -87,7 +88,6 @@ public partial class SettingsPanel : UserControl
     private readonly ComboBox _songGroup = new();
     private readonly Button _songListButton = new();
     private readonly Button _editSongButton = new();
-    /// <summary>The map sync, which lives here now; editing a song is a button on the note field (user rule).</summary>
     private readonly Button _syncButton = new();
     private readonly Button _resyncButton = new();
     private readonly TextBlock _dataRootPath = new() { FontSize = 9, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, -4, 0, 10) };
@@ -102,6 +102,7 @@ public partial class SettingsPanel : UserControl
     private readonly ComboBox _nextInterval = new();
     private readonly CheckBox _chordBefore = new();
     private readonly CheckBox _runRestart = new();
+    private readonly CheckBox _enhancedChords = new();
     private readonly CheckBox _judgmentAverage = new();
     private readonly ComboBox _judgmentMode = new();
     private readonly ComboBox _judgmentDifficulty = new();
@@ -139,9 +140,9 @@ public partial class SettingsPanel : UserControl
     public Action? EditSongRequested { get; set; }
     /// <summary>Rebuilds the custom map folder from the map folder; set by the main window.</summary>
     public Func<bool>? ResyncMaps { get; set; }
-    /// <summary>Brings the map folder in, as the button that used to sit on the main window did.</summary>
+    /// <summary>Brings the map folder in; set by the main window.</summary>
     public Action? SyncMaps { get; set; }
-    /// <summary>Opens the console (setting → Advanced → cmd); set by the main window.</summary>
+    /// <summary>Opens the console; set by the main window.</summary>
     public Action? OpenConsole { get; set; }
     /// <summary>Applies settings to the app while this dialog stays open (the console's [Y/n]); set by the main window.</summary>
     public Action<VisualizerSettings>? SettingsApplied { get; set; }
@@ -177,17 +178,17 @@ public partial class SettingsPanel : UserControl
         // The console (Ctrl+T) and the editor (Ctrl+E) open from the settings too, wherever they are shown.
         PreviewKeyDown += (_, e) =>
         {
-            if (CmdWindow.IsShortcut(e.Key, Keyboard.Modifiers))
+            if (CmdWindow.IsShortcut(e))
             {
                 e.Handled = true;
                 OpenConsole?.Invoke();
             }
-            else if (MainWindow.IsEditShortcut(e.Key, Keyboard.Modifiers))
+            else if (MainWindow.IsEditShortcut(e))
             {
                 e.Handled = true;
                 EditSong();
             }
-            // What the dialog's cancel button used to do: leave, asking first when something is unapplied.
+            // Escape leaves, asking first when something is unapplied.
             else if (e.Key == Key.Escape && Keyboard.Modifiers == ModifierKeys.None)
             {
                 e.Handled = true;
@@ -265,7 +266,7 @@ public partial class SettingsPanel : UserControl
         AddField("Chord lane preference", _chordLane, nameof(settings.ChordLanePreference), "ChordLaneHelp");
         // Trills are worked out after the chords and have the same two rules of their own (user request).
         AddText("Trill window (ms)", nameof(settings.TrillWindowMs), "TrillHelp");
-        AddField("No trill center pair", _trillCenter, nameof(settings.NoTrillCenterPair), "NoTrillCenterHelp");
+        AddField("Trill center pair last", _trillCenter, nameof(settings.NoTrillCenterPair), "NoTrillCenterHelp");
         AddField("Trill lane preference", _trillLane, nameof(settings.TrillLanePreference), "TrillLaneHelp");
         AddText("Start delay (ms)", nameof(settings.StartDelayMs));
         AddText("Calibration notes", nameof(settings.CalibrationNoteCount), "CalibrationHelp");
@@ -281,6 +282,7 @@ public partial class SettingsPanel : UserControl
         AddSection("SectionMagic", "MagicCircleHelp");
         AddText("Magic circle notes", nameof(settings.MagicCircleNoteCount));
         AddText("Magic circle max interval (ms)", nameof(settings.MagicCircleMaxIntervalMs));
+        AddField("Chords in magic circles", _magicChords, nameof(settings.MagicCircleChords), "MagicCircleChordsHelp");
         AddText("Judgment line fade in (ms)", nameof(settings.MagicCircleFadeInMs));
         AddText("Magic circle lead (ms)", nameof(settings.MagicCircleLeadMs));
         AddText("Judgment line fade out (ms)", nameof(settings.MagicCircleFadeOutMs));
@@ -318,11 +320,11 @@ public partial class SettingsPanel : UserControl
         // imported or reset value so the setting and JSON keep working.
 
         AddAdvanced();
-        // Experiments live in their own card, which only appears while the switch in Advanced is on (user rule).
-        // For now there are none, and the card says so.
+        // Experiments have their own card, which only takes input while the switch in Advanced is on (user rule).
         AddSection("SectionExperimental", "ExperimentalSectionHelp");
         AddField("Chord keeps the lane before it", _chordBefore, nameof(settings.ChordAvoidBeforeLanes), "ChordBeforeHelp");
         AddField("Restart the pattern each run", _runRestart, nameof(settings.RestartPatternOnRun), "RunRestartHelp");
+        AddField("Enhanced chord and trill rules", _enhancedChords, nameof(settings.EnhancedChordRules), "EnhancedChordsHelp");
         // Parked here while the field makes room for the slot picker (user rule): the editor is reached from the console
         // as well, so this is a way in, not the only one.
         AddField("Note editor", _editSongButton);
@@ -331,7 +333,7 @@ public partial class SettingsPanel : UserControl
 
         foreach (var box in new[] { _reset, _start, _toggle, _previous, _next, _settingsKey }.Concat(_laneBoxes))
             box.TextChanged += (_, _) => FormChanged();
-        foreach (var check in new[] { _foreground, _guide, _songInfo, _inputEffect, _missEffect, _extraLanes, _judgmentSlowdown, _keepSpeed })
+        foreach (var check in new[] { _foreground, _guide, _songInfo, _inputEffect, _missEffect, _extraLanes, _judgmentSlowdown, _keepSpeed, _magicChords })
         {
             check.Checked += (_, _) => FormChanged();
             check.Unchecked += (_, _) => FormChanged();
@@ -406,7 +408,6 @@ public partial class SettingsPanel : UserControl
         return settings;
     }
 
-    /// <summary>"default" (same as applied), "changed" or "error" for a section key such as "SectionTiming".</summary>
     /// <summary>The input of a setting's row. Toggles carry no text of their own, so tests look them up here.</summary>
     public FrameworkElement? InputFor(string field)
     {
@@ -461,8 +462,8 @@ public partial class SettingsPanel : UserControl
         var paused = _pauseAlign.SelectedIndex >= 0 ? _pauseAlign.SelectedIndex : _current.AlignNextNoteOnPause ? 0 : 1;
         _pauseAlign.ItemsSource = new[] { T("PausedNote.Next"), T("PausedNote.Stay") };
         _pauseAlign.SelectedIndex = paused;
-        var gap = _nextInterval.SelectedIndex >= 0 ? _nextInterval.SelectedIndex : _current.NextIntervalTiles ? 1 : 0;
-        _nextInterval.ItemsSource = new[] { T("IntervalTile.Previous"), T("IntervalTile.Next") };
+        var gap = _nextInterval.SelectedIndex >= 0 ? _nextInterval.SelectedIndex : _current.BothIntervalTiles ? 2 : _current.NextIntervalTiles ? 1 : 0;
+        _nextInterval.ItemsSource = new[] { T("IntervalTile.Previous"), T("IntervalTile.Next"), T("IntervalTile.Both") };
         _nextInterval.SelectedIndex = gap;
         // Index 0 follows the maximum tile count; the rest are the lane counts in order.
         var shown = _displayLanes.SelectedIndex >= 0 ? _displayLanes.SelectedIndex : LaneIndex(_current.DisplayLaneCount);
@@ -494,7 +495,6 @@ public partial class SettingsPanel : UserControl
         foreach (var star in _fieldStars.Values.Distinct()) star.ToolTip = T("ChangedMark");
         foreach (var box in new[] { _settingsKey, _previous, _next }) box.NoneText = T("Unassigned");
         foreach (var button in new[] { _clearSettingsKey, _clearPreviousKey, _clearNextKey }) button.Content = T("Clear");
-        // No text beside a toggle: its short explanation shows up beside Apply instead.
         _browseFolder.Content = T("Browse");
         _browseData.Content = T("Browse");
         UpdateStates();

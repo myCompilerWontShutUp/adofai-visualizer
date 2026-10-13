@@ -95,10 +95,6 @@ public sealed class PlaybackSession(IMonotonicClock clock)
     /// <summary>Marks of the lane key presses, when one is watching this session. Used to know a checkpoint note was hit.</summary>
     public NotePressJudge? Presses { get; set; }
     /// <summary>
-    /// Automatic checkpoint progress is on only when the setting allows it, at 100% speed and without a practice start:
-    /// the game disables checkpoints for practice speeds and practice sections (user rule).
-    /// </summary>
-    /// <summary>
     /// Whether the game's clock is driving the playhead. While it is, this session must not move the song on its own:
     /// the checkpoint the game restarts from is the game's business, and advancing the app's own choice would change
     /// where the next reset prepares from.

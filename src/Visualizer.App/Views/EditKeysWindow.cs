@@ -69,7 +69,6 @@ public sealed class EditKeysWindow : Window
         KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) Close(); };
     }
 
-    /// <summary>Every key the manual lists, in order.</summary>
     public IReadOnlyList<string> Keys => _rows.Children.OfType<TextBlock>().Where(block => Grid.GetColumn(block) == 0 && Grid.GetColumnSpan(block) == 1)
         .Select(block => block.Text).ToArray();
 }

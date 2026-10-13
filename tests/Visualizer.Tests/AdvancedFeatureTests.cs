@@ -738,16 +738,16 @@ internal static class AdvancedFeatureTests
                     button.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(button).PixelsPerDip).Width;
                 Assert(room >= text, $"\"{label}\" is clipped: {room:0.#} of {text:0.#} needed");
             }
-            // Turning on experiments reveals their card; this version has none, and the card says so.
+            // Turning on experiments unlocks their card.
             var experiments = (CheckBox)window.InputFor(nameof(VisualizerSettings.ExperimentalFeatures))!;
             experiments.IsChecked = true;
             Assert(FindAll<Border>(window).Any(b => b.Child == expanders[^1] && b.Visibility == Visibility.Visible),
                 "The experimental card appears once experiments are on");
             Equal(window.BuildSettings().ExperimentalFeatures, true);
             var experimentalCard = (FrameworkElement)expanders[^1].Content;
-            // Two placement rules are being tried out; they only apply while experiments are on.
-            Assert(FindAll<CheckBox>(experimentalCard).Count() == 2 && !FindAll<ComboBox>(experimentalCard).Any(),
-                "The experimental card holds the two rules");
+            // Three placement rules are being tried out; they only apply while experiments are on.
+            Assert(FindAll<CheckBox>(experimentalCard).Count() == 3 && !FindAll<ComboBox>(experimentalCard).Any(),
+                "The experimental card holds the three rules");
             Capture(window, Path.Combine(artifacts, "settings-experimental.png"), 520, 3600);
             // A switched-on toggle is the accent blue of the pill toggles with a barely visible gradient, not the purple of the
             // primary buttons.

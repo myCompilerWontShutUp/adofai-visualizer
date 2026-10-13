@@ -35,8 +35,8 @@ public sealed class NamedPipeGameSyncServer : IDisposable
         _name = string.IsNullOrWhiteSpace(pipeName) ? PipeName : pipeName;
     }
 
-    /// <summary>Whether the pipe is open and waiting.</summary>
-    public bool Listening => _loop != null;
+    /// <summary>Whether the pipe is open and waiting. A loop that ended on its own is not listening, whatever it was asked.</summary>
+    public bool Listening => _loop is { IsCompleted: false };
     /// <summary>Whether a mod is connected right now.</summary>
     public bool Connected { get; private set; }
     /// <summary>The last thing that went wrong, or null. Kept for the console to show; it does not stop the listening.</summary>
@@ -74,30 +74,39 @@ public sealed class NamedPipeGameSyncServer : IDisposable
                 using var pipe = new NamedPipeServerStream(_name, PipeDirection.In, 1,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
                 await pipe.WaitForConnectionAsync(token).ConfigureAwait(false);
+                // A restarted game is a new mod with a clock from zero; what the last one said must not refuse it.
+                _link.BeginConnection();
                 Connected = true;
                 Problem = null;
                 using var reader = new StreamReader(pipe, new UTF8Encoding(false));
                 while (await reader.ReadLineAsync(token).ConfigureAwait(false) is { } line)
-                {
-                    var arrived = _link.NowMs;
-                    if (line.Length == 0) continue;
-                    if (ParseMod(line) is { } mod) _link.SetMod(mod);
-                    else if (ParseLevel(line) is { } level) _link.SetLevel(level);
-                    else if (Parse(line) is { } message) _link.Add(message, arrived);
-                    else _link.Refuse("a line was not a reading this app understands");
-                }
+                    Take(line, _link.NowMs);
             }
             catch (OperationCanceledException) { break; }
-            // A mod that dies mid-line, or the name already taken by another visualizer: say so and wait, never spin on it.
-            catch (IOException error)
+            // A mod that dies mid-line, the name already taken by another visualizer, or one made by another account: say
+            // so and try again later, never spin on it and never stop listening for good.
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 Problem = error.Message + " Another visualizer may already have the pipe.";
                 try { await Task.Delay(BusyDelayMs, token).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
-            catch (UnauthorizedAccessException error) { Problem = error.Message; break; }
             finally { Connected = false; }
         }
+    }
+
+    /// <summary>One line from the mod. Whatever is in it, it costs that line at most, never the connection.</summary>
+    private void Take(string line, double arrivedMs)
+    {
+        if (line.Length == 0) return;
+        try
+        {
+            if (ParseMod(line) is { } mod) _link.SetMod(mod);
+            else if (ParseLevel(line) is { } level) _link.SetLevel(level);
+            else if (Parse(line) is { } message) _link.Add(message, arrivedMs);
+            else _link.Refuse("a line was not a reading this app understands");
+        }
+        catch (ArgumentException) { _link.Refuse("a line held a value this app cannot take"); }
     }
 
     /// <summary>Reads one line, or null when it is not a reading. Values are checked by the link, not here.</summary>
@@ -120,7 +129,16 @@ public sealed class NamedPipeGameSyncServer : IDisposable
             var input = Number(root, "ci", out var inputValue) ? inputValue : 0;
             var visual = Number(root, "cv", out var visualValue) ? visualValue : 0;
             var dead = root.TryGetProperty("dead", out var deadValue) && deadValue.ValueKind == JsonValueKind.True;
-            return new GameSyncMessage((int)protocol, clock, position, state, paused, floor, speed, path, pitch, input, visual, dead);
+            bool? noFail = root.TryGetProperty("nf", out var noFailValue)
+                ? noFailValue.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => null }
+                : null;
+            int[]? judgments = null;
+            if (root.TryGetProperty("hm", out var counts) && counts.ValueKind == JsonValueKind.Array)
+                judgments = counts.EnumerateArray().All(count => count.ValueKind == JsonValueKind.Number && count.TryGetInt32(out var whole) && whole >= 0)
+                    ? counts.EnumerateArray().Select(count => count.GetInt32()).ToArray()
+                    : null;
+            return new GameSyncMessage((int)protocol, clock, position, state, paused, floor, speed, path, pitch, input, visual, dead,
+                noFail, judgments);
         }
         catch (JsonException) { return null; }
     }
@@ -134,7 +152,7 @@ public sealed class NamedPipeGameSyncServer : IDisposable
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
             if (!Number(root, "v", out var protocol) || (int)protocol != GameSyncLink.Protocol) return null;
-            return Text(root, "mod") is { Length: > 0 } version ? version : null;
+            return Text(root, "mod") is { } version && !string.IsNullOrWhiteSpace(version) ? version : null;
         }
         catch (JsonException) { return null; }
     }

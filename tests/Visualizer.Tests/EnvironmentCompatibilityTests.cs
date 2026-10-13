@@ -57,7 +57,7 @@ internal static class EnvironmentCompatibilityTests
             Equal(playback.Notes[1].HitTimeMs, 15d);
             playback.ApplySettings(new() { SimultaneousWindowMs = 10, PlaybackSpeedPercent = 200, StartDelayMs = 500 });
             Equal(playback.Notes[0].HitTimeMs, 500d); Equal(playback.Notes[1].HitTimeMs, 500d);
-            // The 4K boundary is pinned so editing DefaultSettings.json does not change this check.
+            // The 4K boundary is pinned so editing DefaultSettings.jsonc does not change this check.
             playback.LoadTimeline(new[] { 0d, 60 }, new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500 });
             Equal(playback.Notes[0].Mode, 2);
             playback.ApplySettings(new() { FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500, PlaybackSpeedPercent = 200 });

@@ -28,6 +28,7 @@ internal static class GameRuleTimingComparison
         public double ExitAngle;
         public bool Midspin;
         public bool Counterclockwise;
+        public int Planets = 2;
         public float Speed = 1;
         public float ExtraBeats;
         public int HoldLength = -1;
@@ -45,12 +46,53 @@ internal static class GameRuleTimingComparison
         Equal(Convert.ToHexString(SHA256.HashData(stream)), ExpectedAssemblyHash);
     }
 
+    /// <summary>
+    /// The separators GDMiniJSON does without, written independently of the parser's helper: a COMMA token is skipped
+    /// wherever it stands (ParseObject/ParseArray loop on), and a value may follow a value with none between.
+    /// </summary>
+    private static string Separators(string text)
+    {
+        var output = new StringBuilder(text.Length + 64);
+        var open = new Stack<char>();
+        var state = 'o'; // 'o' just opened or after a comma, 'v' after a value, 'k' after a colon
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (char.IsWhiteSpace(c)) { output.Append(c); continue; }
+            if (c == '/' && i + 1 < text.Length && text[i + 1] is '/' or '*')
+            {
+                var end = text[i + 1] == '/' ? text.IndexOf('\n', i) : text.IndexOf("*/", i + 2, StringComparison.Ordinal) + 1;
+                if (end <= 0) end = text.Length - 1;
+                output.Append(text, i, end - i + 1);
+                i = end;
+                continue;
+            }
+            if (c == ',') { if (state == 'v') output.Append(c); state = 'o'; continue; }
+            if (c == ':') { output.Append(c); state = 'k'; continue; }
+            if (c is '}' or ']') { if (open.Count > 0) open.Pop(); output.Append(c); state = 'v'; continue; }
+            if (state == 'v' && open.Count > 0 && (open.Peek() == '[' || c == '"')) output.Append(',');
+            if (c is '{' or '[') { open.Push(c); output.Append(c); state = 'o'; continue; }
+            var start = i;
+            if (c == '"')
+            {
+                for (i++; i < text.Length && text[i] != '"'; i++) if (text[i] == '\\') i++;
+            }
+            else
+            {
+                while (i + 1 < text.Length && !char.IsWhiteSpace(text[i + 1]) && text[i + 1] is not (',' or ':' or '}' or ']' or '{' or '[' or '"')) i++;
+            }
+            output.Append(text, start, Math.Min(i, text.Length - 1) - start + 1);
+            state = 'v';
+        }
+        return output.ToString();
+    }
+
     public static Result Compare(RawMapDocument raw, ParsedTimeline actual, string artifactRoot, int fileNumber)
     {
         // Independent string-token normalization, not the production compatibility helper.
         var jsonText = Regex.Replace(raw.Text.TrimStart('\uFEFF'), "\"(?:\\\\.|[^\"\\\\])*\"", match =>
             string.Concat(match.Value.Select(c => c < ' ' ? "\\u" + ((int)c).ToString("x4", CultureInfo.InvariantCulture) : c.ToString())));
-        using var document = JsonDocument.Parse(jsonText, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
+        using var document = JsonDocument.Parse(Separators(jsonText), new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip });
         var root = document.RootElement;
         var settings = root.GetProperty("settings");
         var angles = root.TryGetProperty("angleData", out var angleData)
@@ -72,8 +114,13 @@ internal static class GameRuleTimingComparison
             .Where(e => !e.TryGetProperty("active", out var active) || active.ValueKind != JsonValueKind.False).ToArray();
         var byFloor = events.GroupBy(e => e.GetProperty("floor").GetInt32()).ToDictionary(g => g.Key, g => g.ToArray());
         var baseBpm = settings.GetProperty("bpm").GetSingle();
+        // scrConductor.Update sets the song position to (dspTime - dspTimeSong - calibration) × song.pitch, so the entry
+        // times run on the song's clock and real time is entry time / pitch.
+        var pitch = settings.TryGetProperty("pitch", out var pitchValue) && pitchValue.ValueKind == JsonValueKind.Number
+            ? pitchValue.GetDouble() / 100 : 1;
         float speed = 1;
         var counterclockwise = false;
+        var planets = 2;
         var auto = false;
         for (var i = 0; i < floors.Length; i++)
         {
@@ -84,6 +131,18 @@ internal static class GameRuleTimingComparison
                 {
                     var kind = action.GetProperty("eventType").GetString();
                     if (kind == "Twirl") counterclockwise = !counterclockwise;
+                    // ApplyCoreEventsToFloors (event 43) sets numPlanets, which carries on to later floors; PlanetCount is
+                    // { TwoPlanets = 2, ThreePlanets = 3 }.
+                    if (kind == "MultiPlanet")
+                    {
+                        var count = action.GetProperty("planets");
+                        planets = count.ValueKind == JsonValueKind.Number ? count.GetInt32() : count.GetString() switch
+                        {
+                            "TwoPlanets" => 2,
+                            "ThreePlanets" => 3,
+                            var other => throw new InvalidOperationException("Reference supports two or three planets only, not " + other)
+                        };
+                    }
                     if (kind == "Pause" && i < floors.Length - 1 && !floor.Midspin)
                         floor.ExtraBeats += action.GetProperty("duration").GetSingle();
                     // ApplyCoreEventsToFloors: holdLength = duration when a next floor exists and duration >= 0, otherwise -1.
@@ -96,7 +155,10 @@ internal static class GameRuleTimingComparison
                         floor.HoldLength = i < floors.Length - 1 && duration >= 0 ? duration : -1;
                     }
                     // ApplyEventsToFloors keeps the latest AutoPlayTiles "enabled" and copies it to this and later floors.
-                    if (kind == "AutoPlayTiles") auto = action.GetProperty("enabled").GetBoolean();
+                    // LevelEvent.Decode turns a Toggle written as text into true only for "Enabled".
+                    if (kind == "AutoPlayTiles")
+                        auto = action.GetProperty("enabled") is var enabled && (enabled.ValueKind == JsonValueKind.True
+                            || enabled.ValueKind == JsonValueKind.String && enabled.GetString() == "Enabled");
                 }
                 var speeds = actions.Where(a => a.GetProperty("eventType").GetString() == "SetSpeed").ToArray();
                 if (speeds.Length > 0)
@@ -112,6 +174,7 @@ internal static class GameRuleTimingComparison
             }
             floor.Speed = speed;
             floor.Counterclockwise = counterclockwise;
+            floor.Planets = planets;
             floor.Auto = auto;
         }
         // Countdown and song offset are common origins; subtract the first hit on both sides below.
@@ -119,7 +182,19 @@ internal static class GameRuleTimingComparison
         for (var i = 0; i < angles.Length; i++)
         {
             var floor = floors[i];
-            var travel = PositiveModulo((floor.ExitAngle - floor.EntryAngle) * (floor.Counterclockwise ? -1 : 1), Tau);
+            // CalculateFloorEntryTimes (floors after the first): the entry moves by GetInverseAnglePerBeatMultiplanet(numPlanets)
+            // = 3.1415926 (n - 2) / n, times -1 when counterclockwise; none on a midspin, where the exit moves with it; after a
+            // midspin with more than two planets it moves back by 6.28318548202515 plus that again.
+            var shift = 0d;
+            if (i > 0)
+            {
+                var sign = floor.Counterclockwise ? -1 : 1;
+                double Inverse(int count) => 3.1415926 * (count - 2) / count;
+                shift = floor.Midspin ? 0 : Inverse(floor.Planets) * sign;
+                if (floors[i - 1].Midspin && floor.Planets > 2) shift -= (6.28318548202515 + Inverse(floor.Planets)) * sign;
+            }
+            var exit = floor.ExitAngle + (floor.Midspin ? shift : 0);
+            var travel = PositiveModulo((exit - (floor.EntryAngle + shift)) * (floor.Counterclockwise ? -1 : 1), Tau);
             var beatSeconds = 60d / baseBpm / floor.Speed;
             var interval = travel / Pi * beatSeconds;
             // CalculateSingleFloorAngleLength: |angle| <= 1e-6 or !(|angle| < 6.28318430717959) is a whole circle (0 on a midspin).
@@ -132,16 +207,24 @@ internal static class GameRuleTimingComparison
             // CalculateFloorEntryTimes adds holdLength × 2 × (one beat) before the extra beats.
             if (i > 0 && floor.HoldLength > 0) seconds += floor.HoldLength * 2 * beatSeconds;
             if (i > 0) seconds += floor.ExtraBeats * beatSeconds;
-            floors[i + 1].TimeMs = seconds * 1000;
+            floors[i + 1].TimeMs = seconds * 1000 / pitch;
         }
         var hitFloors = Enumerable.Range(1, angles.Length).Where(i => !floors[i].Midspin).ToArray();
         Equal(actual.HitTimesMs.Count, hitFloors.Length);
         // Hit kinds: the game auto-plays the arrival at an auto floor (scrPlayer.get__nextTileIsAuto) and plays the hit after a hold on
         // release; UpdateHoldBehavior holds on every holdLength above -1, so a hold of duration 0 is one too, and it skips the
         // release when the next tile is auto, so a hold into an auto tile is only a press.
-        var expectedKinds = hitFloors.Select(f => floors[f].Auto ? HitKind.Auto
-            : floors[f].HoldLength >= 0 && !floors[f + 1].Auto ? HitKind.HoldStart
-            : floors[f - 1].HoldLength >= 0 ? HitKind.HoldEnd : HitKind.Tap).ToArray();
+        // A hold is let go on the next floor that is pressed, past any midspin (the game hits a midspin itself and carries
+        // the hold on), and a floor that lets one go and starts another is pressed as well (UpdateHoldKeys takes the press
+        // as soon as the next tile is a hold).
+        var expectedKinds = hitFloors.Select((f, k) =>
+        {
+            var releases = k > 0 && floors[hitFloors[k - 1]].HoldLength >= 0;
+            if (floors[f].Auto) return HitKind.Auto;
+            if (floors[f].HoldLength >= 0 && k + 1 < hitFloors.Length && !floors[hitFloors[k + 1]].Auto)
+                return releases ? HitKind.HoldChain : HitKind.HoldStart;
+            return releases ? HitKind.HoldEnd : HitKind.Tap;
+        }).ToArray();
         Assert(expectedKinds.SequenceEqual(Enumerable.Range(0, hitFloors.Length).Select(actual.KindOf)), "Reference hit kinds differ from the parser");
         var referenceOrigin = floors[hitFloors[0]].TimeMs;
         var actualOrigin = actual.HitTimesMs[0];

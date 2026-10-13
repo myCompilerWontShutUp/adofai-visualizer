@@ -434,7 +434,6 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         NotifyPlayback();
     }
 
-    /// <summary>What the offer says: the song is over.</summary>
     public string SongEndTitle => Text["SongEnded"];
 
     /// <summary>The offer's first button (user rule: always in the same place): the song from its beginning.</summary>
@@ -733,7 +732,6 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         Raise(nameof(InputStatus));
     }
 
-    /// <summary>Per-frame update. Allocates only when the visible status text actually changes.</summary>
     /// <summary>
     /// How long the song has to be over, with nothing touched, before the screen offers to play it again (user rule).
     /// </summary>

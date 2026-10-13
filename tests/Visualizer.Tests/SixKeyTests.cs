@@ -68,7 +68,7 @@ internal static class SixKeyTests
     {
         yield return ("6 tiles: settings, thresholds and dynamic selection between 8 and 4", () =>
         {
-            // Values are pinned so editing DefaultSettings.json does not change this rule check.
+            // Values are pinned so editing DefaultSettings.jsonc does not change this rule check.
             var s = new VisualizerSettings { MaximumTileCount = 4, MinimumTileCount = 1, EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30,
                 FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500, SixKeyPattern = "2 3 4 5 6 7", SixKeyOrder = "6 5 4 3 2 1",
                 FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", EnableTilePreference = false };

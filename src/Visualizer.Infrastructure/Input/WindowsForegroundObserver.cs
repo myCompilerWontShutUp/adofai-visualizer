@@ -31,6 +31,16 @@ public static class WindowsForegroundObserver
         return window != 0 && GetWindowThreadProcessId(window, out var id) != 0 && id == (uint)Environment.ProcessId;
     }
 
+    /// <summary>
+    /// The process id of the foreground window, 0 when there is none. It keeps no cache, so another thread may ask it (link
+    /// inspect asks right before every key it sends).
+    /// </summary>
+    public static uint ForegroundProcessId()
+    {
+        var window = GetForegroundWindow();
+        return window != 0 && GetWindowThreadProcessId(window, out var id) != 0 ? id : 0;
+    }
+
     public static string NormalizeProcessName(string processName) =>
         processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? processName[..^4] : processName;
 

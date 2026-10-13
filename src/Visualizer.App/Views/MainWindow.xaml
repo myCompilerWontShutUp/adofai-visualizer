@@ -13,7 +13,6 @@
                 <themes:Theme />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="VisibleWhen" />
-            <views:HiddenWhenFalse x:Key="VisibleOrHidden" />
             <!-- "On" states share the pressed look of every button: accent-soft fill, accent border and text. -->
             <Style x:Key="PowerButton" TargetType="ButtonBase" BasedOn="{StaticResource IconButton}">
                 <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
@@ -269,24 +268,31 @@
                         <TextBlock x:Name="SectionNotice" Text="{Binding SectionNotice}" FontSize="15" FontWeight="SemiBold"
                                    TextAlignment="Center" TextWrapping="Wrap" Foreground="{Binding OverlayBrush}" />
                     </Border>
-                    <!-- Once the song is over and nothing has been touched for three seconds, it offers to play again
-                         (user rule). The first button keeps its place whether the second one is there or not, so the
-                         second one only goes invisible and still holds its row. -->
-                    <Border x:Name="SongEndCard" VerticalAlignment="Center" Padding="18,12"
-                            Background="{Binding OverlayBackBrush}"
-                            Visibility="{Binding ShowSongEndNotice, Converter={StaticResource VisibleWhen}}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock x:Name="SongEndTitle" Text="{Binding SongEndTitle}" FontSize="15" FontWeight="SemiBold"
-                                       TextAlignment="Center" Margin="0,0,0,10" Foreground="{Binding OverlayBrush}" />
-                            <input:PlaybackButton x:Name="RestartFromStartButton" MinWidth="200"
-                                                  Style="{StaticResource ToolButton}" Click="RestartFromStartClick"
-                                                  Content="{Binding Text[RestartFromStart]}" />
-                            <input:PlaybackButton x:Name="LastCheckpointButton" MinWidth="200" Margin="0,8,0,0"
-                                                  Style="{StaticResource ToolButton}" Click="LastCheckpointClick"
-                                                  Content="{Binding Text[GoToLastCheckpoint]}"
-                                                  Visibility="{Binding ShowLastCheckpointButton, Converter={StaticResource VisibleOrHidden}}" />
-                        </StackPanel>
-                    </Border>
+                    <!-- Once the song is over and nothing has been touched for a second, it offers to play again (user rule).
+                         The band fits what it holds, and the first button keeps its place whether the second one is there
+                         or not (user rule): an invisible twin of the second button stands above the band whenever the
+                         second one is below it, so the pair stays centred on the same point. -->
+                    <StackPanel x:Name="SongEndOffer" VerticalAlignment="Center"
+                                Visibility="{Binding ShowSongEndNotice, Converter={StaticResource VisibleWhen}}">
+                        <Border IsHitTestVisible="False" Visibility="{Binding Visibility, ElementName=LastCheckpointButton}">
+                            <input:PlaybackButton x:Name="SongEndBalance" MinWidth="200" Margin="0,8,0,0" Visibility="Hidden"
+                                                  Focusable="False" Style="{StaticResource ToolButton}"
+                                                  Content="{Binding Text[GoToLastCheckpoint]}" />
+                        </Border>
+                        <Border x:Name="SongEndCard" Padding="18,12" Background="{Binding OverlayBackBrush}">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock x:Name="SongEndTitle" Text="{Binding SongEndTitle}" FontSize="15" FontWeight="SemiBold"
+                                           TextAlignment="Center" Margin="0,0,0,10" Foreground="{Binding OverlayBrush}" />
+                                <input:PlaybackButton x:Name="RestartFromStartButton" MinWidth="200"
+                                                      Style="{StaticResource ToolButton}" Click="RestartFromStartClick"
+                                                      Content="{Binding Text[RestartFromStart]}" />
+                                <input:PlaybackButton x:Name="LastCheckpointButton" MinWidth="200" Margin="0,8,0,0"
+                                                      Style="{StaticResource ToolButton}" Click="LastCheckpointClick"
+                                                      Content="{Binding Text[GoToLastCheckpoint]}"
+                                                      Visibility="{Binding ShowLastCheckpointButton, Converter={StaticResource VisibleWhen}}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                     <!-- The band and its fold button are layers of one cell, so folding can take the whole band away (details,
                          controls and wash alike) and leave the button alone where it was (user rule). -->
                     <Grid x:Name="OverlayArea" VerticalAlignment="Center">

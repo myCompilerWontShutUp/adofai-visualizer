@@ -60,29 +60,31 @@ internal static class CheckpointLayoutTests
             }
             finally { MainWindow.PlaybackClock = null; }
         }),
-        ("The song-end offer draws both buttons without moving the first one", () =>
+        ("The song-end offer fits its buttons without moving the first one", () =>
         {
             var window = new MainWindow();
+            var offer = (FrameworkElement)window.FindName("SongEndOffer");
             var card = (Border)window.FindName("SongEndCard");
             var first = (FrameworkElement)window.FindName("RestartFromStartButton");
             var second = (FrameworkElement)window.FindName("LastCheckpointButton");
             // Local values stand in for a finished song, so the layout can be measured without waiting the clock out.
-            card.Visibility = Visibility.Visible;
+            offer.Visibility = Visibility.Visible;
             second.Visibility = Visibility.Visible;
             Capture(window, Path.Combine(artifactRoot, "song-end.png"), 480, 800);
             var content = (FrameworkElement)window.Content;
             double TopOf(FrameworkElement element) => element.TransformToAncestor(content).Transform(new Point(0, 0)).Y;
             var withBoth = TopOf(first);
+            var tall = card.ActualHeight;
             Assert(withBoth > 0 && first.ActualHeight > 0, $"The offer must be laid out: y={withBoth} h={first.ActualHeight}");
             Equal(first.ActualHeight, second.ActualHeight);
-            // Hidden, not collapsed: the second button gives up its picture but keeps its row, so the first one stays put
-            // wherever the song has no checkpoint to go back to (user rule).
-            second.Visibility = Visibility.Hidden;
+            // Without a checkpoint to go back to, the band holds the first button only, with nothing empty under it (user
+            // report), and that button stays where it was (user rule).
+            second.Visibility = Visibility.Collapsed;
             Capture(window, Path.Combine(artifactRoot, "song-end-alone.png"), 480, 800);
             Equal(TopOf(first), withBoth);
-            second.Visibility = Visibility.Collapsed;
-            Capture(window, Path.Combine(artifactRoot, "song-end-collapsed.png"), 480, 800);
-            Assert(TopOf(first) > withBoth, "Collapsing it would be the mistake: the first button would move down");
+            Assert(card.ActualHeight <= tall - first.ActualHeight, $"The band fits one button: {card.ActualHeight} of {tall}");
+            Assert(Math.Abs(TopOf(card) + card.ActualHeight - (TopOf(first) + first.ActualHeight) - card.Padding.Bottom) < 1,
+                "The first button is the last thing in it");
             window.Close();
         }),
         ("Checkpoint offsets, clamping and non-advancing events", () =>

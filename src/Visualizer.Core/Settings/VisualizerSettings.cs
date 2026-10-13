@@ -9,7 +9,7 @@ namespace Visualizer.Core.Settings;
 public sealed record SettingsError(string Field, string Message);
 
 /// <summary>
-/// Immutable configuration snapshot. All time values are milliseconds. Every property starts from Settings/DefaultSettings.json
+/// Immutable configuration snapshot. All time values are milliseconds. Every property starts from Settings/DefaultSettings.jsonc
 /// (embedded at build), so initial values are changed in that file, not here.
 /// </summary>
 public sealed record VisualizerSettings
@@ -66,6 +66,11 @@ public sealed record VisualizerSettings
     /// the run it just came from; on, it is as busy as what is coming, which is what a hand has to be ready for.
     /// </summary>
     public bool NextIntervalTiles { get; init; } = Flag(nameof(NextIntervalTiles));
+    /// <summary>
+    /// Whether a note's tile count comes from the shorter of its two gaps, before and after (user rule): a note between a
+    /// fast gap and a slow one is as busy as the fast side, whichever side that is. Over <see cref="NextIntervalTiles"/>.
+    /// </summary>
+    public bool BothIntervalTiles { get; init; } = Flag(nameof(BothIntervalTiles));
     public string AdofaiProcessName { get; init; } = Text(nameof(AdofaiProcessName));
     public int MaximumTileCount { get; init; } = Integer(nameof(MaximumTileCount));
     /// <summary>Lowest mode dynamic timing may choose. Equal to the maximum, notes match dynamic timing off.</summary>
@@ -123,7 +128,7 @@ public sealed record VisualizerSettings
     public int CalibrationNoteCount { get; init; } = Integer(nameof(CalibrationNoteCount));
     /// <summary>Note height scale (1 = <see cref="Visualization.NoteLayout.BaseThicknessDip"/>).</summary>
     public double NoteThickness { get; init; } = Number(nameof(NoteThickness));
-    /// <summary>Note width scale; 1 fills the lane as before.</summary>
+    /// <summary>Note width scale; 1 fills the lane.</summary>
     public double NoteWidth { get; init; } = Number(nameof(NoteWidth));
     /// <summary>Long note bar width scale. Never wider than <see cref="NoteWidth"/>; its length comes from the hold time.</summary>
     public double HoldNoteWidth { get; init; } = Number(nameof(HoldNoteWidth));
@@ -144,8 +149,7 @@ public sealed record VisualizerSettings
     /// </summary>
     public bool SlowNotesPastJudgmentLine { get; init; } = Flag(nameof(SlowNotesPastJudgmentLine));
     /// <summary>
-    /// Opens the experimental card of the settings window. Experiments only count while it is on; for now there are none, so
-    /// the card just says so.
+    /// Unlocks the experimental card of the settings panel. Experiments only count while it is on.
     /// </summary>
     public bool ExperimentalFeatures { get; init; } = Flag(nameof(ExperimentalFeatures));
     /// <summary>
@@ -162,6 +166,7 @@ public sealed record VisualizerSettings
     /// Chords are placed after the singles, so this is the only rule that looks back at the note before one.
     /// </summary>
     public bool ChordAvoidBeforeLanes { get; init; } = Flag(nameof(ChordAvoidBeforeLanes));
+    [JsonIgnore]
     public bool UseChordAvoidBefore => ExperimentalFeatures && ChordAvoidBeforeLanes;
 
     /// <summary>
@@ -169,7 +174,17 @@ public sealed record VisualizerSettings
     /// reads 4-3-2 / 4-3-2 instead of carrying the cycle's phase across the gap.
     /// </summary>
     public bool RestartPatternOnRun { get; init; } = Flag(nameof(RestartPatternOnRun));
+    [JsonIgnore]
     public bool UseRestartOnRun => ExperimentalFeatures && RestartPatternOnRun;
+
+    /// <summary>
+    /// Experimental (user rule, from ネコーン - 俳徹句): where chords come back with one to three singles between them, the
+    /// chord keeps its lanes and the singles take the lanes beside it (1-2 3 1-2 3, 1-2 3 4 1-2 3 4, 1-2 3 4 3), and four
+    /// singles that go back and forth on two lanes before a chord (1 2 1 2 3-4) come last.
+    /// </summary>
+    public bool EnhancedChordRules { get; init; } = Flag(nameof(EnhancedChordRules));
+    [JsonIgnore]
+    public bool UseEnhancedChordRules => ExperimentalFeatures && EnhancedChordRules;
     /// <summary>
     /// Which lane pair a chord takes first, as screen lanes: "1-2" (the left hand), "3-4", or "None" for the pattern order.
     /// Only a preference: a taken pair still moves the chord elsewhere.
@@ -231,7 +246,7 @@ public sealed record VisualizerSettings
     public bool ShowMissEffect { get; init; } = Flag(nameof(ShowMissEffect));
     /// <summary>
     /// A timing bar for magic circle sections: runs of at least <see cref="MagicCircleNoteCount"/> notes at the same interval
-    /// (chords count as one note), shown <see cref="MagicCircleLeadMs"/> before the run. Switching this off disables the whole card.
+    /// (chords count as one note), shown <see cref="MagicCircleLeadMs"/> before the run. The settings panel sets it from <see cref="JudgmentBarMode"/>.
     /// </summary>
     public bool MagicCircleJudgmentLine { get; init; } = Flag(nameof(MagicCircleJudgmentLine));
 
@@ -247,14 +262,19 @@ public sealed record VisualizerSettings
     /// <summary>How many recent presses the average arrow under the bar is made of.</summary>
     public int JudgmentAverageCount { get; init; } = Integer(nameof(JudgmentAverageCount));
 
-    /// <summary>Whether that arrow is drawn.</summary>
     public bool ShowJudgmentAverage { get; init; } = Flag(nameof(ShowJudgmentAverage));
 
     /// <summary>The bar's half window in milliseconds, from the difficulty (the game's counted floor).</summary>
+    [JsonIgnore]
     public double JudgmentWindowMs => JudgmentBarDifficulty.Trim() switch { "Lenient" => 91, "Strict" => 40, _ => 65 };
     public int MagicCircleNoteCount { get; init; } = Integer(nameof(MagicCircleNoteCount));
     /// <summary>Only runs faster than this count as a magic circle: an interval above it ends the run.</summary>
     public double MagicCircleMaxIntervalMs { get; init; } = Number(nameof(MagicCircleMaxIntervalMs));
+    /// <summary>
+    /// Whether chords join a run of singles (user rule). Off, a run ends where chords and singles meet, while a run of chords
+    /// alone still counts, each chord being one note.
+    /// </summary>
+    public bool MagicCircleChords { get; init; } = Flag(nameof(MagicCircleChords));
     /// <summary>How long the bar takes to appear and to disappear, and how early it appears before the run.</summary>
     public double MagicCircleFadeInMs { get; init; } = Number(nameof(MagicCircleFadeInMs));
     public double MagicCircleLeadMs { get; init; } = Number(nameof(MagicCircleLeadMs));
@@ -345,9 +365,11 @@ public sealed record VisualizerSettings
         && UseChordSectionLanes == other.UseChordSectionLanes && ChordLanePreference.Trim() == other.ChordLanePreference.Trim()
         && UseChordCenterPair == other.UseChordCenterPair && UseMagicCircleTiles == other.UseMagicCircleTiles
         && (!UseMagicCircleTiles || (MagicCircleTiles == other.MagicCircleTiles
-            && MagicCircleNoteCount == other.MagicCircleNoteCount && MagicCircleMaxIntervalMs == other.MagicCircleMaxIntervalMs))
-        && NextIntervalTiles == other.NextIntervalTiles
+            && MagicCircleNoteCount == other.MagicCircleNoteCount && MagicCircleMaxIntervalMs == other.MagicCircleMaxIntervalMs
+            && MagicCircleChords == other.MagicCircleChords))
+        && NextIntervalTiles == other.NextIntervalTiles && BothIntervalTiles == other.BothIntervalTiles
         && UseChordAvoidBefore == other.UseChordAvoidBefore && UseRestartOnRun == other.UseRestartOnRun
+        && UseEnhancedChordRules == other.UseEnhancedChordRules
         && EnableTilePreference == other.EnableTilePreference
         && (!EnableTilePreference || (TwoKeyOrder == other.TwoKeyOrder && FourKeyOrder == other.FourKeyOrder
             && SixKeyOrder == other.SixKeyOrder && EightKeyOrder == other.EightKeyOrder));

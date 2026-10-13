@@ -37,6 +37,12 @@ public static class KeyNames
         return key is >= Key.D0 and <= Key.D9 ? ((char)('0' + (key - Key.D0))).ToString() : key.ToString();
     }
 
+    /// <summary>
+    /// The key that was pressed. With the Korean input method in Hangul mode a letter arrives as ImeProcessed, and with
+    /// Alt as System; a shortcut read from Key alone would then never match.
+    /// </summary>
+    public static Key Real(KeyEventArgs e) => e.Key switch { Key.System => e.SystemKey, Key.ImeProcessed => e.ImeProcessedKey, _ => e.Key };
+
     public static bool IsSupported(Key key) =>
         key is not (Key.None or Key.Tab or Key.Escape or Key.System or Key.ImeProcessed or Key.DeadCharProcessed
             or Key.LeftShift or Key.RightShift or Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt

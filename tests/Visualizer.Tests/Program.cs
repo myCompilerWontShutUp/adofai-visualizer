@@ -105,7 +105,7 @@ internal static class Program
             }),
             ("Exact dynamic thresholds and maximum cap", () =>
             {
-                // Boundaries are pinned so editing DefaultSettings.json does not change this rule check.
+                // Boundaries are pinned so editing DefaultSettings.jsonc does not change this rule check.
                 var s = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30,
                     FourKeyBoundaryMs = 50, TwoKeyBoundaryMs = 500 };
                 var selector = new DynamicTimingSelector(s);
@@ -157,7 +157,7 @@ internal static class Program
             }),
             ("Decrease switches at once, and never repeats the tile just played", () =>
             {
-                // App 0.1.3 (user rule): fewer tiles no longer wait for the running cycle to end.
+                // User rule: fewer tiles do not wait for the running cycle to end.
                 var cursor = new TilePatternCursor(new() { MaximumTileCount = 8, InitialTile = 8 }, 8);
                 Sequence(Enumerable.Range(0, 8).Select(_ => cursor.Next(4)).ToArray(), 6, 5, 4, 3, 6, 5, 4, 3);
                 Equal(cursor.Next(4), 6);
@@ -198,9 +198,10 @@ internal static class Program
                 Sequence(notes.Select(n => n.Mode), 2, 2, 4, 4, 4, 4, 4, 4, 4, 4);
                 Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                 // Mid-cycle the faster pattern also starts on the note before the close run: the 2K cycle is not
-                // opened again just to be completed. The 30ms pairs are trills (6-5, 4-3), and the single after the 4-3
-                // trill sits beside it on 5 (user rule: after a roll on lanes 1-2 comes 3).
-                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 6, 5, 4, 3, 5);
+                // opened again just to be completed. Its first tile would bring 5 straight back (5 6-5), so it goes on
+                // from 5 instead (user rule: 3 4 3 reads 3 2-1). The 30ms pairs are trills (4-3, 6-5) and the single after
+                // the 6-5 trill sits beside it on the side it rolled to, 4.
+                Sequence(generator.Generate(new[] { 0d, 300, 330, 360, 390, 420 }, settings).Select(n => n.Tile), 5, 4, 3, 6, 5, 4);
                 // 4K -> 8K keeps the preceding-interval rule.
                 var eight = settings with { MaximumTileCount = 8, InitialTile = 6 };
                 Sequence(generator.Generate(new[] { 0d, 30, 40, 50, 60, 70 }, eight).Select(n => n.Mode), 4, 4, 4, 4, 8, 8);

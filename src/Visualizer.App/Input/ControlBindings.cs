@@ -5,7 +5,6 @@ using Visualizer.Core.Settings;
 
 namespace Visualizer.App.Input;
 
-/// <summary>A key setting that cannot be bound, with the name of that setting.</summary>
 public sealed class ControlKeyException(string message, string field) : ArgumentException(message)
 {
     public string Field { get; } = field;

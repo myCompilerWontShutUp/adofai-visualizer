@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using Visualizer.App.Input;
 using Visualizer.App.Localization;
 using Visualizer.App.Rendering;
 using Visualizer.App.Themes;
@@ -59,10 +60,11 @@ public sealed class NoteEditWindow : Window
 
     /// <summary>
     /// <paramref name="laneWidth"/> is the width of one lane on the main screen, so the sheet looks the same; all eight
-    /// lanes are shown whatever the key count.
+    /// lanes are shown whatever the key count. <paramref name="topMs"/> is where this song's editor was left last time,
+    /// or null to open at the start.
     /// </summary>
     public NoteEditWindow(NoteEditSession session, VisualizerSettings settings, string songName, int? currentSlot,
-        double laneWidth = 60, ISettingsLayoutStore? layout = null)
+        double laneWidth = 60, ISettingsLayoutStore? layout = null, double? topMs = null)
     {
         Session = session ?? throw new ArgumentNullException(nameof(session));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -90,7 +92,8 @@ public sealed class NoteEditWindow : Window
 
         _field.Session = session;
         _field.Settings = settings;
-        _field.TopMs = _songMs > 0 ? Math.Min(_songMs, 8000) : 1000;
+        var kept = topMs is { } place && double.IsFinite(place) ? place : (double?)null;
+        _field.TopMs = kept ?? (_songMs > 0 ? Math.Min(_songMs, 8000) : 1000);
         _baseZoom = _field.Zoom;
         _title.Inlines.Add(new System.Windows.Documents.Run(songName) { FontWeight = FontWeights.SemiBold });
         if (currentSlot is { } editing)
@@ -158,7 +161,13 @@ public sealed class NoteEditWindow : Window
         // Alt alone would put the window in menu mode, and the editor's keys would stop working until Alt or Esc was
         // pressed again; nothing here uses Alt, so it is kept away from the window.
         PreviewKeyUp += (_, e) => { if (IsAlt(e)) e.Handled = true; };
-        Loaded += (_, _) => { UpdateScroll(); _field.Focus(); };
+        Loaded += (_, _) =>
+        {
+            UpdateScroll();
+            // A place kept from last time is held to this sheet's own limits, which need its height.
+            if (kept is not null) Scroll(0);
+            _field.Focus();
+        };
         // The editor takes the focus when it opens and whenever it comes back to the front (user rule).
         ContentRendered += (_, _) => { Activate(); _field.Focus(); };
         Activated += (_, _) => _field.Focus();
@@ -366,6 +375,8 @@ public sealed class NoteEditWindow : Window
 
     /// <summary>Opens the console, so the terminal is reachable from here as it is from the main window (Ctrl+T).</summary>
     public Action? ToggleConsole { get; set; }
+    /// <summary>What Ctrl+T in the editor does; null does what the console button does.</summary>
+    public Action? ConsoleShortcut { get; set; }
 
     /// <summary>Draws the sheet again after something outside the window changed the notes (the console's override).</summary>
     public void Redrawn() => Redraw();
@@ -393,6 +404,9 @@ public sealed class NoteEditWindow : Window
 
     /// <summary>What the line beside the buttons says: how many notes are picked, once more than one is.</summary>
     public string PickedText => _picked.Text;
+
+    /// <summary>Where the sheet is scrolled to: the time at its top edge, in ms.</summary>
+    public double TopMs => _field.TopMs;
 
     private void UpdateScroll()
     {
@@ -495,14 +509,15 @@ public sealed class NoteEditWindow : Window
             return;
         }
         // Fixed shortcut, the same one the main and settings windows take.
-        if (CmdWindow.IsShortcut(e.Key, Keyboard.Modifiers))
+        if (CmdWindow.IsShortcut(e))
         {
             e.Handled = true;
-            ToggleConsole?.Invoke();
+            (ConsoleShortcut ?? ToggleConsole)?.Invoke();
             return;
         }
-        // Keys act only while the editor itself has the focus (user rule).
-        if (IsActive && Press(e.Key, Keyboard.Modifiers)) e.Handled = true;
+        // Keys act only while the editor itself has the focus (user rule). The key pressed, not what the Korean input
+        // method made of it: in Hangul mode a, d, w and s would otherwise do nothing.
+        if (IsActive && Press(KeyNames.Real(e), Keyboard.Modifiers)) e.Handled = true;
     }
 
     /// <summary>

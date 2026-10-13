@@ -294,7 +294,6 @@ public sealed partial class MainViewModel
         return report;
     }
 
-    /// <summary>Says how a whole sync went: what was scanned, how it parsed, and the first warnings.</summary>
     public void ReportSync(IReadOnlyList<MapSyncReport> reports)
     {
         ArgumentNullException.ThrowIfNull(reports);
@@ -461,9 +460,19 @@ public sealed partial class MainViewModel
         return true;
     }
 
-    /// <summary>Loads the bundled example without adding it to the song library or the cache.</summary>
     /// <summary>Loads a prepared cache entry directly: the bundled example, or the song put back when a guide button is released.</summary>
     public void LoadCached(MapCacheEntry entry) => LoadEntry(entry);
+
+    /// <summary>
+    /// Loads another version of the song on screen, or the same one saved again from the editor. It is the same song, so
+    /// the practice tile stays where it was instead of going back to the start (user rule).
+    /// </summary>
+    public void Reload(MapCacheEntry entry)
+    {
+        var section = _sectionText;
+        LoadEntry(entry);
+        if (section.Length > 0) SectionText = section;
+    }
 
     /// <summary>
     /// The versions of the loaded song: its original and the edit slots saved under it, in slot order. An edit is picked
@@ -512,9 +521,7 @@ public sealed partial class MainViewModel
             var wanted = _allSongs.FirstOrDefault(each => (slot(each) ?? 0) == value
                 && string.Equals(family(each), home, StringComparison.OrdinalIgnoreCase));
             if (wanted is null) return;
-            var section = _sectionText;
-            LoadCached(wanted);
-            if (section.Length > 0) SectionText = section;
+            Reload(wanted);
             NotifyAll();
         }
     }
@@ -556,10 +563,16 @@ public sealed partial class MainViewModel
             if (Playback.State == PlaybackState.Off && Playback.Notes.Count > 0) Playback.Toggle();
         }
         else Message = $"{entry.Status}: {entry.Warnings.FirstOrDefault()}";
-        if (entry.ParserVersion.StartsWith("adofai-", StringComparison.Ordinal)
-            && entry.ParserVersion != AdofaiTimelineParser.CurrentVersion)
-            Message = Text["StaleCache"] + Message;
+        if (IsStale(entry)) Message = Text["StaleCache"] + Message;
         NotifyAll();
+    }
+
+    /// <summary>Whether the song was read by an older parser, so its times may not be what the game plays until a sync.</summary>
+    public static bool IsStale(MapCacheEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return entry.ParserVersion.StartsWith("adofai-", StringComparison.Ordinal)
+            && entry.ParserVersion != AdofaiTimelineParser.CurrentVersion;
     }
 
     public void LoadPreview() => LoadPreview(Settings);

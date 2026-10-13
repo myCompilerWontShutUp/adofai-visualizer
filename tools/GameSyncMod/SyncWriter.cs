@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
@@ -25,9 +26,15 @@ namespace AdofaiVisualizerSync
         private const double MinIntervalMs = 4;
         private const int RetryDelayMs = 2000;
         private const int ConnectTimeoutMs = 200;
+        /// <summary>How many log lines wait for the game thread at most; a writer that keeps failing must not fill memory.</summary>
+        private const int LogCapacity = 32;
 
         private readonly object _gate = new object();
-        private readonly Action<string> _log;
+        /// <summary>
+        /// Lines for the mod's log. Unity Mod Manager's logger is not made for other threads, so they wait here until the
+        /// game thread takes them (<see cref="TakeLog"/>).
+        /// </summary>
+        private readonly Queue<string> _log = new Queue<string>();
         private Thread? _thread;
         private GameSample _pending;
         private bool _hasPending;
@@ -38,7 +45,25 @@ namespace AdofaiVisualizerSync
         private volatile bool _stop;
         private double _lastSentMs = double.NegativeInfinity;
 
-        public SyncWriter(Action<string> log) => _log = log;
+        /// <summary>Hands the waiting log lines to the game thread, oldest first.</summary>
+        public string[] TakeLog()
+        {
+            lock (_log)
+            {
+                if (_log.Count == 0) return Array.Empty<string>();
+                var lines = _log.ToArray();
+                _log.Clear();
+                return lines;
+            }
+        }
+
+        private void Log(string line)
+        {
+            lock (_log)
+            {
+                if (_log.Count < LogCapacity) _log.Enqueue(line);
+            }
+        }
 
         /// <summary>Whether the pipe is connected right now, for the mod's own status line.</summary>
         public bool Connected { get; private set; }
@@ -76,6 +101,18 @@ namespace AdofaiVisualizerSync
             }
         }
 
+        /// <summary>Whether these tile times are not the ones last given for this level.</summary>
+        public bool LevelDiffers(string path, double[] timesMs)
+        {
+            lock (_gate)
+            {
+                if (_levelPath != path || _levelTimes == null || _levelTimes.Length != timesMs.Length) return true;
+                for (var index = 0; index < timesMs.Length; index++)
+                    if (_levelTimes[index] != timesMs[index]) return true;
+                return false;
+            }
+        }
+
         /// <summary>Called from the game thread. Takes a lock that is never held while writing, so it cannot block a frame.</summary>
         public void Post(GameSample sample)
         {
@@ -90,84 +127,105 @@ namespace AdofaiVisualizerSync
         private void Loop()
         {
             NamedPipeClientStream? pipe = null;
+            string? lastFailure = null;
             try
             {
                 while (!_stop)
                 {
-                    GameSample sample;
-                    lock (_gate)
-                    {
-                        // The wait also wakes on its own, so a disconnect is noticed while the game sits in a menu.
-                        if (!_hasPending) Monitor.Wait(_gate, 500);
-                        if (_stop) break;
-                        if (!_hasPending) continue;
-                        sample = _pending;
-                        _hasPending = false;
-                    }
-                    if (!sample.Valid) continue;
-                    if (sample.SampledMs - _lastSentMs < MinIntervalMs) continue;
-
-                    if (pipe == null || !pipe.IsConnected)
-                    {
-                        Connected = false;
-                        pipe?.Dispose();
-                        pipe = Connect();
-                        if (pipe == null) { Thread.Sleep(RetryDelayMs); continue; }
-                        Connected = true;
-                        // A fresh reader knows nothing, so who this is and the level it is playing go out again.
-                        lock (_gate) { _levelSent = false; _helloSent = false; }
-                        _log("Connected to the visualizer.");
-                    }
-
-                    string? levelPath = null;
-                    double[]? levelTimes = null;
-                    var hello = false;
-                    lock (_gate)
-                    {
-                        if (!_helloSent) { hello = true; _helloSent = true; }
-                        if (!_levelSent && _levelTimes != null)
-                        {
-                            levelPath = _levelPath;
-                            levelTimes = _levelTimes;
-                            _levelSent = true;
-                        }
-                    }
                     try
                     {
-                        if (hello)
-                        {
-                            var who = Encoding.UTF8.GetBytes(HelloLine());
-                            pipe.Write(who, 0, who.Length);
-                        }
-                        if (levelTimes != null)
-                        {
-                            var level = Encoding.UTF8.GetBytes(LevelLine(levelPath, levelTimes));
-                            pipe.Write(level, 0, level.Length);
-                        }
-                        var bytes = Encoding.UTF8.GetBytes(Line(sample));
-                        pipe.Write(bytes, 0, bytes.Length);
-                        pipe.Flush();
-                        _lastSentMs = sample.SampledMs;
-                        Sent++;
+                        pipe = Step(pipe);
+                        lastFailure = null;
                     }
-                    catch (IOException)
+                    // Whatever goes wrong costs this connection, never the thread: the pipe is dropped and made again
+                    // later, and the same failure is only logged once.
+                    catch (Exception error)
                     {
-                        // The visualizer closed or turned sync off; drop the pipe and try again later.
+                        if (error.Message != lastFailure) Log("Sending failed, trying again: " + error.Message);
+                        lastFailure = error.Message;
                         lock (_gate) { _levelSent = false; _helloSent = false; }
                         Connected = false;
-                        pipe.Dispose();
+                        pipe?.Dispose();
                         pipe = null;
+                        if (!_stop) Thread.Sleep(RetryDelayMs);
                     }
                 }
-            }
-            catch (Exception error)
-            {
-                _log("Stopped sending: " + error.Message);
             }
             finally
             {
                 Connected = false;
                 pipe?.Dispose();
+            }
+        }
+
+        /// <summary>Sends the newest sample, connecting first when needed. Returns the pipe to use next time.</summary>
+        private NamedPipeClientStream? Step(NamedPipeClientStream? pipe)
+        {
+            GameSample sample;
+            lock (_gate)
+            {
+                // The wait also wakes on its own, so a disconnect is noticed while the game sits in a menu.
+                if (!_hasPending) Monitor.Wait(_gate, 500);
+                if (_stop || !_hasPending) return pipe;
+                sample = _pending;
+                _hasPending = false;
+            }
+            if (!sample.Valid) return pipe;
+            if (sample.SampledMs - _lastSentMs < MinIntervalMs) return pipe;
+
+            if (pipe == null || !pipe.IsConnected)
+            {
+                Connected = false;
+                pipe?.Dispose();
+                pipe = Connect();
+                if (pipe == null) { Thread.Sleep(RetryDelayMs); return null; }
+                Connected = true;
+                // A fresh reader knows nothing, so who this is and the level it is playing go out again.
+                lock (_gate) { _levelSent = false; _helloSent = false; }
+                Log("Connected to the visualizer.");
+            }
+
+            string? levelPath = null;
+            double[]? levelTimes = null;
+            var hello = false;
+            lock (_gate)
+            {
+                if (!_helloSent) { hello = true; _helloSent = true; }
+                if (!_levelSent && _levelTimes != null)
+                {
+                    levelPath = _levelPath;
+                    levelTimes = _levelTimes;
+                    _levelSent = true;
+                }
+            }
+            try
+            {
+                if (hello)
+                {
+                    var who = Encoding.UTF8.GetBytes(HelloLine());
+                    pipe.Write(who, 0, who.Length);
+                }
+                if (levelTimes != null)
+                {
+                    var level = Encoding.UTF8.GetBytes(LevelLine(levelPath, levelTimes));
+                    pipe.Write(level, 0, level.Length);
+                }
+                var bytes = Encoding.UTF8.GetBytes(Line(sample));
+                pipe.Write(bytes, 0, bytes.Length);
+                pipe.Flush();
+                _lastSentMs = sample.SampledMs;
+                Sent++;
+                return pipe;
+            }
+            catch (Exception error)
+            {
+                lock (_gate) { _levelSent = false; _helloSent = false; }
+                Connected = false;
+                pipe.Dispose();
+                // The visualizer closed or turned sync off: drop the pipe and try again later. Not worth a log line,
+                // since it is what closing the app looks like from here; anything else is logged by the loop.
+                if (error is IOException || error is ObjectDisposedException || error is InvalidOperationException) return null;
+                throw;
             }
         }
 
@@ -239,7 +297,18 @@ namespace AdofaiVisualizerSync
                 .Append(",\"ci\":").Append(Number(sample.InputOffsetMs))
                 .Append(",\"cv\":").Append(Number(sample.VisualOffsetMs))
                 .Append(",\"path\":\"").Append(Escape(sample.Path))
-                .Append("\"}\n");
+                .Append("\",\"nf\":").Append(sample.NoFail < 0 ? "null" : sample.NoFail == 1 ? "true" : "false");
+            if (sample.Judgments is { } judgments)
+            {
+                text.Append(",\"hm\":[");
+                for (var index = 0; index < judgments.Length; index++)
+                {
+                    if (index > 0) text.Append(',');
+                    text.Append(judgments[index].ToString(CultureInfo.InvariantCulture));
+                }
+                text.Append(']');
+            }
+            text.Append("}\n");
             return text.ToString();
         }
 

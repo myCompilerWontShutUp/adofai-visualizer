@@ -19,7 +19,6 @@ public sealed class NoteEditSession
 
     /// <summary>The tiles on screen, ascending. Notes carry tile numbers, and a lane is a place in this list.</summary>
     public IReadOnlyList<int> Lanes { get; }
-    /// <summary>How many lanes the screen shows.</summary>
     public int Tiles => Lanes.Count;
     public string SourceHash { get; }
     public IReadOnlyList<EditNote> Notes => _notes;
@@ -354,7 +353,6 @@ public sealed class NoteEditSession
         return EditRefusal.None;
     }
 
-    // ---- history ---------------------------------------------------------
 
     /// <summary>One note of an override: the lane it goes on, and the group it shares with the note it is a chord with.</summary>
     public readonly record struct NoteOverride(int Hit, int Tile, int? Chord, double? HitTimeMs);

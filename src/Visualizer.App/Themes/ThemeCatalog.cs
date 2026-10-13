@@ -6,7 +6,6 @@ using Visualizer.Core.Localization;
 
 namespace Visualizer.App.Themes;
 
-/// <summary>A theme file: its id (the file name), list position and display names by language id.</summary>
 public sealed record ThemeInfo(string Id, int Order, IReadOnlyDictionary<string, string> Names)
 {
     public string DisplayName(string? language) =>
@@ -124,7 +123,6 @@ public static class ThemeCatalog
 
     private static SolidColorBrush Solid(Color color) => Freeze(new SolidColorBrush(color));
 
-    /// <summary>The color with each channel scaled by <paramref name="factor"/> (below 1 darkens it).</summary>
     private static Color Shade(Color color, double factor) => Color.FromArgb(color.A,
         (byte)Math.Round(color.R * factor), (byte)Math.Round(color.G * factor), (byte)Math.Round(color.B * factor));
 

@@ -5,18 +5,18 @@ using Visualizer.Application.Playback;
 namespace Visualizer.Application.Sync;
 
 /// <summary>
-/// One reading the game sent. Times are milliseconds. <paramref name="ModClockMs"/> comes from the mod's own clock, which has
-/// its own starting point, so only how much it varies against arrival means anything (the same as the frame handoff).
-/// </summary>
-/// <summary>
 /// One reading the game sent. <paramref name="PositionMs"/> is the input-calibrated song position: the clock the game
 /// judges a press against, which is what falling notes are for. <paramref name="InputOffsetMs"/> and
 /// <paramref name="VisualOffsetMs"/> are the player's own calibration in the game, kept only to show.
 /// <paramref name="PitchRate"/> is the real playback rate, unlike the practice speed setting.
 /// </summary>
+/// <remarks>
+/// <see cref="NoFail"/> is the game's No Fail, null when the mod did not say (an older one); <see cref="Judgments"/> its
+/// judgment counts by HitMargin (TooEarly 0 … FailMiss 8, FailOverload 9), null likewise. Only link inspect reads them.
+/// </remarks>
 public sealed record GameSyncMessage(int Protocol, double ModClockMs, double PositionMs, string State, bool Paused,
     int Floor, double Speed, string Path, double PitchRate = 1, double InputOffsetMs = 0, double VisualOffsetMs = 0,
-    bool Dead = false);
+    bool Dead = false, bool? NoFail = null, IReadOnlyList<int>? Judgments = null);
 
 /// <summary>
 /// A tile the game moved onto, with the song position it was noticed at. The mod only looks once a frame, so the crossing
@@ -39,7 +39,7 @@ public sealed record GameSyncReport(int Accepted, int Rejected, string? FirstRej
 /// <summary>
 /// Takes the readings the sync mod sends, checks them and measures the link: how often they arrive, how much the delay
 /// varies and whether the song position advances with real time. Nothing here is persisted (AGENTS.md rule 5) and nothing
-/// is sent back; this is the measurement stage of <c>docs/game-sync-plan.md</c>, so it does not touch playback yet.
+/// is sent back (<c>docs/game-sync-plan.md</c>).
 /// </summary>
 public sealed class GameSyncLink
 {
@@ -147,6 +147,26 @@ public sealed class GameSyncLink
     }
 
     /// <summary>
+    /// A mod connected. Its clock and its run start over with it (a restarted game counts from zero again), and it sends who
+    /// it is and the level it has before anything else, so what the last connection said is dropped rather than mixed in.
+    /// The measurement window stays: link -reset is what starts that over.
+    /// </summary>
+    public void BeginConnection()
+    {
+        lock (_gate)
+        {
+            if (_last is not null) Note("the mod connected again");
+            _last = null;
+            _lastArrivedMs = double.NaN;
+            _lastModMs = double.NaN;
+            _lastPositionMs = double.NaN;
+            _crossings.Clear();
+            _level = null;
+            _modVersion = null;
+        }
+    }
+
+    /// <summary>
     /// Checks one reading and takes it in. Returns null when it was accepted, otherwise why it was refused. Called from the
     /// thread that reads the pipe, so everything is under the lock.
     /// </summary>
@@ -229,7 +249,6 @@ public sealed class GameSyncLink
         }
     }
 
-    /// <summary>Why the reading cannot be used, or null. Values from another process are never taken on trust.</summary>
     /// <summary>
     /// What the mod said it is. An older mod says nothing at all, which looks the same as one that sends no tile times,
     /// so that case is named instead of left to guess at.
@@ -246,7 +265,7 @@ public sealed class GameSyncLink
         if (!double.IsFinite(arrivedMs)) return "the arrival time is not a number";
         if (!double.IsFinite(message.ModClockMs) || message.ModClockMs < 0) return "the mod clock is not a time";
         if (!double.IsFinite(message.PositionMs)) return "the song position is not a number";
-        if (!double.IsFinite(message.Speed) || message.Speed <= 0 || message.Speed > 10) return "the speed is out of range";
+        // The practice speed and the calibrations are only shown, so an odd value there never costs the position.
         if (message.Floor < -1) return "the tile number is negative";
         if (string.IsNullOrWhiteSpace(message.State)) return "the state is empty";
         if (string.IsNullOrWhiteSpace(message.Path)) return "the level path is empty";

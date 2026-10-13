@@ -1,166 +1,103 @@
 # 게임 시작 동기화 (game sync)
 
-게임에서 곡이 시작되는 시각을 받아 비주얼라이저의 노트를 게임과 같은 시각에 떨어뜨리는 기능의 설계·근거 문서입니다.
-계획 배경은 `docs/future-plans.md` 1절, 안전 규칙은 `AGENTS.md` 5·6절입니다.
+게임이 곡을 시작하는 시각을 받아 노트를 게임과 같은 시각에 떨어뜨리는 기능의 설계·근거입니다. 안전 규칙은 `AGENTS.md` 2·6절.
 
 ## 1. 목표와 범위
 
-- **1순위: 시작 동기화.** 사용자가 J(시작 키)를 누르지 않아도, 게임이 곡을 시작하면 비주얼라이저가 같은 시각에 맞춰 노트를 내립니다.
-  게임의 **3·2·1 카운트다운 동안 노트가 미리 내려오기 시작**합니다(카운트다운은 게임에서 별도 상태입니다, 3절).
-- **2순위: 타일 대조(검증) 기능.** 게임이 실제로 타일을 밟은 시각과 우리가 계산한 hit 시각을 비교해 표로 보여 줍니다.
-  지금까지 "자동 테스트 통과 / 독립 계산 대조 / 실제 플레이"를 구분해 보고해 왔는데, 이 기능이 **처음으로 게임 자체와의 대조**를 만듭니다.
-- **후순위(사용자 결정, 2026-09-28)**: 곡 자동 불러오기, 게임 설정(키·오프셋) 맞추기, 사망·재시작·일시정지 반영, 체크포인트·연습 타일.
-  이미 수동 수단이 있어 없어도 문제가 없습니다.
-- **범위 밖**: 게임에 입력을 보내는 것, 게임 값을 바꾸는 것, 게임 로직을 패치하는 것.
+- **시작 동기화**: 시작 키 없이, 게임이 곡을 시작하면 같은 시각에 노트를 내리고 **3·2·1 카운트다운 동안 미리 내려옵니다**.
+- **타일 대조**: 게임이 계산한 타일 시각과 우리 hit 시각을 비교합니다. 자동 테스트·독립 계산기는 같은 IL 해석을 공유하므로, 이것이 **게임 자체와 맞춰 보는 유일한 수단**입니다.
+- 후순위(사용자 결정): 곡 자동 불러오기, 게임 설정 맞추기, 체크포인트.
+- 범위 밖: 게임에 입력을 보내기, 게임 값을 바꾸기, 게임 로직 패치.
 
-## 2. 안전 규칙 (이 기능이 지키는 선)
+## 2. 지키는 선
 
-`AGENTS.md` 6절은 2026-09-28 사용자 승인으로 "**읽어서 내보내기만 하는 모드**"를 허용하도록 범위가 넓어졌습니다. 그 선은 다음과 같습니다.
-
-- 모드는 게임 안에서 **값을 읽어 파이프로 내보내기만** 합니다. 게임 필드에 쓰지 않고, 입력을 만들지 않고, 게임 메서드를 **Harmony로 패치하지 않습니다**(폴링만).
-- 게임 타입은 **리플렉션으로** 찾습니다. `Assembly-CSharp.dll`을 직접 참조하지 않으므로, 게임 업데이트로 필드가 사라져도 모드는 **기능만 끄고 게임은 그대로 돕니다**(TypeLoadException으로 게임을 멈추지 않음).
-- 모드는 **Unity 메인 스레드를 막지 않습니다**. `OnUpdate`에서 값만 복사하고, 보내기는 별도 스레드가 합니다. 파이프가 없거나 앱이 꺼져 있으면 아무 일도 하지 않습니다.
-- 모드가 쓰는 파일은 자기 폴더(`<게임>\Mods\AdofaiVisualizerSync\`)뿐이며, 게임 파일과 맵 파일은 읽기 전용입니다.
-- 앱은 **모드가 없어도 지금과 100% 같이 동작합니다.** 동기화는 설정에서 켜는 보조 경로이고 기본은 꺼짐입니다.
-- 받은 값은 신뢰하지 않습니다. 범위·단조 증가를 검사하고 어긋나면 버립니다. **저장하지 않습니다**(키 입력 이력·콘솔 기록과 같은 취급).
-- 게임 폴더 쓰기는 모드 설치 한 번뿐이며, 기존 파일은 건드리지 않습니다(사용자 승인 2026-09-28).
+- 모드는 값을 **읽어 파이프로 내보내기만** 합니다. 게임 필드에 쓰지 않고, 입력을 만들지 않고, Harmony 패치를 하지 않습니다(`OnUpdate` 폴링).
+- 게임 타입은 리플렉션으로 찾습니다(`Assembly-CSharp` 참조 없음). 이름으로 필드든 속성이든, static이든 아니든 읽습니다(`GameReader.Member`). 멤버가 아예 없을 때만 그 기능을 끄고(`Problem`) 게임은 그대로 돕니다.
+- **게임이 스스로 던지는 예외**(장면 정리 중, 곡이 아직 없음)는 그 프레임 읽기만 버립니다(`Trouble`, 연속 1초가 넘으면 30프레임에 한 번만 시도). 파괴된 Unity 객체는 없는 것으로 봅니다. 보여 주기만 하는 값(보정·pitch·일시정지·타일·연습 배속·죽음 목록)이 실패해도 곡 위치는 보냅니다. 곡 위치가 숫자가 아니면 보내지 않습니다.
+- `OnUpdate` 전체를 감싸 어떤 예외도 게임으로 던지지 않고, 같은 오류는 한 번만 기록합니다. 보내는 스레드는 어떤 예외에도 죽지 않고 파이프를 버린 뒤 다시 연결하며, 로그는 큐에 담아 게임 스레드가 UMM 로거로 넘깁니다(UMM 로거는 다른 스레드용이 아님).
+- Unity 메인 스레드를 막지 않습니다(값만 복사, 보내기는 별도 스레드). 앱이 없으면 아무 일도 하지 않습니다. 키뷰어 모드가 없으면 그 타입 찾기는 창 포커스가 바뀔 때만 다시 합니다(매 프레임 어셈블리 전체를 뒤지지 않음).
+- 앱은 모드 없이도 똑같이 동작하고, 받은 값은 검사(범위·단조 증가)하며 저장하지 않습니다.
+- 유일한 쓰기 예외: JipperResourcePack 키뷰어 GameObject를 게임 창이 전경이 아닐 때 끄고 돌아오면 켭니다(`KeyViewerFocus`, 모드를 내리면 다시 켬).
 
 ## 3. 게임에서 읽는 값
 
-ReflectionOnly 조사로 확정한 목록입니다(`.local/inspect-sync-signals.ps1`·`inspect-sync-details.ps1`·`inspect-songpos.ps1`,
-덤프는 `.local/sync-signals.txt`·`sync-details.txt`·`il-songpos.txt`). **다섯 개뿐**이며, 모두 싱글턴의 필드·속성 읽기입니다.
+ReflectionOnly 조사로 확정(덤프 `.local/sync-signals.txt`·`sync-details.txt`·`il-songpos.txt`).
 
-| 값 | 위치 | 뜻 |
+| 값 | 위치 | 쓰임 |
 | --- | --- | --- |
-| 곡 위치 | `scrConductor.instance.songposition_minusv` (`Double`, **초**) | 게임이 **화면**에 쓰는 곡 위치 |
-| 상태 | `scrController.instance.currentState` (`States`) | `None, Start, Countdown, Checkpoint, PlayerControl, Fail, Fail2, Won` |
-| 일시정지 | `scrController.instance.paused` (`Boolean`) | 일시정지 |
-| 현재 타일 | `scrController.instance.currentFloorID` (`Int32`) | 밟고 있는 floor 번호 (대조 기능용) |
-| 곡 파일 | `scnGame.instance.levelPath` (`String`) | 지금 재생 중인 레벨 파일 경로 (`scnGame.LoadLevel`이 씀) |
-| **타일 시각** | `scrLevelMaker.instance.listFloors[i].entryTime` (`Double`, **초**) | 게임이 스스로 계산한 타일별 시각. 레벨을 불러올 때 **한 번** 읽습니다 |
+| 곡 위치 | `scrConductor.instance.songposition_minusi` (초) | 노트가 따라가는 시계 |
+| 보정 | `calibration_i`·`calibration_v` (초) | 표시용 |
+| 배속 | `song.pitch` | 실제 재생 속도(`GCNS.practiceSpeedMultiplier`는 연습 모드 설정값이라 보여 주기만) |
+| 상태 | `scrController.instance.currentState` | `None, Start, Countdown, Checkpoint, PlayerControl, Fail, Fail2, Won` |
+| 일시정지·타일 | `scrController.instance.paused`·`currentFloorID` | 일시정지 / 진단 |
+| 곡 파일 | `scnGame.instance.levelPath` | 같은 곡인지 판단 |
+| 타일 시각 | `scrLevelMaker.instance.listFloors[i].entryTime` (초) | 레벨을 불러올 때 한 번 |
+| 죽음 | `scrController.deathStates` | 게임 오버면 노트를 세움 |
 
-배속은 `GCNS.practiceSpeedMultiplier` (`Single`)에 있습니다.
+모드는 곡 위치를 **`LateUpdate`에서** 읽습니다. `scrConductor.Update`가 프레임마다 `(float)(dspTime − dspTimeSong − calibration_i) × pitch − addoffset`로 정하는 필드이고(`dspTime`은 오디오 시각이 바뀌지 않은 프레임 동안 `unscaledTime` 차이로 메움, `.local/il-conductor-update.txt`), `Update`에서 읽으면 실행 순서에 따라 한 프레임 전 값이라 연출이 무거워 프레임이 길어지는 곳일수록 늦습니다.
 
-**시각 보정과 입력 보정이 게임에서도 갈라져 있습니다**(`.local/il-songpos.txt`). 우리 "표시 보정"과 정확히 같은 구분입니다.
-
-```text
-calibration_i = CalibrationPreset.inputOffset / 1000     (초)
-calibration_v = scrConductor.visualOffset   / 1000       (초)
-songposition_minusv = songposition_minusi + calibration_i - calibration_v
-```
-
-그래서 **떨어지는 노트에 맞출 값은 `songposition_minusv`**입니다. `songposition_minusi`(판정용)를 쓰면 사용자의 게임 보정만큼 어긋납니다.
-
-참고로 `songposition_minusi`에는 배속에 따른 오디오 지연 보정이 들어 있습니다(pitch 1→1.8을 0→0.074초로 `scrMisc.Remap`),
-그리고 `dspTimeSongPosZero = dspTimeSong + addoffset / song.pitch`가 곡 위치 0의 dsp 시각입니다. 둘 다 지금은 쓰지 않고 기록만 해 둡니다.
+**입력 보정 쪽(`minusi`)을 따릅니다.** 게임은 `songposition_minusv = songposition_minusi + calibration_i − calibration_v`로 화면·입력 보정을 나누는데, 누름을 판정하는 기준이 `minusi`이고 떨어지는 노트는 "언제 누르는가"를 알려 주는 것이기 때문입니다(`minusv`를 쓰면 게임 오프셋만큼 노트가 빨리 나옴).
 
 ## 4. 통로
 
-- **명명 파이프**(`\\.\pipe\adofai-visualizer-sync`), **단방향**(모드 → 앱), 줄 단위 UTF-8 JSON.
-  로컬 전용이라 포트·방화벽이 없고, 같은 사용자만 열 수 있습니다.
-- **앱이 서버**입니다(`PipeDirection.In`). 앱이 켜져 있지 않으면 모드는 연결에 실패하고 조용히 넘어갑니다.
-- 모드는 **곡이 도는 동안만** 보냅니다. 메뉴에서는 보내지 않습니다.
-- 메시지에 **`v`(형식 번호)** 를 넣어, 모드와 앱의 버전이 어긋나면 앱이 한 줄로 알리고 무시합니다.
+- 명명 파이프 `\\.\pipe\adofai-visualizer-sync`, 단방향(모드 → 앱), 줄 단위 UTF-8 JSON. 앱이 서버이며 `link start`를 할 때만 엽니다. 이름이 하나라 이미 다른 앱이 쥐고 있으면 그렇다고 알리고 2초마다 다시 시도합니다(테스트는 `MainWindow.GameSyncPipeName`).
+- 모드는 연결될 때마다 자기 버전(`{"v":2,"mod":"x.y.z"}`)과 기억해 둔 타일 시각을 먼저 보냅니다(게임을 먼저 켜도 됨). 메뉴로 나가면 보낸 기록을 잊어 같은 곡을 다시 들어가도 보냅니다. 타일이 만들어지기 전(목록이 비었거나 시각이 모두 같음)이면 프레임마다 다시 시도하고 600프레임 뒤 그만둡니다. 보낸 지 60프레임 뒤 한 번 더 읽어 달라졌으면 다시 보냅니다.
+- 앱은 연결마다 `GameSyncLink.BeginConnection`으로 이전 연결의 모드 시계·마지막 읽기·타일 시각·모드 버전을 버립니다. 게임을 다시 켜면 모드 시계가 0부터 다시 시작하므로, 이것이 없으면 모든 읽기를 "시계가 거꾸로 감"으로 거절했습니다. 한 줄이 이상해도(빈 버전 등) 그 줄만 거절하고 연결은 유지하며, 파이프 오류·권한 오류는 2초 뒤 다시 엽니다(`Listening`은 루프가 실제로 도는지를 봄). 연습 배속은 보여 주기만 하므로 범위를 벗어나도 읽기를 거절하지 않습니다.
+- `Info.json`과 모드 버전은 빌드가 `Directory.Build.props`의 `<Version>`에서 만듭니다. 콘솔 `link`의 `Mod` 줄이 앱 버전과 대조합니다.
+- 직렬화는 `SyncWriter.Line`이 만들고 `GameSyncTests`의 파이프 시험이 같은 줄을 넣습니다.
 
-```json
-{"v":1,"t":12.5,"pos":8317.25,"st":"PlayerControl","paused":false,"floor":128,"speed":1,"path":"C:\\maps\\main.adofai"}
-```
+## 5. 타일 대조 (`link tiles`)
 
-- `t`: 모드 쪽 단조 시계(ms). 앱은 도착 시각과 함께 지연을 재는 데만 씁니다.
-- `pos`: `songposition_minusv`를 **ms로 바꾼 값**.
-- 보내는 간격은 프레임마다가 아니라 고정 간격(기본 8ms)입니다. 앱이 자기 시계를 갖고 있으므로 그 이상 촘촘할 필요가 없습니다.
-- 보내는 쪽과 받는 쪽이 어긋나지 않는지는 **모드가 빌드된 DLL의 직렬화를 직접 불러** 확인했습니다(2026-09-28). 위 줄이 그 출력 그대로이며, `GameSyncTests`의 파이프 시험이 같은 줄을 넣습니다.
-  다시 확인하려면 `tools/GameSyncMod/bin/Release/AdofaiVisualizerSync.dll`을 PowerShell 5.1에서 `[Reflection.Assembly]::Load`로 읽고 `SyncWriter.Line`을 부르면 됩니다(net48이라 그대로 읽힙니다).
+게임의 `scrFloor.entryTime`과 불러온 곡의 hit 시각(`ParsedTimeline.HitFloors`로 타일 번호를 대입, 중간 회전은 자연히 빠짐)을 뺍니다. 둘 다 같은 파일의 일정표라 같게 읽었으면 차이가 **모든 타일에서 1ms 안에 같습니다**. 한 타일만 튀면 그 타일이 원인입니다(`docs/debug-logs/timing-mismatch.md`).
 
-## 5. 앱 쪽 시계 정렬
+- `currentFloorID`가 바뀐 순간의 곡 위치는 쓰지 않습니다. 그 값은 플레이어가 타일을 **밟을 때** 올라가 타건을 잽니다.
+- pitch≠100 곡은 모드가 보내는 `entryTime`이 pitch로 나누기 전 값이라 차이가 일정하지 않아 거절합니다.
 
-앱은 **자기 시계를 계속 씁니다.** 받은 곡 위치로 시계를 매 프레임 덮어쓰면 파이프 지연이 그대로 노트 떨림이 됩니다.
+## 6. 따라가기 (`link follow`·`link auto`)
 
-```text
-offset = (앱의 재생 시각) - (받은 곡 위치)
-```
+- `link tiles`의 오프셋을 기준으로 **앱의 재생 지점만** 게임 곡 위치에 맞춥니다(노트·hit 시각·판정은 그대로). 차이가 60ms를 넘으면 즉시 옮기고, 작으면 프레임마다 15%씩 당깁니다. 카운트다운의 음수 곡 위치 덕분에 3·2·1 동안 노트가 미리 내려옵니다.
+- **노트가 서서 기다리는 경우**(앱이 혼자 흘러가지 않음, `GameSyncFollower.Stand`): 게임 일시정지·곡 위치가 150ms 넘게 그대로(`StillMs`)면 게임이 말한 위치에 그대로 세우고, 읽기가 0.5초 넘게 끊김(`Silent`)·다른 레벨(`OtherLevel`)·게임 오버(`GameOver`)·게임 실제 속도≠100%(`OtherRate`, 노트는 100%로만 떨어짐)면 그 순간 자리에 세웁니다. 다시 맞는 읽기가 오면 이어서 따라갑니다. 아직 시작 전이면 곡 위치가 실제로 움직이는 것을 본 뒤에만 시작합니다(시작 화면에 머문 게임으로 시작하지 않음).
+- 게임 오버는 일시정지·끊김보다 먼저 봅니다(1.0.1은 일시정지를 먼저 봐서, 실패 화면이 일시정지로 잡히거나 재시작하며 레벨을 다시 불러오는 동안 읽기가 끊기면 노트가 흘렀음). `deathStates`는 정적 생성자가 `{Fail, Fail2}`로 채우는 static 배열입니다(`.local/inspect-cctor.ps1`). 레벨이 첫 키를 기다리는 `Start` 상태(재시작해도 여기로 옴)에서는 게임 곡 위치가 실시간으로 계속 흐르므로(PLUM MEGAMIX 2 시작 화면에서 3초에 약 2992ms, 2026-10-12 실측) 그동안도 노트를 세웁니다 — 죽은 뒤 재시작까지 노트가 흐르던 실제 원인.
+- 되감을 때 그 순간 타일 앞 노트를 숨기고(`HideNotesBeforeMs`), 뒤 읽기에서 더 앞 타일이 오면 숨김을 거기까지 줄입니다. 재시작 첫 읽기가 죽은 타일을 아직 가리키면 그 판 내내 앞부분이 안 보였을 것이기 때문입니다.
+- 같은 레벨의 타일 시각이 다시 오면(재연결마다 옴) 같으면 그대로, 다르면 다시 대조해 어긋나면 따라가기를 끝냅니다(`LevelChanged`). 프레임 루프 안의 따라가기는 예상 예외를 잡아 따라가기만 끝내고 이유를 `link`의 `Problem` 줄에 남깁니다.
+- **거절**: 타일 불일치·다른 곡·곡 중간부터 준비됨(체크포인트·구간)·앱 배속≠100%·곡 없음·꺼짐. 이유를 구분해 말합니다.
+- **따라가는 동안**(`PlaybackSession.ClockFollowsGame`) 앱이 곡 위치를 스스로 옮기는 동작은 모두 멈춥니다(사용자 규칙): 일시정지 정렬, 레인 키 재개의 이동, 체크포인트 자동 진행, 자동 표시 보정(멈춘 값은 끄면 그대로 돌아옴). 곡·구간·체크포인트·배속이 바뀌면 따라가기를 끝냅니다(`Dropped`, `link`가 이유를 적음). 켜고 끄는 지점은 `MainViewModel.FollowingGame` 하나이고, 상태가 바뀌면 `NotifyPlaybackChanged()`로 화면에 알립니다.
+- Esc는 따라가기보다 먼저입니다(앱에서 멈추면 기다리고, 이어 재생하면 다시 붙음). 게임 오버(`deathStates`)면 노트가 그 자리에 서고, 체크포인트로 되감으면 그 앞 노트를 그리지 않으며(`HideNotesBeforeMs`) 눌림·놓침 표시도 되감습니다(`NotePressJudge.ForgetAfter`).
+- **`link auto`**: 게임이 다른 곡으로 옮기면(게임 레벨 경로가 불러온 곡과 다르면) 그 곡을 불러옵니다(사용자 규칙). 고르는 곡은 원곡, 목록에 원곡이 없으면 첫 수정본(`MainWindow.SongFor`), 불러오기는 콘솔 `load`와 같은 길(`LoadChosen`, 배속 규칙 포함)입니다. 게임 곡마다 한 번(`_autoLoadedPath`, 불러온 곡이 게임 곡과 같아도 기록)이라 손으로 고른 곡은 게임이 다시 옮길 때까지 그대로이고, 수정 창·설정판이 열려 있으면 닫힐 때까지 기다리며, 목록에 없으면 동기화하라고 알립니다. 불러온 곡이 게임 곡과 같으면(게임 경로가 우리 상대 경로로 끝나는지; 수정본은 `maps/edited/<원곡>/<슬롯>/`에 있어 원곡 폴더·파일 이름으로 — `MainWindow.GamePlays`) `link follow`와 **같은 함수**로 시도합니다. 열쇠는 레벨 객체(다시 보낸 레벨은 새 객체)·곡 id·**준비 횟수**(`PlaybackSession.Prepared`, 실패한 준비 포함 — 배속을 되돌린 뒤에도 다시 시도하도록)이고, 거절되면 2초 뒤 다시 시도합니다(게임이 곡을 옮기는 도중 덜 만들어진 타일로 거절된 뒤 멈추던 문제). 이유는 `link`의 `Auto` 줄에 남깁니다. UI·설정이 아니라 콘솔 `link auto`·`link manual`이며 저장하지 않습니다. 켜져 있는 동안 위치를 옮기는 키는 무시합니다(`InputPolicy.MovesPlayhead`). 그래서 거절이 `link`에만 남으면 앱이 멈춘 것처럼 보이므로(사용자 제보 — 이전 파서 캐시의 Miku) 메인 화면에 시도마다 한 번 알립니다: `GameAutoFollowing` · `GameAutoRefused` · `GameAutoStaleCache`(캐시의 `ParserVersion`이 현재 파서와 다름 — `MainViewModel.IsStale`). 같은 열쇠의 재시도는 메시지를 다시 쓰지 않고, 콘솔 거절 첫 줄에도 이전 캐시면 `run sync`를 적습니다.
 
-- 최근 표본의 **최솟값**(NTP의 min filter와 같은 생각: 가장 덜 지연된 표본이 진짜에 가장 가깝다)으로 `offset`을 잡습니다.
-- 잡은 `offset`으로 시계를 **한 번** 맞추고, 그 뒤에는 드리프트만 한도 안에서 천천히 고칩니다.
-- **한도를 넘으면 자동 동기화를 포기하고 수동으로 돌립니다.** 잘못 맞춘 채 조용히 굴러가는 것이 가장 나쁩니다.
+## 7. 링커 설치·제거
 
-## 6. 카운트다운 선재생과 대조 기능
+- `install linker`: 대상은 `<게임>\Mods\AdofaiVisualizerSync\` 하나, 쓰는 파일은 `AdofaiVisualizerSync.dll`·`Info.json` 둘뿐입니다. Unity Mod Manager가 없으면 아무것도 쓰지 않고, 같은 버전이면 그대로 두며, 다른 버전이면 묻습니다. 길에 junction·symlink가 있으면 거절합니다. 게임 폴더는 설정의 맵 폴더가 가리키는 스팀 라이브러리(`steamapps\common\A Dance of Fire and Ice`), 없으면 기본 설치 경로입니다.
+- 모드 파일은 앱 옆 `plugins\linker\` → `linker\` → 앱 폴더 → 저장소 `plugins/linker` → `tools/GameSyncMod/bin/{Release,Debug}` 순으로 찾습니다. 빌드된 모드는 저장소 `plugins/linker/`에 커밋되어 다른 PC는 빌드하지 않습니다(그 PC에는 .NET Framework 4.8 참조 어셈블리가 없어 NU1100으로 실패했음). `update`·`install -reinstall linker`도 이 파일을 복사합니다.
+- 제거(`uninstall.ps1`)는 그 폴더를 통째로 지웁니다(UMM이 옆에 만드는 `AdofaiVisualizerSync.dll.<숫자>.cache` 포함, `Info.json` Id가 다르면 남김). UMM의 `Params.xml`은 건드리지 않습니다 — `UnityModManager+Param::Save`가 `ModParams.Clear()` 뒤 불러온 모드로 다시 채우고 게임을 끌 때 이를 부르므로(IL 확인) 그 줄은 저절로 빠집니다. 게임이 실행 중이면 멈춥니다.
 
-- 게임 상태가 `Countdown`이면 곡 위치가 이미 음수에서 올라오므로, 그 값을 그대로 쓰면 **카운트다운 동안 노트가 미리 내려옵니다**.
-  `scrConductor.adjustedCountdownTicks = countdownTicks / countdownSpeedMultiplier`로 카운트다운 길이를 알 수 있습니다.
-- 대조 기능은 모드가 보내는 `floor`가 바뀐 순간의 `pos`를 우리 hit 시각표와 맞춰 **floor별 차이(ms)** 를 냅니다.
-  `docs/debug-logs/timing-mismatch.md`의 "두 구현이 같이 모르는 규칙" 문제를 처음으로 게임 자체로 가릴 수 있게 됩니다.
-  (주의: `floor`는 프레임마다 읽은 값이라 분해능이 한 프레임(≈8ms)입니다. 누적 차이·추세를 보는 용도이고 ms 단위 판정용이 아닙니다.)
-
-## 7. 단계
-
-1. **(이 단계) 진단 먼저.** 모드는 위 다섯 값을 그대로 보내고, 앱은 콘솔 `sync`로 받은 값·간격·지연만 보여 줍니다. 재생에는 손대지 않습니다.
-   프레임 드랍 때 `fps`를 먼저 만든 것과 같은 순서입니다 — 실제 값을 본 뒤에 규칙을 정합니다.
-2. 측정한 값으로 5절의 정렬 규칙을 확정하고, 설정 토글(기본 꺼짐) 아래에서 실제 시작 동기화를 붙입니다.
-3. floor 대조(6절)를 콘솔 명령으로 붙입니다.
-4. 그 뒤에 후순위 항목(사망·일시정지·체크포인트·자동 불러오기)을 봅니다.
-
-## 8. 없을 때·실패할 때
-
-- 모드가 없거나 꺼져 있으면: 앱은 파이프만 열어 두고 아무 일도 하지 않습니다. 동기화 설정이 꺼져 있으면 파이프도 열지 않습니다.
-- 게임 업데이트로 필드가 사라지면: 모드가 그 값을 `null`로 보내고 로그에 한 줄 남깁니다. 앱은 동기화를 끄고 수동으로 돌립니다.
-- 값이 튀면(음의 진행, 범위 밖, 끊김): 그 표본을 버리고, 계속되면 동기화를 포기합니다.
-
-## 8-1. 첫 실측 (2026-09-28)
+## 8. 실측 (사용자)
 
 | 잰 것 | 값 |
 | --- | --- |
-| 받은 읽기 | 3182개, 거절 0 |
-| 도착 간격 | 중앙값 16.7ms (게임이 60fps) |
-| 지연의 흔들림 | p95 +0.1ms · 최대 +2.0ms |
-| 카운트다운 | `Start → Countdown`이 곡 위치 **-2301ms · -441ms**에서 잡힘 |
-| 조작 시작 | `Countdown → PlayerControl`이 두 판 모두 **약 1220ms** |
+| 읽기 | 3182개, 거절 0 |
+| 도착 간격 | 중앙값 16.7ms (게임 60fps) |
+| 지연 흔들림 | p95 +0.1ms · 최대 +2.0ms |
+| 카운트다운 | 곡 위치 -2301ms · -441ms에서 `Countdown` |
+| 조작 시작 | 두 판 모두 약 1220ms에서 `PlayerControl` |
 | 실패 뒤 | `Fail`·`Fail2` 동안에도 곡 위치가 계속 흐름(95초까지) |
+| 타일 대조 | Cardboard box - The Limit Does Not Exist 1360타일 전부 오프셋 692.3ms, 퍼짐 0.0ms |
+| 실제 플레이 | 215초, 읽기 10828개·거절 0, 되감기 27회, "매우 정확하며 esc 후 다시 실행해도 잘 돌아감" |
 
-- **파이프는 문제가 아닙니다.** 흔들림이 0.1ms대라 5절의 최솟값 걸러내기는 사실상 필요 없고, 읽기 하나로도 기준점을 잡을 수 있습니다.
-- **한계는 게임 프레임(16.7ms)입니다.** 값을 프레임마다 보므로 타일을 지나친 것은 0에서 한 프레임까지 늦게 잡힙니다. 차이는 항상 그만큼 **큰 쪽으로만** 틀리므로 여러 타일의 **가장 작은 차이**가 진짜에 가장 가깝습니다.
-- `Countdown`의 음수 위치가 확인되어 **3·2·1 선재생은 그대로 가능**합니다.
+파이프는 문제가 아니고 한계는 게임 프레임(16.7ms)입니다.
 
-## 8-2. 타일 대조 (`link tiles`, 0.9.1 전 `sync -t`)
+## 9. 확인하지 못한 것
 
-게임이 스스로 계산한 타일 시각(`scrFloor.entryTime`)을 받아 불러온 곡의 hit 시각과 뺍니다. 그 차이가 모든 타일에서 같으면 두 쪽이 같은 것이고, 서로 세는 0점만 다릅니다.
+- 게임 배속이 100%가 아닐 때 곡 위치가 실제 시간보다 빨리 흐르는지(그래서 지금은 따라가지 않고 기다림).
+- 1.0.2 링커가 실제 게임에서 일으키는 예외 기록(UMM 로그)과 일시정지·재시작·레벨 이동 때의 체감.
+- 모드 사용이 리더보드·업적에 주는 영향, 다른 모드(AdofaiTweaks·JALib 등)와의 상호작용(폴링만 하므로 가능성은 낮음).
+- 키뷰어를 끄는 동안 그 모드의 키 개수 세기가 멈추는지(보이는 것만 확인).
 
-- **`currentFloorID`는 쓰지 않습니다.** 그 값은 `scrController.Update`에서 **플레이어가 타일을 밟을 때** 올라가므로 맵이 아니라 타건 시각을 잽니다(첫 실측 퍼짐 27.4ms가 그것이었습니다). `entryTime`은 게임의 일정표라 플레이어와 무관하고 프레임 분해능도 없습니다.
-- 우리 `ParsedTimeline.HitFloors`가 타일 번호를 갖고 있어 게임의 타일 배열에 그대로 대입합니다. 중간 회전 타일은 우리 hit이 없으니 자연히 빠집니다.
-- 둘 다 같은 파일에서 계산한 일정표이므로, 맞으면 **1ms 안에서** 맞습니다.
-- 한 타일만 크게 튀면 그 타일이 원인입니다(`docs/debug-logs/timing-mismatch.md`의 ENERGY SYNERGY MATRIX·いますぐ輪廻와 같은 모양).
-- 이것이 **게임 자체와 맞춰 보는 첫 수단**입니다. 자동 테스트와 독립 계산기는 같은 IL 해석을 공유하므로 서로 맞는 것이 게임과 맞는다는 뜻은 아니었습니다.
+## 7. link inspect (측정 전용, 1.0.4)
 
-## 8-3. 자동 따라가기 (`link auto`, 0.9.2)
-
-사용자가 말한 "링크 완전 자동화"의 첫 단계입니다. **곡 자동 변경은 보류**하고, 사용자가 직접 불러온 곡이 게임이 들어간 곡과 같을 때만 스스로 타일을 맞춥니다.
-
-- **별도 UI도 설정도 만들지 않았습니다**(사용자 지시). 기존 `link`에 단어 둘(`auto`·`manual`)만 더하고 상태는 `link` 출력의 `Auto` 줄에 적습니다. 저장하지 않습니다.
-- 내부에서는 `link follow`와 **완전히 같은 함수**를 부릅니다. 그래서 7절·8절의 거절 조건이 그대로 살아 있습니다 — 곡 중간부터 준비된 상태, 앱 배속이 100%가 아닌 경우, 타일 시각 불일치는 자동이라고 통하지 않습니다.
-- **곡이 같은지는 경로로 봅니다**: 게임은 자기 사본을 가리키고 우리는 `maps/` 아래 사본이므로, 게임 경로가 우리 상대 경로로 끝나는지만 봅니다(`link tiles`의 경고와 같은 기준).
-- **한 번 불러올 때 한 번만** 시도합니다(레벨 경로·타일 수·곡 id·**준비 횟수**를 키로 씁니다). 타일 전수 대조가 매 프레임 돌지 않게 하려는 것이고, 게임이 다시 시작하는 것은 되감기가 알아서 처리합니다.
-- 준비 횟수는 `PlaybackSession.Prepared`이며 **실패한 준비도 셉니다**. 처음에는 준비된 노트 수를 키에 넣었는데, 거절 이유 중 가장 흔한 **배속**을 되돌리면 노트가 글자 그대로 똑같아져 키가 바뀌지 않았습니다 — 사용자가 원인을 고쳐도 게임이 레벨을 다시 불러오기 전에는 자동으로 다시 붙지 않는 상태였습니다(0.9.2 최종 점검에서 발견).
-
-## 8-4. 링커 설치 (`install linker`, 0.9.2)
-
-설치는 터미널에서 `build-mod.ps1 -Install`로만 할 수 있었으나, 사용자가 콘솔에서도 하길 요청해 같은 일을 하는 명령을 두었습니다. 쓰는 곳과 방식은 그 스크립트와 똑같습니다.
-
-- 대상은 `<게임>\Mods\AdofaiVisualizerSync\` **하나만**이고, 쓰는 파일은 `AdofaiVisualizerSync.dll`·`Info.json` **둘만**입니다. 폴더째 복사하지 않아 다른 모드·게임 파일을 건드릴 여지가 없습니다.
-- **Unity Mod Manager가 없으면 아무것도 하지 않습니다**(모드를 불러줄 것이 없으므로). 게임 폴더 후보는 설정의 맵 폴더가 가리키는 스팀 라이브러리(`steamapps` 위로 올라가 `common\A Dance of Fire and Ice`)이고, 없으면 기본 설치 경로를 봅니다.
-- 모드 파일은 앱 옆의 `plugins\linker\`, `linker\`, 앱 폴더, 저장소의 `plugins/linker`, `tools/GameSyncMod/bin/{Release,Debug}` 순으로 찾습니다.
-- **1.0.1부터 빌드된 모드가 저장소에 함께 올라갑니다**(`plugins/linker/`, 사용자 요청 "설치 외 다른 플러그인은 install을 통해서만"). 다른 PC에서 `build-mod.ps1`이 .NET Framework 4.8 참조 어셈블리가 없어 NU1100으로 실패했고, 그래서 `install linker`가 "the linker itself was not found"라고 답했습니다. 이제 앱 빌드가 `plugins/**`를 실행 파일 옆으로 복사하므로 받고 빌드만 하면 설치할 수 있고, `update`·`install -reinstall linker`도 빌드하지 않고 이 파일을 씁니다. 버전을 올리면 개발 PC에서 `build-mod.ps1 -Configuration Release`가 `plugins/linker`를 새로 씁니다(테스트가 버전을 대조).
-- 이미 같은 버전이 설치된 경우에는 쓰지 않고 그대로 둡니다. 다른 버전이면 바꿀지 묻습니다 — 예전 모드가 남아 있어 `link`가 "앱과 모드 버전이 다르다"고 짚어 주는 상황을 여기서 한 번에 고칠 수 있게 했습니다.
-- junction·symlink가 길에 있으면 거절합니다(승인된 폴더 밖으로 나갈 수 있어서).
-
-### 제거 (`uninstall.ps1`, 1.0.1)
-
-- 지우는 것은 `<게임>\Mods\AdofaiVisualizerSync\` **폴더 통째로**입니다. 설치는 두 파일만 쓰지만, Unity Mod Manager가 불러올 때 옆에 `AdofaiVisualizerSync.dll.<숫자>.cache`를 만들어 두므로(이 PC에서 확인) 두 파일만 지우면 흔적이 남습니다. 폴더의 `Info.json` Id가 다르면 남의 것으로 보고 지우지 않습니다.
-- UMM의 `Managed\UnityModManager\Params.xml`에도 `<Mod Id="AdofaiVisualizerSync" Enabled="true">` 줄이 있지만 **건드리지 않습니다**(다른 프로그램의 파일, 안전 규칙 2). `UnityModManager+Param::Save`가 `ModParams.Clear()` 뒤 `modEntries`(불러온 모드)로 다시 채우고, `UI::OnDestroy`·창 닫기에서 `SaveSettingsAndParams`가 이것을 부르므로(IL로 확인) 모드 폴더가 없으면 다음에 게임을 끌 때 그 줄이 저절로 빠집니다.
-- JipperResourcePack 키뷰어는 모드가 실행 중에만 켜고 끄며(저장하는 값 없음) 모드가 내려갈 때 다시 켜 두므로 남는 것이 없습니다. 게임이 실행 중이면 언인스톨러가 멈춥니다(모드가 불려 있고 파일이 잠겨 있음).
-
-## 9. 아직 확인하지 못한 것
-
-- `songposition_minusv`가 프레임 중 어느 시점의 값인지(같은 프레임 안에서 갱신 순서). 측정으로 계통 오차를 보정할 예정.
-- 배속(`practiceSpeedMultiplier`)이 곡 위치에 이미 반영되는지, pitch 보정과 겹치는지. 첫 측정은 90% 배속이었으나 진행률 지표가 잘못돼 답을 얻지 못했고, 고친 지표로 다시 재야 합니다.
-- 모드 사용이 리더보드·업적에 주는 영향은 확인하지 않았습니다. 공개 기록을 낼 계획이면 먼저 확인이 필요합니다.
-- 다른 모드(AdofaiTweaks·JALib 등)와의 상호작용. 폴링만 하므로 충돌 가능성은 낮지만 확인되지 않았습니다.
+- 목적: 비주얼라이저가 그린 노트대로 게임에 키를 눌러, 게임이 비주얼라이저 타이밍을 어떻게 판정하는지 봅니다(게임 타일을 읽고 누르는 것이 아님 — 사용자 규칙).
+- 원칙(모두 지켜질 때만, 시작할 때와 매 프레임): 링크 켜짐·`link auto` 꺼짐, 게임과 같은 곡, 게임의 실패 방지 모드 켜짐(링커가 `scrController.noFail` → 없으면 `GCS.useNoFail`을 `nf`로 보냄; 모르면 거절), 게임 프로세스가 앞에 있음(키를 보낼 때마다 `ForegroundProcessId`로 확인).
+- 판정: 링커가 `scrPlayerManager._instance.mistakesManager.marginTrackers[0].hitMarginsCount`(HitMargin 순서: TooEarly 0, VeryEarly 1, EarlyPerfect 2, Perfect 3, LatePerfect 4, VeryLate 5, TooLate 6, Multipress 7, FailMiss 8, FailOverload 9, Auto 10, OverPress 11)를 `hm`으로 보냅니다(바뀔 때만 새 배열). 앱은 실행 시작과의 차이와, TooEarly·TooLate·FailMiss·FailOverload가 늘어난 타일을 기록합니다.
+- 키: 설정의 레인 키(`ControlBindings.CreateLaneKeys`를 뒤집음)를 스캔 코드로(`KeyboardInjector`). 탭은 25ms, 롱노트는 끝까지 누름. 전용 스레드가 마지막 20ms를 스핀해 맞춥니다. 같은 레인을 빠르게 누르면 KeyboardChatterBlocker 같은 다른 모드가 막을 수 있습니다(기록에 판정으로 드러남).
+- 멈춤: Esc, `link uninspect`, `link stop`, `link auto`, 따라가기 끝, 노트 재준비, 다른 곡, 실패 방지 모드 꺼짐, 게임이 앞에서 사라짐, 앱 화면이 0.5초 넘게 계획을 안 줌(최소화 등), 곡 끝. 멈출 때 누른 키는 모두 뗍니다.
+- 결과: `InspectRun.Lines()`(보낸 키 수·늦은 키·밀린 프레임·판정 변화·문제 판정과 타일). 앱을 끌 때까지만 메모리에 두고 `report -inspect[:n|*] create|write <제목>`으로 메모에 씁니다.

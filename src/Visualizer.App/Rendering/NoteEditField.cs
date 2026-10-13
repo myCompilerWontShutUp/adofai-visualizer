@@ -56,7 +56,6 @@ public sealed class NoteEditField : FrameworkElement
         return value;
     }
 
-    /// <summary>The notes being edited.</summary>
     public NoteEditSession? Session
     {
         get => _session;
@@ -96,7 +95,6 @@ public sealed class NoteEditField : FrameworkElement
 
     private double SheetHeight => Math.Max(1, ActualHeight - HeaderHeight);
 
-    /// <summary>How long the view covers, in ms.</summary>
     public double WindowMs => SheetHeight / Zoom;
 
     /// <summary>The rubber band being dragged, in screen points; null when nothing is being dragged.</summary>
@@ -106,10 +104,8 @@ public sealed class NoteEditField : FrameworkElement
         set { _band = value; InvalidateVisual(); }
     }
 
-    /// <summary>The time a point on screen stands for.</summary>
     public double TimeAt(double y) => _topMs - (y - HeaderHeight) / Zoom;
 
-    /// <summary>Where a time sits on screen.</summary>
     public double YOf(double timeMs) => HeaderHeight + (_topMs - timeMs) * Zoom;
 
     /// <summary>The note under a point, or -1. Notes are hit tested with the same box they are drawn in.</summary>
@@ -121,7 +117,6 @@ public sealed class NoteEditField : FrameworkElement
         return -1;
     }
 
-    /// <summary>The notes the rubber band covers.</summary>
     public IReadOnlyList<int> NotesIn(Rect band)
     {
         var found = new List<int>();
@@ -165,7 +160,6 @@ public sealed class NoteEditField : FrameworkElement
         set { _ruleNotes = value ?? []; InvalidateVisual(); }
     }
 
-    /// <summary>Whether that backdrop is drawn.</summary>
     public bool ShowRuleNotes
     {
         get => _showRuleNotes;
@@ -260,7 +254,6 @@ public sealed class NoteEditField : FrameworkElement
     private static Color Lighter(string color) =>
         NoteFieldPalette.Blend(NoteFieldPalette.ToColor(VisualizerSettings.ParseColor(color)), Colors.White, 0.55);
 
-    /// <summary>The other note of the chord this one belongs to.</summary>
     private static EditNote? Partner(IReadOnlyList<EditNote> notes, int index)
     {
         var chord = notes[index].Chord;

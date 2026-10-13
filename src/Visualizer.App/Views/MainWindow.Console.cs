@@ -86,8 +86,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The sync link is console-only for now: the measuring stage of docs/game-sync-plan.md does not touch playback, so
-    /// there is no setting yet and the pipe stays closed until link start asks for it.
+    /// The game link is console-only: there is no setting, and the pipe stays closed until link start asks for it.
     /// </summary>
     private GameSyncLink? _sync;
     private NamedPipeGameSyncServer? _syncServer;
@@ -102,11 +101,29 @@ public partial class MainWindow
     /// </summary>
     private void FollowGameSync()
     {
+        // This runs inside the frame loop, so whatever the game sent may cost following but never the frame.
+        try { FollowGameSyncFrame(); }
+        catch (Exception error) when (IsExpectedError(error))
+        {
+            _follower.Stop();
+            _model.FollowingGame = false;
+            _followProblem = "Following stopped: " + error.Message;
+        }
+        // After following, so a run plans its presses from where this frame put the notes.
+        try { InspectFrame(); }
+        catch (Exception error) when (IsExpectedError(error)) { StopInspect("it could not go on: " + error.Message); }
+    }
+
+    /// <summary>Why following last stopped on its own, for link to show.</summary>
+    private string? _followProblem;
+
+    private void FollowGameSyncFrame()
+    {
         AutoFollowGame();
         if (!_model.FollowingGame) return;
         var before = _model.Playback.State;
         var (reading, arrived) = Sync.Latest;
-        _follower.Follow(reading, arrived, _model.PlaybackClock.NowMs, _model.Playback);
+        _follower.Follow(reading, arrived, _model.PlaybackClock.NowMs, _model.Playback, Sync.Level);
         // The follower ends following by itself when the app changes the song under it, so the app has to come back out
         // of it here; the setter puts everything it took over back.
         if (_follower.OffsetMs is null) _model.FollowingGame = false;
@@ -126,9 +143,11 @@ public partial class MainWindow
         var lines = GameSyncLink.Lines(Sync.Report(), _syncServer?.Listening == true,
             _syncServer?.Connected == true, _syncServer?.Problem, AppInfo.Version).ToList();
         lines.AddRange(_follower.Lines());
+        if (_followProblem is { } problem) lines.Add("Problem  " + problem);
         lines.Add(_linkAuto
-            ? "Auto     on; the tiles are matched by themselves when the game loads the loaded song" + (_autoNote is { } note ? " \u00b7 " + note : "")
+            ? "Auto     on; the game's song is loaded here and its tiles matched by themselves" + (_autoNote is { } note ? " \u00b7 " + note : "")
             : "Auto     off; link auto matches the tiles by itself");
+        lines.Add(InspectLine());
         if (restart) lines.Add("Measuring again from now.");
         return lines;
     }
@@ -149,7 +168,11 @@ public partial class MainWindow
             return ["The visualizer is off. Turn it on, then try again."];
         // Out of any earlier run first, so a refusal here never leaves the app half in it.
         _model.FollowingGame = false;
-        if (_follower.Prepare(level, _model.Playback) is { } why) return ["Cannot follow: " + why];
+        _followProblem = null;
+        if (_follower.Prepare(level, _model.Playback) is { } why)
+            return [_model.LoadedEntry is { } stale && MainViewModel.IsStale(stale)
+                ? $"Cannot follow: {why} This song has an older timing cache ({stale.ParserVersion}); run sync, then load the song again."
+                : "Cannot follow: " + why];
         _model.FollowingGame = true;
         var lines = new List<string>
         {
@@ -160,25 +183,41 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// link auto: once the game loads the song that is loaded here, the tiles are matched and the notes go on the game's
-    /// clock without link follow being typed. There is no UI for it (user rule): the console switches it, and link shows it.
+    /// link auto: the song the game moves to is loaded here, its tiles are matched and the notes go on the game's clock
+    /// without link follow being typed. There is no UI for it (user rule): the console switches it, and link shows it.
     /// </summary>
     private bool _linkAuto;
-    /// <summary>The level and song the last attempt was for, so one load is tried once instead of every frame.</summary>
-    private string? _autoTried;
+    /// <summary>
+    /// The game's song that is already taken care of: loaded here by link auto, or found loaded. One load per song the game
+    /// moves to, so a song picked here by hand afterwards stays until the game moves on.
+    /// </summary>
+    private string? _autoLoadedPath;
+    /// <summary>The level, song and preparation the last attempt was for, so one load is tried once instead of every frame.</summary>
+    private (GameSyncLevel Level, string Song, int Prepared)? _autoTried;
+    /// <summary>When the last attempt was refused, on the playback clock; a refusal is tried again after <see cref="AutoRetryMs"/>.</summary>
+    private double _autoRefusedAt = double.NaN;
+    /// <summary>
+    /// How long a refused attempt waits before the same level and song are tried again. A level is sent while the game is
+    /// still building it, and an older linker never sends it again, so one refusal must not be the last word (user report:
+    /// link auto stopped working after moving to another song).
+    /// </summary>
+    private const double AutoRetryMs = 2000;
     /// <summary>What that attempt said, so link can show it: an automatic refusal must not be silent.</summary>
     private string? _autoNote;
 
     IReadOnlyList<string> ICmdHost.GameSyncAuto(bool on)
     {
         _linkAuto = on;
+        _autoLoadedPath = null;
         _autoTried = null;
+        _autoRefusedAt = double.NaN;
         _autoNote = null;
         if (!on) return ["The tiles are no longer matched by themselves. link follow still does it by hand."];
         var lines = new List<string>
         {
-            "Matching by itself from now on: when the game loads the song that is loaded here, the notes go on the game's clock.",
-            "The loaded song is never changed for you, nothing is sent to the game, and link manual stops this."
+            "Matching by itself from now on: the song the game moves to is loaded here (the original; the slot box picks an edit),",
+            "and the notes go on the game's clock. A song picked here by hand stays until the game moves to another one.",
+            "Nothing is sent to the game, and link manual stops this."
         };
         if (_syncServer is not { Listening: true }) lines.Add("Nothing happens until the pipe is open; use link start.");
         return lines;
@@ -190,18 +229,104 @@ public partial class MainWindow
     /// </summary>
     private void AutoFollowGame()
     {
-        if (!_linkAuto || _model.FollowingGame) return;
+        if (!_linkAuto) return;
         if (_syncServer is not { Listening: true } || Sync.Level is not { } level) return;
-        if (_model.LoadedEntry is not { } entry || _model.Playback.Timeline is null) return;
-        // The game names its own copy of the map; ours is a copy under maps/, so the tail of the path is what can match.
-        if (!level.Path.EndsWith(entry.RelativePath, StringComparison.OrdinalIgnoreCase)) return;
-        // One try per level the game loads and per song prepared here; without this the tile compare would run every frame.
-        // Preparations are counted, not notes: a refusal over the speed would otherwise never be tried again, since
-        // putting the speed back prepares the very same notes.
-        var key = $"{level.Path}|{level.TimesMs.Count}|{entry.Id}|{_model.Playback.Prepared}";
-        if (key == _autoTried) return;
+        // The game moving to another song comes first (user rule: link auto loads it), following or not.
+        if (_model.LoadedEntry is not { } entry || !GamePlays(level.Path, entry))
+        {
+            LoadGameSong(level.Path);
+            return;
+        }
+        _autoLoadedPath = level.Path;
+        if (_model.FollowingGame || _model.Playback.Timeline is null) return;
+        // One try per level the game sends (each one sent is a new object, a resend included) and per song prepared here;
+        // without this the tile compare would run every frame. Preparations are counted, not notes: a refusal over the
+        // speed would otherwise never be tried again, since putting the speed back prepares the very same notes. A refusal
+        // is tried again after a while all the same.
+        var key = (level, entry.Id, _model.Playback.Prepared);
+        var now = _model.PlaybackClock.NowMs;
+        var again = _autoTried is { } tried && ReferenceEquals(tried.Level, key.level) && tried.Song == key.Id && tried.Prepared == key.Prepared;
+        if (again && !(now - _autoRefusedAt >= AutoRetryMs)) return;
         _autoTried = key;
         _autoNote = ((ICmdHost)this).GameSyncFollow(true).FirstOrDefault();
+        _autoRefusedAt = _model.FollowingGame ? double.NaN : now;
+        // With link auto on the keys that move the notes are off, so a refusal seen only on link left the app looking dead
+        // (user report). The main window says how it went once per try: a retry of the same refusal would only bury newer
+        // messages and keep its age at "just now".
+        if (_model.FollowingGame) _model.SetMessage(_model.Text["GameAutoFollowing"]);
+        else if (!again) _model.SetMessage(_model.Text[MainViewModel.IsStale(entry) ? "GameAutoStaleCache" : "GameAutoRefused"]);
+    }
+
+    /// <summary>
+    /// Loads the song the game moved to, once per song. Not under the editor or the settings panel: they hold work of the
+    /// user's, so it waits for them to close. The load is the one the console's load does, speed rule included.
+    /// </summary>
+    private void LoadGameSong(string gamePath)
+    {
+        if (string.IsNullOrWhiteSpace(gamePath) || string.Equals(_autoLoadedPath, gamePath, StringComparison.OrdinalIgnoreCase)) return;
+        if (Busy || _settingsPanel is not null) return;
+        _autoLoadedPath = gamePath;
+        if (SongFor(gamePath, _model.AllSongs, OriginalPathOf) is not { } song)
+        {
+            _autoNote = $"the game moved to {gamePath}, which is not in the song list; sync brings it in.";
+            _model.SetMessage(_model.Text["GameSongMissing"]);
+            return;
+        }
+        _model.LoadChosen(song, null);
+        ForgetGuide();
+        MapPanel.IsExpanded = false;
+        _autoNote = $"loaded {song.SongName}, which the game moved to.";
+    }
+
+    /// <summary>
+    /// The song in the list that the game's level is: its original when the list has it (an edit is the user's to pick from
+    /// the slot box), else the first edit of it. Public for tests.
+    /// </summary>
+    public static MapCacheEntry? SongFor(string gamePath, IEnumerable<MapCacheEntry> songs, Func<MapCacheEntry, string?> originalOf)
+    {
+        ArgumentNullException.ThrowIfNull(gamePath);
+        ArgumentNullException.ThrowIfNull(songs);
+        ArgumentNullException.ThrowIfNull(originalOf);
+        MapCacheEntry? edit = null;
+        foreach (var song in songs)
+        {
+            if (GamePlays(gamePath, song.RelativePath)) return song;
+            if (edit is null && GamePlays(gamePath, originalOf(song))) edit = song;
+        }
+        return edit;
+    }
+
+    /// <summary>
+    /// Whether the game's level is this song. The game names its own copy of the map; ours is a copy under maps/, so the
+    /// tail of the path is what can match. An edit lives in a slot folder of its own but plays the original's map, so it is
+    /// also matched by the original's folder and file (user report: link auto never found an edit).
+    /// </summary>
+    private bool GamePlays(string gamePath, MapCacheEntry entry) => GamePlays(gamePath, entry.RelativePath, OriginalPathOf(entry));
+
+    /// <summary>The original's folder and file for an edit, as a path under maps/; nothing for an original.</summary>
+    private string? OriginalPathOf(MapCacheEntry entry)
+    {
+        if (!UseAppStore) return null;
+        try
+        {
+            if (Maps.SlotOf(entry) is not null)
+                return Path.Combine(Edits.SongFolderOf(entry), Path.GetFileName(entry.RelativePath));
+        }
+        catch (Exception error) when (IsExpectedError(error)) { }
+        return null;
+    }
+
+    /// <summary>The path test itself: the game's path ends with one of these, folder boundary included. Public for tests.</summary>
+    public static bool GamePlays(string gamePath, params string?[] relativePaths)
+    {
+        ArgumentNullException.ThrowIfNull(gamePath);
+        var game = gamePath.Replace('/', '\\');
+        return relativePaths.OfType<string>().Where(path => path.Length > 0).Any(path =>
+        {
+            var tail = path.Replace('/', '\\').TrimStart('\\');
+            return game.Equals(tail, StringComparison.OrdinalIgnoreCase)
+                || game.EndsWith('\\' + tail, StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     LinkerPlace ICmdHost.FindLinker()
@@ -232,9 +357,7 @@ public partial class MainWindow
         if (_syncServer is not { Listening: true }) return ["Not listening. Use link start first."];
         if (Sync.Level is not { } level) return ["No tile times yet. Load a level in the game with the mod switched on."];
         if (_model.Playback.Timeline is not { } timeline) return ["Load the song the game is playing first."];
-        // The game names its own copy of the map; ours is a copy under maps/, so the tail of the path is what can match.
-        var warning = _model.LoadedEntry is { } entry
-                      && !level.Path.EndsWith(entry.RelativePath, StringComparison.OrdinalIgnoreCase)
+        var warning = _model.LoadedEntry is { } entry && !GamePlays(level.Path, entry)
             ? $"the game has {level.Path}, which is not the loaded {entry.RelativePath}."
             : null;
         return GameTileCheck.Lines(GameTileCheck.Compare(level.TimesMs, timeline), warning);
@@ -243,6 +366,7 @@ public partial class MainWindow
     /// <summary>Closes the pipe. Also called when the window closes, so no thread outlives the app.</summary>
     private void StopGameSync()
     {
+        StopInspect("the link was closed");
         _follower.Stop();
         _model.FollowingGame = false;
         _syncServer?.Dispose();

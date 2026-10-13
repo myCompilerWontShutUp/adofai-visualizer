@@ -5,30 +5,11 @@ using Visualizer.Core.Maps;
 
 namespace Visualizer.Infrastructure.Parsing;
 
-/// <summary>Verified two-planet subset; unsupported timing is never silently skipped.</summary>
+/// <summary>The verified subset of the level format; unsupported timing is never silently skipped.</summary>
 public sealed class AdofaiTimelineParser : IMapTimelineParser
 {
-    // v7 adds descriptive song info (artist, song, author, difficulty) to the cache; timing is unchanged from v6.
-    // v8 accepts SetText/ScreenTile/ScreenScroll and a numeric Pause angleCorrectionDir of -1 (Backward); timing is unchanged.
-    // v9 accepts format version 2 (no version-specific timing branch in the game); timing is unchanged.
-    // v10 accepts format version 19 and SetParticle (particle effects only); timing is unchanged.
-    // v11 accepts SetDefaultText (HUD text only); timing is unchanged.
-    // v12 adds Hold (duration×2 beats, long notes), AutoPlayTiles and per-hit kinds, and more visual events.
-    // v13 accepts format version 11 and AddText (a text decoration); timing is unchanged.
-    // v14 accepts SetConditionalEvents whose tags pick visual events only; timing is unchanged.
-    // v15 accepts a Checkpoint event on a midspin tile as long as its restart tile is a normal one.
-    // v16 accepts a Hold of duration 0: a long note to the next hit without extra time (Up In My Jam).
-    // v17 counts a turn within 1e-6 rad of none or of a whole circle as a whole circle, as the game does (ENERGY SYNERGY MATRIX).
-    // v18 accepts an auto-played FreeRoam section and a hold that ends on an auto tile (Up In My Jam).
-    // v19 leaves out events switched off in the editor ("active": false), as the game does (いますぐ輪廻), and accepts format 3.
-    // v20 accepts format version 6 (Plum - Wake Up, Piano!).
-    // v21 keeps the free roam sections, so the screen can say the mini-game is running (Up In My Jam).
-    // v23 reads the songs that were still refused, each against the game: a comma missing between two members (the game's
-    // own reader never needed one, see AdofaiJson), format version 9 (its only branch is an editor migration), a toggle
-    // written as "Enabled"/"Disabled", ScaleMargin (it only scales the hit window), a FreeRoam section the player moves
-    // through by hand (the beats are the same as an auto one), two Holds in a row (HitKind.HoldChain) and the level's own
-    // pitch (every real time is divided by it).
-    public const string CurrentVersion = "adofai-v23-pitch-chained-holds";
+    // Raise this whenever what is cached changes (the app then asks for a map sync); docs/adofai-parser.md has the evidence.
+    public const string CurrentVersion = "adofai-v25-three-planets-shorter";
     /// <summary>
     /// Level formats checked against the game and a real map each. The game reads the level version only for 7 (LoadLevel),
     /// 9 (editor MakeLevel), decoration components up to 12 and the level list (above 19), so none of these has a timing branch
@@ -201,9 +182,12 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                         var beats = Number(action, "duration");
                         if (!double.IsFinite(beats) || beats < 0 || floor == 0 || floor == angles.Length || angles[floor] == 999)
                             throw new Unsupported("Pause는 일반 중간 타일의 유한한 0 이상 duration만 지원합니다.");
-                        // LevelEvent.Decode reads enum values by name or by number (Enum.ToObject); AngleCorrectionDirection.Backward is -1.
-                        if (!IsBackward(action))
-                            throw new Unsupported("Pause angleCorrectionDir는 Backward만 검증했습니다.");
+                        // The direction only turns the planet's drawn angle: ApplyCoreEventsToFloors stores it in
+                        // scrFloor.angleCorrectionType, which CalculateFloorEntryTimes never reads, and scrPlanet.HandlePause
+                        // sets lastHit and the snapped angle the same way for every direction and multiplies it into
+                        // TweenCosmeticAngle only. So every defined direction keeps the same timing (map: 柿崎ユウタ - 月が綺麗ねと言われたい！).
+                        if (!IsCorrectionDirection(action))
+                            throw new Unsupported("Pause angleCorrectionDir는 Backward·None·Forward만 지원합니다.");
                     }
                 }
                 else if (type == "Hold")
@@ -211,8 +195,7 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                     // ApplyCoreEventsToFloors sets holdLength = duration when a next floor exists and duration >= 0, otherwise -1.
                     // CalculateFloorEntryTimes adds holdLength×2 beats only when holdLength > 0, and scrPlayer.UpdateHoldBehavior
                     // skips only holdLength -1, so duration 0 is a long note to the next hit without extra time, released there.
-                    // A hold before another hold changes that release and stays unverified. A midspin in between does
-                    // not: the game hits it itself and carries the hold on (see the release check below).
+                    // A midspin in between does not change it: the game hits it itself and carries the hold on (see the release check below).
                     if (!action.TryGetProperty("duration", out var duration) || duration.ValueKind != JsonValueKind.Number
                         || !duration.TryGetInt32(out var length) || length < 0)
                         throw new Unsupported($"Hold는 0 이상의 정수 duration만 지원합니다 (floor {floor}).");
@@ -335,7 +318,7 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                 else
                 {
                     // More than two planets moves the entry angle before the turn is measured, which makes every tile of
-                    // the section longer (cosMo@暴走P - THE END OF HATSUNE MIKU, floors 310-324).
+                    // the section shorter (cosMo@暴走P - THE END OF HATSUNE MIKU, floors 310-324).
                     var shift = PlanetShift(planets, floor > 0 && angles[floor - 1] == 999);
                     if (floor == 0 && shift != 0)
                         throw new Unsupported("첫 타일부터 3행성인 맵은 검증하지 않았습니다.");
@@ -451,20 +434,22 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
     private static double Mod(double value) => (value % 360 + 360) % 360;
 
     /// <summary>
-    /// How many degrees longer a tile's turn is with <paramref name="planets"/> planets.
+    /// How many degrees a tile's turn changes by with <paramref name="planets"/> planets.
     ///
     /// scrLevelMaker.CalculateFloorEntryTimes measures the turn from <c>entryangle + shift</c>, where
     /// <c>shift = scrMisc.GetInverseAnglePerBeatMultiplanet(numPlanets) * (isCCW ? -1 : 1)</c> and that function is
-    /// <c>pi * (n - 2) / n</c>. The turn itself is measured with the same sign, so the direction cancels and the turn is
-    /// simply this much longer: nothing at all for two planets, about 60° for three.
+    /// <c>pi * (n - 2) / n</c>. The direction cancels, and the next planet is that much nearer: about 60° shorter for
+    /// three planets, either way round. The game's own tile times say so (THE END OF HATSUNE MIKU over the sync pipe:
+    /// 180° tiles take 120°, 90° take 30°, 270° take 210°, clockwise and counterclockwise alike).
     ///
-    /// After a midspin tile the game instead takes a whole turn off (<c>shift -= (2pi + inverse) * dir</c>), which its
-    /// slightly large two pi leaves a hair under 360° — kept as the game has it, since the whole-turn margin can see it.
+    /// After a midspin tile the game instead moves the entry a whole turn back (<c>shift -= (2pi + inverse) * dir</c>),
+    /// so the planets' 60° cancels and the turn is as with two planets plus the game's slightly large two pi — kept as
+    /// the game has it, since the whole-turn margin can see it.
     /// </summary>
     private static double PlanetShift(int planets, bool afterMidSpin)
     {
         if (planets <= 2) return 0;
-        return afterMidSpin ? -Degrees(GameTwoPi) : Degrees(GamePi * (planets - 2) / planets);
+        return afterMidSpin ? Degrees(GameTwoPi) : -Degrees(GamePi * (planets - 2) / planets);
     }
 
     private static double Degrees(double radians) => radians * 180 / Math.PI;
@@ -505,6 +490,15 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
     private static bool Toggle(JsonElement action, string name) => action.TryGetProperty(name, out var value)
         && (value.ValueKind == JsonValueKind.True
             || (value.ValueKind == JsonValueKind.String && value.GetString() == "Enabled"));
+
+    /// <summary>
+    /// A defined AngleCorrectionDirection (Backward -1, None 0, Forward 1) or none at all. LevelEvent.Decode reads an enum
+    /// value by name (Enum.Parse) or by number (Enum.ToObject).
+    /// </summary>
+    private static bool IsCorrectionDirection(JsonElement action) =>
+        !action.TryGetProperty("angleCorrectionDir", out var value)
+        || value.ValueKind == JsonValueKind.String && value.GetString() is "Backward" or "None" or "Forward"
+        || value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) && number is -1 or 0 or 1;
 
     private static bool IsBackward(JsonElement action) =>
         !action.TryGetProperty("angleCorrectionDir", out var value)

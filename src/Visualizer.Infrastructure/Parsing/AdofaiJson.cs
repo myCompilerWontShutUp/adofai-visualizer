@@ -10,8 +10,10 @@ namespace Visualizer.Infrastructure.Parsing;
 /// <c>GDMiniJSON.Json.Deserialize</c>). In that parser <c>ParseObject</c> and <c>ParseArray</c> reach the next member
 /// through the default case of a switch on the next token and only skip a COMMA when one is there, and no method in it
 /// throws (its single failure is returning null). So a level with a comma missing between two members loads in the game,
-/// while System.Text.Json refuses it; the comma is put back here, in memory only. Nothing is ever written back: map files
-/// are read-only data (AGENTS.md rule 3).
+/// while System.Text.Json refuses it; the comma is put back here, in memory only. The other way round, a COMMA token is
+/// read on its own and the loop simply goes on, so commas with no value before them (two in a row, or one right after the
+/// bracket) are skipped there and dropped here. Nothing is ever written back: map files are read-only data (AGENTS.md
+/// rule 3).
 /// </para>
 /// </summary>
 internal static class AdofaiJson
@@ -24,6 +26,8 @@ internal static class AdofaiJson
         var containers = new Stack<char>();
         // The last token finished a value, so the next value-starting token needs a separator in front of it.
         var afterValue = false;
+        // The last token opened a container or was a comma, so a comma now separates nothing.
+        var commaIdle = false;
         for (var i = source.Length > 0 && source[0] == '﻿' ? 1 : 0; i < source.Length; i++)
         {
             var c = source[i];
@@ -44,6 +48,7 @@ internal static class AdofaiJson
                 i = CopyString(source, i, result);
                 // A string followed by a colon was a name, so the value after it still has no separator due.
                 afterValue = NextSignificant(source, i + 1) != ':';
+                commaIdle = false;
                 continue;
             }
             if (c is '{' or '[')
@@ -52,6 +57,7 @@ internal static class AdofaiJson
                 containers.Push(c);
                 result.Append(c);
                 afterValue = false;
+                commaIdle = true;
                 continue;
             }
             if (c is '}' or ']')
@@ -60,12 +66,16 @@ internal static class AdofaiJson
                 result.Append(c);
                 // The container itself is now a finished value.
                 afterValue = true;
+                commaIdle = false;
                 continue;
             }
+            // GDMiniJSON loops on past a COMMA token in both ParseObject and ParseArray (PLUM MEGAMIX 2: "requiredMods": [],,).
+            if (c == ',' && commaIdle) continue;
             if (c is ',' or ':')
             {
                 result.Append(c);
                 afterValue = false;
+                commaIdle = c == ',';
                 continue;
             }
             // A number, true, false or null: taken to the next delimiter so the whole literal counts as one value.
@@ -74,6 +84,7 @@ internal static class AdofaiJson
                 result.Append(source[i++]);
             i--;
             afterValue = true;
+            commaIdle = false;
         }
         return result.ToString();
     }

@@ -308,12 +308,13 @@ internal static class ExtendedTests
             Assert(report.Entries.All(e => !MapFileRules.IsEditorBackupName(e.RelativePath)), "Sync removes the cached backup entry");
             Equal(Directory.GetFiles(mega).Length, 2);
         }),
-        ("Three planets make every tile of the section longer, and the count carries on like the speed", () =>
+        ("Three planets make every tile of the section shorter, and the count carries on like the speed", () =>
         {
             // cosMo@暴走P - THE END OF HATSUNE MIKU holds three planets over floors 310-324. The game adds
             // scrMisc.GetInverseAnglePerBeatMultiplanet(n) = pi(n-2)/n to the entry angle before measuring the turn
-            // (scrLevelMaker.CalculateFloorEntryTimes) and measures it with the same sign, so the turn is that much longer:
-            // nothing for two planets, 60 degrees for three. PlanetCount is { TwoPlanets = 2, ThreePlanets = 3 }.
+            // (scrLevelMaker.CalculateFloorEntryTimes), so the next planet is that much nearer: nothing for two planets,
+            // 60 degrees for three. The game's own tile times for that map agree in both directions (its 180 degree
+            // tiles take 120, read over the sync pipe). PlanetCount is { TwoPlanets = 2, ThreePlanets = 3 }.
             static MapParseResult Parse(string actions) => new AdofaiTimelineParser().Parse(
                 new("planets.adofai", "{\"settings\":{\"version\":13,\"bpm\":120},\"angleData\":[0,0,0,0],\"actions\":" + actions + "}"));
 
@@ -321,20 +322,25 @@ internal static class ExtendedTests
             Assert(plain.Status == MapParseStatus.Supported, string.Join(" ", plain.Warnings));
             Sequence([.. plain.Timeline!.HitTimesMs.Select(t => (int)Math.Round(t))], 500, 1000, 1500, 2000);
 
-            // Three planets from floor 1: every turn from there is 240 degrees instead of 180, so a beat and a third.
+            // Three planets from floor 1: every turn from there is 120 degrees instead of 180, so two thirds of a beat.
             var three = Parse("[{\"floor\":1,\"eventType\":\"MultiPlanet\",\"planets\":\"ThreePlanets\"}]");
             Assert(three.Status == MapParseStatus.Supported, string.Join(" ", three.Warnings));
             var times = three.Timeline!.HitTimesMs;
             Equal((int)Math.Round(times[0]), 500);
             foreach (var gap in new[] { times[1] - times[0], times[2] - times[1], times[3] - times[2] })
-                Assert(Math.Abs(gap - 500 * 240.0 / 180) < 0.01, "Each tile of the section is a third longer: " + gap);
+                Assert(Math.Abs(gap - 500 * 120.0 / 180) < 0.01, "Each tile of the section is a third shorter: " + gap);
+
+            // Counterclockwise alike: a twirl first, and the 180 degree tiles still take 120.
+            var twirled = Parse("[{\"floor\":1,\"eventType\":\"Twirl\"},{\"floor\":1,\"eventType\":\"MultiPlanet\",\"planets\":\"ThreePlanets\"}]");
+            var turned = twirled.Timeline!.HitTimesMs;
+            Assert(Math.Abs((turned[2] - turned[1]) - 500 * 120.0 / 180) < 0.01, "The other way round is shorter too: " + (turned[2] - turned[1]));
 
             // Back to two planets, and the floors after it are plain again.
             var back = Parse("[{\"floor\":1,\"eventType\":\"MultiPlanet\",\"planets\":\"ThreePlanets\"},"
                 + "{\"floor\":2,\"eventType\":\"MultiPlanet\",\"planets\":\"TwoPlanets\"}]");
             Assert(back.Status == MapParseStatus.Supported, string.Join(" ", back.Warnings));
             var two = back.Timeline!.HitTimesMs;
-            Assert(Math.Abs((two[1] - two[0]) - 500 * 240.0 / 180) < 0.01, "Only floor 1 is longer: " + (two[1] - two[0]));
+            Assert(Math.Abs((two[1] - two[0]) - 500 * 120.0 / 180) < 0.01, "Only floor 1 is shorter: " + (two[1] - two[0]));
             Assert(Math.Abs((two[2] - two[1]) - 500) < 0.01, "and floor 2 is back to a beat: " + (two[2] - two[1]));
 
             // Anything else the file might say is refused rather than guessed at.

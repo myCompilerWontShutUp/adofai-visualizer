@@ -303,6 +303,15 @@ internal static class CmdConsoleTests
         /// <summary>The notes report writes, kept in memory here instead of the app store.</summary>
         public Dictionary<string, List<string>> Reports { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>What link inspect found, as report -inspect asks for it, and how many runs it last asked for.</summary>
+        public IReadOnlyList<string>? Inspected { get; set; }
+        public int InspectAsked { get; private set; } = -1;
+        public IReadOnlyList<string>? InspectLines(int count)
+        {
+            InspectAsked = count;
+            return Inspected;
+        }
+
         public IReadOnlyList<string> ReportTitles() => Reports.Keys.OrderBy(title => title, StringComparer.OrdinalIgnoreCase).ToArray();
 
         public IReadOnlyList<string>? ReadReport(string title, out string? problem)
@@ -610,14 +619,14 @@ internal static class CmdConsoleTests
                 Assert(CmdCatalog.KeywordMeaning(command, keyword).Length > 0, $"{command.Name} {keyword} has no meaning");
         });
 
-        yield return ("Ctrl+T reaches the console while the game has the focus", () =>
+        yield return ("Ctrl+T reaches the console with the game or the visualizer in front", () =>
         {
-            // User rule: the shortcut follows the global input scope, like every other key the app watches.
+            // User rule: the game or the visualizer, and anywhere when the global input scope is off. The observed key is the
+            // one that acts, so the Korean input method or a window without a handler of its own cannot swallow it.
             var watching = new VisualizerSettings { OnlyReactWhenAdofaiForeground = true };
             var anywhere = watching with { OnlyReactWhenAdofaiForeground = false };
-            // The app's own windows handle it themselves, so the observed key must not toggle it a second time.
-            Assert(!InputPolicy.ShouldOpenConsole(watching, appForeground: true, gameForeground: false), "Not while the app has it");
-            Assert(!InputPolicy.ShouldOpenConsole(anywhere, appForeground: true, gameForeground: false), "Not even with any scope");
+            Assert(InputPolicy.ShouldOpenConsole(watching, appForeground: true, gameForeground: false), "The visualizer may open it");
+            Assert(InputPolicy.ShouldOpenConsole(anywhere, appForeground: true, gameForeground: false), "With any scope too");
             Assert(InputPolicy.ShouldOpenConsole(watching, appForeground: false, gameForeground: true), "The game may open it");
             Assert(!InputPolicy.ShouldOpenConsole(watching, appForeground: false, gameForeground: false), "Another app may not");
             Assert(InputPolicy.ShouldOpenConsole(anywhere, appForeground: false, gameForeground: false), "Unless the scope is any app");
@@ -1292,7 +1301,7 @@ internal static class CmdConsoleTests
             Assert(!Complete("report create ").Any() && !Complete("report sweep ").Any(), "A new title or no title has nothing to offer");
             Assert(!Complete("report lane ").Any(), "A title where the word goes is not offered on");
             // Options are offered on either side of the words, as they are read on either side (user rule).
-            Lines(Complete("report print -"), "-force", "-proceed", "-copy");
+            Lines(Complete("report print -"), "-force", "-proceed", "-copy", "-inspect");
             Lines(Complete("playlist base -i"), "-id");
             Lines(Complete("playlist -c base -"), "-id", "-title", "-hidden", "-shown");
             Lines(Complete("prompt "), "list", "note-lanes");
@@ -1300,7 +1309,7 @@ internal static class CmdConsoleTests
             Assert(Complete("help ").Contains("list") && !Complete("help ").Contains("all") && Complete("help ").Contains("last"), "help's words");
             Assert(!Complete("retitle ").Any(), "A new name has nothing to offer");
             // Keywords belong to their command, whatever else the argument takes.
-            Lines(Complete("link "), "start", "stop", "tiles", "follow", "unfollow", "again", "auto", "manual");
+            Lines(Complete("link "), "start", "stop", "tiles", "follow", "unfollow", "again", "auto", "manual", "inspect", "uninspect");
             Lines(Complete("install "), "all", "app", "source", "linker", "maps", "edits", "data");
             // A list takes its words at every place, less those already in it, after a comma with or without a space.
             Lines(Complete("scannow maps, "), "all", "app", "source", "linker", "edits", "data");
@@ -1412,6 +1421,37 @@ internal static class CmdConsoleTests
             Answer(again.Editor, "y");
             Assert(!again.IsWriting && host.Reports.Count == 0 && log.Report is null, "Deleted and closed");
             again.Close();
+        });
+
+        yield return ("report -inspect writes what link inspect found: create starts with it, write adds it below", () =>
+        {
+            // User rule: report -inspect[:n|*] create <title> keeps the results, n the last runs (1 when nothing follows), *
+            // every run; write adds them below what the note holds. link inspect itself always asks first.
+            var host = new Host();
+            var log = new CmdLog();
+            var session = new CmdSession(host, log);
+            session.Submit("report -inspect create run");
+            Assert(LastOutput(log)[^1].Contains("No inspect run is kept", StringComparison.Ordinal), Output(log));
+            host.Inspected = ["link inspect #1", "problems: none"];
+            session.Submit("report -inspect create run");
+            Equal(host.InspectAsked, 1);
+            Lines(host.Reports["run"], "link inspect #1", "problems: none");
+            session.Submit("report create -inspect run");
+            Assert(LastOutput(log)[^1].Contains("is already there", StringComparison.Ordinal), Output(log));
+            session.Submit("report write -inspect:* run");
+            Equal(host.InspectAsked, 0);
+            Lines(host.Reports["run"], "link inspect #1", "problems: none", "", "link inspect #1", "problems: none");
+            session.Submit("report -inspect:3 write run");
+            Equal(host.InspectAsked, 3);
+            session.Submit("report -inspect:0 write run");
+            Assert(LastOutput(log)[^1].Contains("is not a count", StringComparison.Ordinal), Output(log));
+            session.Submit("report write -inspect nothing");
+            Assert(LastOutput(log)[^1].Contains("There is no note called", StringComparison.Ordinal), Output(log));
+
+            session.Submit("link inspect");
+            Assert(session.IsAsking && log.Lines[^1].Contains("presses the lane key", StringComparison.Ordinal), Output(log));
+            session.Submit("n");
+            Equal(LastOutput(log)[^1], "Nothing was pressed.");
         });
 
         yield return ("report create starts a note and write opens one, each refusing what the other is for", () =>
@@ -1747,8 +1787,10 @@ internal static class CmdConsoleTests
                 // 3. An option that takes a value always has a default, so the name alone means something (user rule).
                 Assert(!option.TakesValue || option.Default.Length > 0 || option.Values == CmdCatalog.NumberMark,
                     $"{option.Name} takes a value but has no default");
-                Assert(!option.TakesValue || option.Values == CmdCatalog.NumberMark || option.ValueNames.Contains(option.Default, StringComparer.Ordinal),
-                    $"{option.Name}'s default is not one of its values");
+                // A count with words beside it (-inspect:3, -inspect:*) defaults to a count.
+                Assert(!option.TakesValue || option.Values == CmdCatalog.NumberMark || option.ValueNames.Contains(option.Default, StringComparer.Ordinal)
+                    || (option.ValueNames.Contains(CmdCatalog.NumberMark, StringComparer.Ordinal) && int.TryParse(option.Default, out var count) && count >= 1),
+                    $"{option.Name}'s default is not one of its values"); 
                 // 4. It is explained, and the short spelling is only a spelling.
                 Assert(option.Help.Length >= 8 && option.Help.EndsWith('.'), $"{option.Name} is not explained");
                 Assert(option.Short.Length == 0 || option.Short.StartsWith('-'), $"{option.Name}'s short spelling");

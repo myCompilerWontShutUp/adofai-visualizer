@@ -255,14 +255,16 @@ public sealed class NoteField : FrameworkElement
         // An unpressed note stays until its press window ends (a slowed note stays exactly that long).
         earliest = Math.Min(earliest, timeline - window);
         var judge = Judge;
-        // The play's first note and the song's last outrank every other color (user rule); a chord shares its time.
+        // The play's first note and the song's last outrank every other color (user rule); a chord shares its time. They
+        // keep it when pressed (user rule): the start press marks the first note as played, so it would otherwise fade
+        // the moment the play begins and its color would never be seen.
         var startMs = notes.Count > 0 ? notes[0].HitTimeMs : double.NaN;
         var endMs = notes.Count > 0 ? notes[^1].HitTimeMs : double.NaN;
         Brush BrushOf(int index, bool chord, bool pressed)
         {
             var note = notes[index];
-            if (note.HitTimeMs == startMs) return pressed ? palette.PressedStart : palette.Start;
-            if (note.HitTimeMs == endMs) return pressed ? palette.PressedEnd : palette.End;
+            if (note.HitTimeMs == startMs) return palette.Start;
+            if (note.HitTimeMs == endMs) return palette.End;
             if (note.Checkpoint) return pressed ? palette.PressedCheckpoint : palette.Checkpoint;
             return chord ? (pressed ? palette.PressedChord : palette.Chord) : (pressed ? palette.PressedNote : palette.Note);
         }
@@ -309,7 +311,12 @@ public sealed class NoteField : FrameworkElement
             var top = Math.Min(headY, tailY) - half;
             var bottom = Math.Max(headY, tailY) + half;
             if (bottom < 0 || top >= geometry.RemovalY) return;
-            dc.DrawRoundedRectangle(brush, null, new Rect(x, top, holdWidth, bottom - top), radius, radius);
+            // The long note width is the held part's only (user rule): head and tail are notes of the note width, so a
+            // narrower hold reads as an I between them rather than one thin bar.
+            dc.DrawRectangle(brush, null, new Rect(x, Math.Min(headY, tailY), holdWidth, Math.Abs(tailY - headY)));
+            var capX = Centered(memberLane * laneWidth, laneWidth, singleWidth);
+            dc.DrawRoundedRectangle(brush, null, new Rect(capX, tailY - half, singleWidth, thickness), radius, radius);
+            dc.DrawRoundedRectangle(brush, null, new Rect(capX, headY - half, singleWidth, thickness), radius, radius);
         }
         // Notes are sorted by display time, so only the on-screen slice is visited, from earlier by the longest long note
         // (its tail can still be on screen).

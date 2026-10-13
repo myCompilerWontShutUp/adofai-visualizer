@@ -21,6 +21,8 @@ namespace AdofaiVisualizerSync
         private FieldInfo? _viewerObject;
         private bool _given;
         private bool? _shown;
+        /// <summary>The focus a lookup last found no key viewer for, so it is not looked for again until the focus changes.</summary>
+        private bool? _missed;
 
         /// <summary>
         /// Follows the window's focus. Called every frame, it does nothing at all until the focus actually changes, so
@@ -29,8 +31,10 @@ namespace AdofaiVisualizerSync
         public void Follow()
         {
             var focused = Application.isFocused;
-            if (_given || _shown == focused) return;
-            if (Show(focused)) _shown = focused;
+            if (_given || _shown == focused || _missed == focused) return;
+            if (Show(focused)) { _shown = focused; _missed = null; }
+            // Without the key viewer mod this would search every loaded assembly every frame.
+            else _missed = focused;
         }
 
         /// <summary>Leaves the key viewer visible again: this mod being switched off must not hide someone else's.</summary>
@@ -38,6 +42,7 @@ namespace AdofaiVisualizerSync
         {
             if (_shown == false) Show(true);
             _shown = null;
+            _missed = null;
         }
 
         private bool Show(bool shown)

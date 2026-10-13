@@ -9,7 +9,7 @@ namespace Visualizer.App.Rendering;
 /// gradient is re-realized for every note rectangle and measurably slowed composition (about 80 fps instead of 120 fps).
 /// </summary>
 internal sealed record NoteFieldPalette(Brush Note, Brush Chord, Brush Checkpoint, Brush PressedCheckpoint,
-    Brush PressedNote, Brush PressedChord, Brush Start, Brush PressedStart, Brush End, Brush PressedEnd, Pen Judgment, Pen JudgmentGlow,
+    Brush PressedNote, Brush PressedChord, Brush Start, Brush End, Pen Judgment, Pen JudgmentGlow,
     Brush Flash, Brush[] LaneBackgrounds, GradientStopCollection BeamStops, GradientStopCollection MissStops,
     Brush MagicBar, Pen MagicCenter, Brush MagicMarker)
 {
@@ -37,9 +37,7 @@ internal sealed record NoteFieldPalette(Brush Note, Brush Chord, Brush Checkpoin
             Freeze(new SolidColorBrush(Blend(FieldColor, note, strength))),
             Freeze(new SolidColorBrush(Blend(FieldColor, chord, strength))),
             Freeze(new SolidColorBrush(start)),
-            Freeze(new SolidColorBrush(Blend(FieldColor, start, strength))),
             Freeze(new SolidColorBrush(end)),
-            Freeze(new SolidColorBrush(Blend(FieldColor, end, strength))),
             Freeze(new Pen(Freeze(new SolidColorBrush(judgment)), 2)),
             Freeze(new Pen(Freeze(new SolidColorBrush(WithAlpha(judgment, 64))), 9)),
             // The hit glow belongs to the judgment line and uses its color.

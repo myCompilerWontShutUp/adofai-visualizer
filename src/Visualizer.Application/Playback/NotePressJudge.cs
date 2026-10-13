@@ -157,7 +157,6 @@ public sealed class NotePressJudge
         return best;
     }
 
-    /// <summary>After a jump forward, notes before <paramref name="hitTimeMs"/> are skipped, not reported as misses.</summary>
     /// <summary>
     /// The first note that has not been pressed, however late it is. A pause puts that one on the judgment line, since what
     /// the player pressed decides where the run continues (user rule). Null when every note was pressed.

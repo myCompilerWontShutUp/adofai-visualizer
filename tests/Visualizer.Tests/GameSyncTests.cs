@@ -258,22 +258,31 @@ internal static class GameSyncTests
             Assert(link.Add(Reading(0, 0, protocol: GameSyncLink.Protocol + 1), 0)!.Contains("message shape", StringComparison.Ordinal),
                 "A newer shape is named");
             Assert(link.Add(Reading(0, double.NaN), 1) is not null, "A position that is not a number");
-            Assert(link.Add(Reading(0, 0, speed: 0), 2) is not null, "A speed of zero");
-            Assert(link.Add(Reading(0, 0, speed: 99), 3) is not null, "A speed far out of range");
             Assert(link.Add(Reading(0, 0, floor: -2), 4) is not null, "A tile below -1");
             Assert(link.Add(Reading(0, 0, state: " "), 5) is not null, "An empty state");
             Assert(link.Add(Reading(0, 0, path: ""), 6) is not null, "An empty level path");
             Assert(link.Add(Reading(-1, 0), 7) is not null, "A mod clock before zero");
             var report = link.Report()!;
             Equal(report.Accepted, 0);
-            Equal(report.Rejected, 8);
+            Equal(report.Rejected, 6);
             Assert(report.FirstRejection!.Contains("message shape", StringComparison.Ordinal), "The first reason is kept");
+            // The practice speed is only shown, so an odd one never costs the position.
+            var shown = new GameSyncLink();
+            Equal(shown.Add(Reading(0, 0, speed: 0), 0), null);
+            Equal(shown.Add(Reading(1, 0, speed: 99), 1), null);
 
             // A mod clock that goes backwards is a different run, not a later reading.
             var second = new GameSyncLink();
             Equal(second.Add(Reading(100, 0), 0), null);
             Assert(second.Add(Reading(90, 0), 1)!.Contains("backwards", StringComparison.Ordinal), "Going backwards is refused");
             Equal(second.Report()!.Accepted, 1);
+            // Unless the mod connected again: a restarted game counts from zero, and what the last connection said goes.
+            second.SetMod("1.0.1");
+            second.SetLevel(new GameSyncLevel("L", [0, 100]));
+            second.BeginConnection();
+            Assert(second.ModVersion is null && second.Level is null && second.Latest.Reading is null, "The last connection's word is dropped");
+            Equal(second.Add(Reading(5, 0), 2), null);
+            Assert(second.Report()!.Changes[^1].Contains("connected again", StringComparison.Ordinal), "And the reconnection is noted");
         });
 
         yield return ("Sync link notes state changes and a slowed song", () =>
@@ -353,6 +362,9 @@ internal static class GameSyncTests
             // The game is at its tile 2 (our hit 1, 300 ms): the playhead goes there without a start key.
             clock.NowMs = 10_000;
             var reading = new GameSyncMessage(GameSyncLink.Protocol, 0, 1500, "PlayerControl", false, 2, 1, "L");
+            // One reading alone does not show a running clock: the game may be sitting on its start screen.
+            Assert(!follower.Follow(reading with { PositionMs = 1490 }, 9_990, 10_000, session), "One reading starts nothing");
+            Equal(session.State, PlaybackState.Waiting);
             Assert(follower.Follow(reading, 10_000, 10_000, session), "It starts following");
             Equal(session.State, PlaybackState.Playing);
             Assert(Math.Abs(session.TimelineTimeMs - 300) < 0.001, "At our hit 1: " + session.TimelineTimeMs);
@@ -468,19 +480,361 @@ internal static class GameSyncTests
             session.Start();
             follower.Follow(reading, 12_500, 12_500, session);
 
-            // A paused game and a stale reading both leave the playhead alone.
+            // A paused game holds the notes exactly where it is, however long it stays paused, instead of letting them run
+            // on and jump back when it resumes.
             var paused = new GameSyncMessage(GameSyncLink.Protocol, 0, 2180, "PlayerControl", true, 5, 1, "L");
+            Assert(follower.Follow(paused, 12_000, 12_000, session), "A paused game puts the playhead where it is");
+            Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(980)) < 0.001, "On the paused spot: " + session.TimelineTimeMs);
+            clock.NowMs = 12_400;
+            follower.Follow(paused, 12_000, 12_400, session);
+            Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(980)) < 0.001, "And it stays there: " + session.TimelineTimeMs);
+            Assert(follower.Lines()[0].Contains("paused", StringComparison.Ordinal), "And it says so");
+            // A game gone quiet, or never heard from, holds them too: running on alone would only be a guess.
+            clock.NowMs = 13_000;
+            follower.Follow(drifted, 12_000, 13_000, session);
             var held = session.TimelineTimeMs;
-            Assert(!follower.Follow(paused, 12_000, 12_000, session), "A paused game does not move it");
-            Assert(!follower.Follow(drifted, 12_000, 12_000 + GameSyncFollower.StaleMs + 1, session), "Nor a stale reading");
-            Assert(!follower.Follow(null, 12_000, 12_000, session), "Nor nothing at all");
+            clock.NowMs = 13_400;
+            follower.Follow(drifted, 12_000, 13_400, session);
             Equal(session.TimelineTimeMs, held);
-            Assert(follower.Lines()[0].Contains("waiting for the game", StringComparison.Ordinal), "And it says so");
+            Assert(follower.Lines()[0].Contains("nothing from the game", StringComparison.Ordinal), "And it says so");
+            clock.NowMs = 13_500;
+            follower.Follow(null, 0, 13_500, session);
+            Equal(session.TimelineTimeMs, held);
 
             // Only the clock moved: the notes and their times are exactly as prepared.
             Sequence(session.Notes.Select(note => (int)note.HitTimeMs), 0, 300, 600, 900);
             follower.Stop();
             Assert(!follower.Follow(drifted, 12_000, 12_000, session), "Stopped means stopped");
+        });
+
+        yield return ("Following holds the notes while the game stands, plays another level or another rate", () =>
+        {
+            var settings = new VisualizerSettings { StartDelayMs = 0, GlobalDisplayOffsetMs = 0 };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 300, 600, 900], hitFloors: [1, 2, 4, 5]), settings);
+            session.Toggle();
+            session.Reset(settings);
+            var follower = new GameSyncFollower();
+            double[] game = [1050, 1200, 1500, 1700, 1800, 2100];
+            Equal(follower.Prepare(new GameSyncLevel("L", game), session), null);
+            GameSyncMessage At(double position, string path = "L", double pitch = 1, bool dead = false) =>
+                new(GameSyncLink.Protocol, 0, position, dead ? "Fail" : "PlayerControl", false, 2, 1, path, pitch, Dead: dead);
+            // Each reading arrives as its frame starts, so nothing is carried forward.
+            void Frame(double nowMs, GameSyncMessage reading)
+            {
+                clock.NowMs = nowMs;
+                follower.Follow(reading, nowMs, nowMs, session);
+            }
+            bool OnGame(double position) => Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(position - 1200)) < 0.001;
+
+            // A game on its start screen sends one position over and over; the notes wait for it to move.
+            for (var t = 1000; t <= 1400; t += 50) Frame(t, At(-1000));
+            Equal(session.State, PlaybackState.Waiting);
+            // The level waiting for its first key reports a position that runs on in real time: that starts nothing.
+            GameSyncMessage Waiting(double position) => At(position) with { State = "Start" };
+            for (var t = 1410; t <= 1440; t += 10) Frame(t, Waiting(120_000 + t));
+            Equal(session.State, PlaybackState.Waiting);
+            // A game over starts nothing either.
+            Frame(1450, At(-900, dead: true));
+            Frame(1500, At(-800, dead: true));
+            Equal(session.State, PlaybackState.Waiting);
+            Frame(1550, At(-1000));
+            Equal(session.State, PlaybackState.Waiting);
+            // Once its clock runs, the notes run with it.
+            Frame(1560, At(-990));
+            Equal(session.State, PlaybackState.Playing);
+            Assert(OnGame(-990), "On the game's clock: " + session.TimelineTimeMs);
+
+            // The game goes on to another level: these notes are not its notes, so they stand where they are.
+            clock.NowMs = 1600;
+            var at = session.TimelineTimeMs;
+            Frame(1600, At(-950, path: "M"));
+            Frame(1900, At(-650, path: "M"));
+            Equal(session.TimelineTimeMs, at);
+            // Back on this level, they follow again.
+            Frame(2000, At(-500));
+            Frame(2016, At(-484));
+            Assert(OnGame(-484), "Following again: " + session.TimelineTimeMs);
+
+            // Played faster or slower, the game would have the notes chase it; they wait for 100% instead.
+            clock.NowMs = 2100;
+            at = session.TimelineTimeMs;
+            Frame(2100, At(-400, pitch: 1.2));
+            Frame(2400, At(-40, pitch: 1.2));
+            Equal(session.TimelineTimeMs, at);
+            Frame(2500, At(100));
+            Frame(2516, At(116));
+            Assert(OnGame(116), "Following again at 100%: " + session.TimelineTimeMs);
+            Equal(follower.State, GameSyncFollowState.Following);
+            clock.NowMs = 2600;
+            follower.Follow(At(200, pitch: 0.5), 2600, 2600, session);
+            Assert(follower.Lines()[0].Contains("50%", StringComparison.Ordinal), "The rate is named: " + follower.Lines()[0]);
+
+            // Every new connection sends the level again: the same tiles change nothing.
+            clock.NowMs = 2700;
+            follower.Follow(At(300), 2700, 2700, session, new GameSyncLevel("L", game.ToArray()));
+            follower.Follow(At(316), 2716, 2716, session, new GameSyncLevel("L", game.ToArray()));
+            Equal(follower.State, GameSyncFollowState.Following);
+            Equal(follower.OffsetMs, 1200d);
+            // Other tiles under the same name no longer line up, so following ends instead of keeping the old offset.
+            clock.NowMs = 2732;
+            Assert(!follower.Follow(At(332), 2732, 2732, session, new GameSyncLevel("L", [0, 5, 5, 5, 5, 5])), "Other tiles end it");
+            Equal(follower.State, GameSyncFollowState.LevelChanged);
+            Assert(follower.OffsetMs is null && !session.ClockFollowsGame, "And the session is the app's again");
+            Assert(follower.Lines()[0].Contains("Use link follow again", StringComparison.Ordinal), "It says how to go back");
+        });
+
+        yield return ("A game over holds the notes until the game starts again, through the reload in between", () =>
+        {
+            // User report: after dying with the game followed, the notes ran on until the level started again. The song keeps
+            // playing in the game through a game over, the fail screen may count as paused, and restarting reloads the level,
+            // which leaves the app with nothing to read for a while: none of that may move the notes.
+            var settings = new VisualizerSettings { StartDelayMs = 0, GlobalDisplayOffsetMs = 0 };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 300, 600, 900], hitFloors: [1, 2, 4, 5]), settings);
+            session.Toggle();
+            session.Reset(settings);
+            var follower = new GameSyncFollower();
+            Equal(follower.Prepare(new GameSyncLevel("L", [1050, 1200, 1500, 1700, 1800, 2100]), session), null);
+            GameSyncMessage At(double position, bool dead = false, bool paused = false, int floor = 2) =>
+                new(GameSyncLink.Protocol, 0, position, dead ? "Fail" : "PlayerControl", paused, floor, 1, "L", Dead: dead);
+            void Frame(double nowMs, GameSyncMessage? reading, double arrivedMs)
+            {
+                clock.NowMs = nowMs;
+                follower.Follow(reading, arrivedMs, nowMs, session);
+            }
+            for (var t = 1000; t <= 1100; t += 16) Frame(t, At(1300 + (t - 1000)), t);
+            Equal(session.State, PlaybackState.Playing);
+
+            // Dead: the notes stop where the run ended, while the game's song plays on under the fail screen.
+            Frame(1116, At(1416, dead: true), 1116);
+            var ended = session.TimelineTimeMs;
+            for (var t = 1132; t <= 2000; t += 16) Frame(t, At(1300 + (t - 1000), dead: true), t);
+            Equal(session.TimelineTimeMs, ended);
+            // The fail screen counting as paused changes nothing.
+            Frame(2100, At(2400, dead: true, paused: true), 2100);
+            Equal(session.TimelineTimeMs, ended);
+            // Restarting reloads the level: nothing arrives, the last word goes stale, and still nothing moves.
+            Frame(2700, At(2400, dead: true, paused: true), 2100);
+            Frame(3500, At(2400, dead: true, paused: true), 2100);
+            Frame(3600, null, double.NaN);
+            Equal(session.TimelineTimeMs, ended);
+            // Then the level waits for its first key with its song position running on (measured in the game): still nothing.
+            for (var t = 3700; t <= 3900; t += 16) Frame(t, At(120_000 + t) with { State = "Start" }, t);
+            Equal(session.TimelineTimeMs, ended);
+
+            // The level starts again from its countdown: the notes go back there and follow it. The first reading may still
+            // name the tile the run ended on, which would hide every note before it for the whole attempt; the tile the
+            // restart really is on shows them again.
+            Frame(4000, At(-1000, floor: 5), 4000);
+            Assert(session.HideNotesBeforeMs > session.Notes[0].HitTimeMs, "The stale tile hides notes for a moment");
+            Frame(4016, At(-984, floor: 0), 4016);
+            Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(-984 - 1200)) < 0.001, "Back on the game's clock: " + session.TimelineTimeMs);
+            Equal(session.State, PlaybackState.Playing);
+            Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs), "Every note of the new attempt is drawn");
+        });
+
+        yield return ("link auto finds an edit by its original, and with it on only the linker moves the playhead", () =>
+        {
+            // User report: an edit of the song the game plays was never picked up. It lives in a slot folder of its own
+            // (maps/edited/<song>/<slot>/), but it plays the original's map.
+            var game = @"C:\Program Files (x86)\Steam\steamapps\workshop\content\977950\3011005213\main.adofai";
+            Assert(MainWindow.GamePlays(game, @"3011005213\main.adofai"), "The original matches");
+            Assert(!MainWindow.GamePlays(game, @"3011005213\1\main.adofai"), "An edit's own path does not");
+            Assert(MainWindow.GamePlays(game, @"3011005213\1\main.adofai", @"3011005213\main.adofai"), "Its original's does");
+            Assert(MainWindow.GamePlays(game.Replace('\\', '/'), "3011005213/main.adofai"), "Either separator");
+            Assert(!MainWindow.GamePlays(game, @"011005213\main.adofai"), "Only whole folder names");
+            Assert(!MainWindow.GamePlays(game, null, ""), "Nothing to match");
+            // User rule: with link auto on, Enter in the game must not bring the start of the song back; the keys that put
+            // the playhead anywhere are left to the linker, while switching the app on or opening settings still work.
+            foreach (var action in new[] { Visualizer.Application.Input.InputAction.Reset, Visualizer.Application.Input.InputAction.Start,
+                         Visualizer.Application.Input.InputAction.Pause, Visualizer.Application.Input.InputAction.PreviousCheckpoint,
+                         Visualizer.Application.Input.InputAction.NextCheckpoint })
+                Assert(Visualizer.Application.Input.InputPolicy.MovesPlayhead(action), action + " moves the playhead");
+            foreach (var action in new[] { Visualizer.Application.Input.InputAction.Toggle, Visualizer.Application.Input.InputAction.OpenSettings,
+                         Visualizer.Application.Input.InputAction.LaneKey })
+                Assert(!Visualizer.Application.Input.InputPolicy.MovesPlayhead(action), action + " does not");
+        });
+
+        yield return ("link auto loads the song the game moves to, once, and a song picked by hand stays", () =>
+        {
+            // User rule: with link auto on, the song the game moves to is loaded here. An edit plays its original's map; the
+            // original is the one loaded, and an edit only when the list has no original.
+            Visualizer.Application.Cache.MapCacheEntry Song(string id, string path) => new(id, @"C:\maps", path, id,
+                Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline(new[] { 0d, 500, 1000 }), Array.Empty<string>(), "", "test");
+            var original = Song("a", @"3011005213\main.adofai");
+            var edit = Song("e", @"3011005213\1\main.adofai");
+            var other = Song("b", @"2924697157\main.adofai");
+            // Read by an older parser: its times may not be the game's until a sync.
+            var stale = Song("s", @"555\main.adofai") with { ParserVersion = "adofai-v1-old" };
+            var game = @"C:\Steam\workshop\content\977950\3011005213\main.adofai";
+            string? OriginalOf(Visualizer.Application.Cache.MapCacheEntry song) => song.Id == "e" ? original.RelativePath : null;
+            Equal(MainWindow.SongFor(game, [edit, original, other], OriginalOf)?.Id, "a");
+            Equal(MainWindow.SongFor(game, [edit, other], OriginalOf)?.Id, "e");
+            Equal(MainWindow.SongFor(game, [other], OriginalOf), null);
+
+            // The real window on a pipe of its own, driven by its own frames as the app is.
+            var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+            MainWindow.GameSyncPipeName = name;
+            var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            try
+            {
+                var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                var host = (ICmdHost)window;
+                window.Show();
+                Pump();
+                model.SetLibrary([original, other, stale]);
+                model.LoadChosen(other, null);
+                host.GameSync(true, false, false);
+                host.GameSyncAuto(true);
+                using var client = new NamedPipeClientStream(".", name, PipeDirection.Out);
+                client.Connect(5000);
+                void Send(string line)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                    client.Write(bytes, 0, bytes.Length);
+                    client.Flush();
+                }
+                void Level(string folder) =>
+                    Send("{\"v\":2,\"lvl\":\"C:\\\\Steam\\\\" + folder + "\\\\main.adofai\",\"times\":[0,500,1000,1500]}");
+                bool Frames(Func<bool> until, int ms = 5000)
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    while (watch.ElapsedMilliseconds < ms)
+                    {
+                        Pump();
+                        if (until()) return true;
+                        Thread.Sleep(10);
+                    }
+                    return false;
+                }
+                string Status() => string.Join(" ", host.GameSync(false, false, false));
+
+                Level("3011005213");
+                Assert(Frames(() => model.LoadedEntry?.Id == "a"), "The game's song is loaded: " + model.LoadedEntry?.Id + " " + Status());
+                // Its tiles cannot match (these songs carry no tile numbers), and with link auto on the keys that move the
+                // notes are off: the main window says so instead of looking dead (user report).
+                Assert(Frames(() => model.Message == model.Text["GameAutoRefused"]), "The refusal shows: " + model.Message);
+                // Picked by hand while the game stays on that song: it stays.
+                model.LoadChosen(other, null);
+                Frames(() => false, 300);
+                Equal(model.LoadedEntry?.Id, "b");
+                // A song the list does not have changes nothing here, and says why.
+                Level("999");
+                Assert(Frames(() => Status().Contains("not in the song list", StringComparison.Ordinal)), "It says so: " + Status());
+                Equal(model.LoadedEntry?.Id, "b");
+                // Back to a song the list has: loaded again, as it is another move.
+                Level("3011005213");
+                Assert(Frames(() => model.LoadedEntry?.Id == "a"), "Moving back loads it again: " + model.LoadedEntry?.Id);
+                // A song read by an older parser says what to do about it.
+                Level("555");
+                Assert(Frames(() => model.LoadedEntry?.Id == "s" && model.Message == model.Text["GameAutoStaleCache"]),
+                    "A stale cache says to sync: " + model.Message);
+                // Switched off, the game moving on loads nothing.
+                host.GameSyncAuto(false);
+                Level("2924697157");
+                Frames(() => false, 300);
+                Equal(model.LoadedEntry?.Id, "s");
+            }
+            finally
+            {
+                window.Close();
+                MainWindow.GameSyncPipeName = NamedPipeGameSyncServer.PipeName;
+            }
+        });
+
+        yield return ("link auto shows a refused cache on the main screen once, and clears it when matching succeeds", () =>
+        {
+            foreach (var language in new[] { "korean", "english" })
+            {
+                var oldClock = MainWindow.PlaybackClock;
+                var oldPipe = MainWindow.GameSyncPipeName;
+                var clock = new Clock { NowMs = 1000 };
+                MainWindow.PlaybackClock = clock;
+                MainWindow.GameSyncPipeName = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+                var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+                try
+                {
+                    // No app store and no real game: only synthetic schedules and this window's private listener.
+                    var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                    var host = (ICmdHost)window;
+                    var settings = new VisualizerSettings { Language = language, StartDelayMs = 0 };
+                    model.ApplySettings(settings);
+                    var stale = new Visualizer.Application.Cache.MapCacheEntry("cache", @"C:\maps", @"3011005213\main.adofai", "Synthetic",
+                        Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline([0, 500, 1200], hitFloors: [1, 2, 3]),
+                        Array.Empty<string>(), "", "adofai-v24-pause-correction");
+                    model.SetLibrary([stale]);
+                    model.LoadChosen(stale, null);
+                    host.GameSync(true, false, false);
+                    var sync = (GameSyncLink)typeof(MainWindow).GetProperty("Sync", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+                    var frame = typeof(MainWindow).GetMethod("AutoFollowGame", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    void Frame() => frame.Invoke(window, null);
+                    sync.SetLevel(new GameSyncLevel(@"C:\Steam\3011005213\main.adofai", [0, 1200, 1700, 2200]));
+                    host.GameSyncAuto(true);
+                    model.SetMessage("A previous message");
+                    Frame();
+                    Assert(!model.FollowingGame && !model.Playback.ClockFollowsGame, "Other tile times must still be refused");
+                    Equal(model.Message, model.Text["GameAutoStaleCache"]);
+                    Assert(model.Message.Contains("sync", StringComparison.Ordinal) && model.Message.Contains("link manual", StringComparison.Ordinal),
+                        "The main screen explains how to update the cache or start by hand");
+                    Assert(host.GameSync(false, false, false).Any(line => line.Contains("run sync", StringComparison.Ordinal)),
+                        "The console's automatic refusal also points to the cache fix");
+                    Assert(host.GameSyncFollow(true)[0].Contains("run sync", StringComparison.Ordinal), "A manual refusal explains the same fix");
+
+                    // Retrying the same refusal must not overwrite newer messages or refresh its age every two seconds.
+                    model.SetMessage("A newer message");
+                    var messages = 0;
+                    model.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(model.Message)) messages++; };
+                    clock.NowMs += 1000;
+                    Frame();
+                    clock.NowMs += 1100;
+                    Frame();
+                    clock.NowMs += 2100;
+                    Frame();
+                    Equal(messages, 0);
+                    Equal(model.Message, "A newer message");
+                    // Re-preparing is a new attempt, so a refusal must be shown again then.
+                    model.Playback.Reset(settings);
+                    Frame();
+                    Equal(messages, 1);
+                    Equal(model.Message, model.Text["GameAutoStaleCache"]);
+
+                    // A corrected cache is loaded through the ordinary path. It matches and replaces the refusal.
+                    var fresh = stale with { ParserVersion = Visualizer.Infrastructure.Parsing.AdofaiTimelineParser.CurrentVersion,
+                        Timeline = new ParsedTimeline([0, 500, 1000], hitFloors: [1, 2, 3]) };
+                    model.SetLibrary([fresh]);
+                    model.LoadChosen(fresh, null);
+                    Frame();
+                    Assert(model.FollowingGame && model.Playback.ClockFollowsGame, "The corrected cache follows without toggling auto off");
+                    Equal(model.Message, model.Text["GameAutoFollowing"]);
+                    messages = 0;
+                    Frame();
+                    Equal(messages, 0);
+
+                    // A mismatch from a current cache gets the general reason guide, without an older-cache claim.
+                    host.GameSyncFollow(false);
+                    var mismatch = stale with { ParserVersion = fresh.ParserVersion };
+                    model.SetLibrary([mismatch]);
+                    model.LoadChosen(mismatch, null);
+                    Frame();
+                    Equal(model.Message, model.Text["GameAutoRefused"]);
+                    Assert(!model.FollowingGame, "A current cache with wrong times is still refused");
+                    Assert(!host.GameSyncFollow(true)[0].Contains("older timing cache", StringComparison.Ordinal), "Its reason does not blame the cache version");
+                    host.GameSyncAuto(false);
+                    model.SetMessage("Manual mode");
+                    clock.NowMs += 3000;
+                    Frame();
+                    Equal(model.Message, "Manual mode");
+                }
+                finally
+                {
+                    window.Close();
+                    MainWindow.PlaybackClock = oldClock;
+                    MainWindow.GameSyncPipeName = oldPipe;
+                }
+            }
         });
 
         yield return ("Following works with the start wait, the display offset and a restart's misses", () =>
@@ -500,6 +854,7 @@ internal static class GameSyncTests
             // The game is on its tile 4, which is our hit 2: that note must be exactly on the judgment line.
             clock.NowMs = 20_000;
             var onTile = new GameSyncMessage(GameSyncLink.Protocol, 0, 1800, "PlayerControl", false, 4, 1, "L");
+            follower.Follow(onTile with { PositionMs = 1790 }, 19_990, 20_000, session);
             Assert(follower.Follow(onTile, 20_000, 20_000, session), "It follows");
             var note = session.Notes[2];
             Assert(Math.Abs(session.TimelineTimeMs - (note.HitTimeMs + session.Offsets.TotalMs)) < 0.001,
@@ -607,6 +962,126 @@ internal static class GameSyncTests
             Assert(link.Level is { Path: "L" }, "A reset keeps the level's tile times");
         });
 
+        yield return ("link inspect presses each visualizer note on time, only into the game, and stops when it cannot see", () =>
+        {
+            // User rule: for measuring only, it presses the lane key of every note the visualizer draws at the moment the note
+            // reaches the judgment line. Here a clock and a key sender of the test's own; nothing reaches a real keyboard.
+            var clock = new Clock();
+            var sent = new List<(int Key, bool Down, double At)>();
+            var front = true;
+            var keys = new Dictionary<int, int> { [3] = 0x44, [4] = 0x46, [5] = 0x4A, [6] = 0x4B };
+            using var inspection = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
+            // A tap on tile 3, a chord on 4 and 5, a long note on 6. The timeline stands at 0 when the clock does.
+            VisualizerNote[] notes = [new(1000, 3, 4), new(1200, 4, 4, StartsChord: true), new(1200, 5, 4), new(1400, 6, 4, HoldEndMs: 1700)];
+            void At(double now) { clock.NowMs = now; inspection.Plan(notes, now, 0, now); Assert(inspection.Step(now), "Still running at " + now); }
+            At(0);
+            At(999);
+            Equal(sent.Count, 0);
+            At(1000);
+            Assert(sent is [(0x44, true, 1000)], "Tile 3 goes down on its moment");
+            At(1025);
+            Assert(sent[^1] == (0x44, false, 1025), "A tap comes up shortly after");
+            At(1200);
+            Assert(sent.Skip(2).Take(2).Select(press => press.Key).Order().SequenceEqual([0x46, 0x4A]), "Both keys of the chord go down together");
+            At(1400);
+            At(1500);
+            Assert(sent.Count(press => press.Key == 0x4B) == 1, "A long note stays down");
+            At(1700);
+            Assert(sent[^1] == (0x4B, false, 1700), "and comes up at its end");
+            At(1800);
+            Equal(sent.Count(press => press.Down), 4);
+            Assert(inspection.Finished(notes.Length), "Every note was pressed once");
+            Assert(inspection.Presses.All(press => press.LateMs == 0), "Each on its moment");
+
+            // A run that starts late skips what already passed; a key never goes while the game is not in front.
+            sent.Clear();
+            using var late = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
+            clock.NowMs = 1100;
+            late.Plan(notes, 1100, 0, 1100);
+            front = false;
+            clock.NowMs = 1200;
+            late.Plan(notes, 1200, 0, 1200);
+            Assert(!late.Step(1200) && late.StopReason!.Contains("not in front", StringComparison.Ordinal), "Not in front: it stops");
+            Equal(sent.Count(press => press.Down), 0);
+            front = true;
+            // Without a fresh plan the visualizer is not drawing, and it stops on its own.
+            using var stale = new Visualizer.App.Input.LinkInspection(clock, keys, (key, down) => sent.Add((key, down, clock.NowMs)), () => front);
+            stale.Plan(notes, 0, 0, 0);
+            Assert(!stale.Step(Visualizer.App.Input.LinkInspection.StaleMs + 1) && stale.StopReason!.Contains("stopped drawing", StringComparison.Ordinal), "Stale plan stops");
+
+            // What the game judged is kept with its tile: a Miss and an Overload in the run show in the report lines.
+            var run = new Visualizer.App.Input.InspectRun(1, new DateTime(2026, 10, 13), "Song", @"C:\maps\main.adofai", "1.0.4");
+            GameSyncMessage Reading(int floor, params int[] counts) =>
+                new(GameSyncLink.Protocol, 0, floor * 100, "PlayerControl", false, floor, 1, "L", NoFail: true, Judgments: counts);
+            run.Observe(Reading(1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0), null);
+            run.Observe(Reading(7, 0, 0, 0, 9, 0, 0, 0, 0, 1, 1, 0, 0), new Visualizer.App.Input.InspectPress(5, 4, 700, 700.5));
+            run.Finish("the song ended", []);
+            var lines = run.Lines();
+            Assert(lines.Any(line => line.Contains("FailMiss at tile 7", StringComparison.Ordinal))
+                && lines.Any(line => line.Contains("FailOverload at tile 7", StringComparison.Ordinal))
+                && lines.Any(line => line.Contains("Perfect +4", StringComparison.Ordinal)), string.Join(" / ", lines));
+        });
+
+        yield return ("link inspect starts only while all its rules hold, in the order the user set them", () =>
+        {
+            var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+            MainWindow.GameSyncPipeName = name;
+            var pressed = new List<int>();
+            MainWindow.KeySender = (key, down) => pressed.Add(key);
+            var window = new MainWindow { Left = -20000, Top = -20000, ShowActivated = false };
+            try
+            {
+                var host = (ICmdHost)window;
+                string Try() => host.GameSyncInspect(true)[0];
+                Assert(Try().Contains("the link is not on", StringComparison.Ordinal), Try());
+                host.GameSync(true, false, false);
+                Assert(Try().Contains("not connected", StringComparison.Ordinal), Try());
+                using var client = new NamedPipeClientStream(".", name, PipeDirection.Out);
+                client.Connect(5000);
+                void Send(string line)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                    client.Write(bytes, 0, bytes.Length);
+                    client.Flush();
+                }
+                var sync = (GameSyncLink)typeof(MainWindow).GetProperty("Sync", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+                Send("""{"v":2,"t":1,"pos":-500,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\a\\main.adofai","nf":false}""");
+                Wait(() => sync.Latest.Reading is not null, "a reading");
+                host.GameSyncAuto(true);
+                Assert(Try().Contains("link auto is on", StringComparison.Ordinal), Try());
+                host.GameSyncAuto(false);
+                Assert(Try().Contains("no level yet", StringComparison.Ordinal), Try());
+                Send("""{"v":2,"lvl":"C:\\maps\\a\\main.adofai","times":[0,1000,1500]}""");
+                Wait(() => sync.Level is not null, "the level");
+                Assert(Try().Contains("not the one open in the game", StringComparison.Ordinal), Try());
+                var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                var song = new Visualizer.Application.Cache.MapCacheEntry("a", @"C:\maps", @"a\main.adofai", "A",
+                    Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline([0, 500], hitFloors: [1, 2]), Array.Empty<string>(), "", "test");
+                model.SetLibrary([song]);
+                model.LoadChosen(song, null);
+                Assert(Try().Contains("No Fail is off", StringComparison.Ordinal), Try());
+                Send("""{"v":2,"t":2,"pos":-480,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\a\\main.adofai"}""");
+                Wait(() => sync.Latest.Reading?.PositionMs == -480, "a reading without No Fail");
+                Assert(Try().Contains("older one", StringComparison.Ordinal), Try());
+                Send("""{"v":2,"t":3,"pos":-460,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\a\\main.adofai","nf":true,"hm":[0,0,0,0,0,0,0,0,0,0,0,0]}""");
+                Wait(() => sync.Latest.Reading?.NoFail == true, "No Fail");
+                Assert(sync.Latest.Reading!.Judgments is { Count: 12 }, "The judgment counts come through");
+                // Every rule holds: it starts (following first), and nothing is pressed before the game has been in front.
+                var started = host.GameSyncInspect(true);
+                Assert(started[0].StartsWith("Inspecting", StringComparison.Ordinal), string.Join(" / ", started));
+                Assert(host.GameSync(false, false, false).Any(line => line.StartsWith("Inspect  running", StringComparison.Ordinal)), "link shows it");
+                Assert(host.GameSyncInspect(false)[0].StartsWith("Stopped inspecting", StringComparison.Ordinal), "uninspect stops it");
+                Equal(pressed.Count, 0);
+                Assert(host.InspectLines(1) is { Count: > 0 } kept && kept[0].StartsWith("link inspect #1", StringComparison.Ordinal), "The run is kept");
+            }
+            finally
+            {
+                window.Close();
+                MainWindow.KeySender = null;
+                MainWindow.GameSyncPipeName = NamedPipeGameSyncServer.PipeName;
+            }
+        });
+
         yield return ("The window opens and closes the sync pipe on its own", () =>
         {
             // Its own pipe name: the real one may be held by an app the user is running, and tests never fight it.
@@ -685,6 +1160,26 @@ internal static class GameSyncTests
                 Wait(() => second.Problem is not null, "the second listener to notice the name is taken");
                 Assert(second.Problem!.Contains("Another visualizer", StringComparison.Ordinal), "It says who has it: " + second.Problem);
             }
+            // A restarted game is a new mod whose clock starts from zero again: it is taken, not refused as going backwards.
+            // And a line the link cannot take costs that line, not the connection.
+            client.Dispose();
+            using (var restarted = new NamedPipeClientStream(".", name, PipeDirection.Out))
+            {
+                restarted.Connect(5000);
+                foreach (var line in new[]
+                {
+                    """{"v":2,"mod":"   "}""",
+                    """{"v":2,"t":1,"pos":100,"st":"Countdown","paused":false,"floor":0,"speed":1,"path":"C:\\maps\\main.adofai"}"""
+                })
+                {
+                    var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                    restarted.Write(bytes, 0, bytes.Length);
+                }
+                restarted.Flush();
+                Wait(() => link.Report() is { Accepted: 3 }, "the restarted mod's reading to be taken");
+            }
+            Equal(link.Report()!.Last!.PositionMs, 100d);
+
             server.Stop();
             Assert(!server.Listening, "And it closes again");
         });

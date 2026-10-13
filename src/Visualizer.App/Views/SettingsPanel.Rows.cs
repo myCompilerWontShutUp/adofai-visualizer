@@ -47,11 +47,7 @@ public partial class SettingsPanel
         _sections.Add(_currentSection);
     }
 
-    /// <summary>
-    /// The settings write smaller than the rest of the app (user rule), so their controls are shorter and sit closer
-    /// together. One place for all of them: the rows are built from a dozen spots.
-    /// </summary>
-    /// <summary>How tall a button, box or dropdown in a settings row is, and how large it writes.</summary>
+    /// <summary>How tall a button, box or dropdown in a settings row is: the settings write smaller than the rest of the app (user rule).</summary>
     public const double RowControlHeight = 26;
     private const double RowFontSize = 11;
     /// <summary>The name of a setting, which reads a little larger than its value (user request).</summary>
@@ -235,7 +231,9 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.ShowJudgmentAverage)] = ("StateAverageOn", "StateAverageOff"),
         [nameof(VisualizerSettings.ChordAvoidBeforeLanes)] = ("StateChordBeforeOn", "StateChordBeforeOff"),
         [nameof(VisualizerSettings.RestartPatternOnRun)] = ("StateRunRestartOn", "StateRunRestartOff"),
+        [nameof(VisualizerSettings.EnhancedChordRules)] = ("StateEnhancedChordsOn", "StateEnhancedChordsOff"),
         [nameof(VisualizerSettings.MagicCircleFixedTiles)] = ("StateFixedTilesOn", "StateFixedTilesOff"),
+        [nameof(VisualizerSettings.MagicCircleChords)] = ("StateMagicChordsOn", "StateMagicChordsOff"),
         [nameof(VisualizerSettings.ShowInputEffect)] = ("StateEffectOn", "StateEffectOff"),
         [nameof(VisualizerSettings.ShowMissEffect)] = ("StateEffectOn", "StateEffectOff"),
         [nameof(VisualizerSettings.ExtraLanes)] = ("StateExtraLanesOn", "StateExtraLanesOff"),
@@ -243,7 +241,7 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.ExperimentalFeatures)] = ("StateApplied", "StateNotApplied"),
         [nameof(VisualizerSettings.ChordSectionLanes)] = ("StateChordLanesOn", "StateChordLanesOff"),
         [nameof(VisualizerSettings.NoChordCenterPair)] = ("StateCenterPairOff", "StateCenterPairOn"),
-        [nameof(VisualizerSettings.NoTrillCenterPair)] = ("StateCenterPairOff", "StateCenterPairOn"),
+        [nameof(VisualizerSettings.NoTrillCenterPair)] = ("StateTrillCenterLast", "StateCenterPairOn"),
         [nameof(VisualizerSettings.KeepSpeedOnLoad)] = ("StateKeepSpeedOn", "StateKeepSpeedOff")
     };
 

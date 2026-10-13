@@ -66,13 +66,15 @@ public partial class SettingsPanel
             _songSortDirection.SelectedIndex = settings.SongSortHighFirst ? 0 : 1;
             UpdateSongSort();
             _magicFixedTiles.IsChecked = settings.MagicCircleFixedTiles;
+            _magicChords.IsChecked = settings.MagicCircleChords;
             _magicTiles.SelectedItem = settings.MagicCircleTileCount;
             _autoCheckpointBox.IsChecked = settings.AutoCheckpointAdvance;
             _autoCheckpointLoad.IsChecked = settings.AutoCheckpointOnLoad;
             _autoSave.IsChecked = settings.AutoSaveSettings;
-            _nextInterval.SelectedIndex = settings.NextIntervalTiles ? 1 : 0;
+            _nextInterval.SelectedIndex = settings.BothIntervalTiles ? 2 : settings.NextIntervalTiles ? 1 : 0;
             _chordBefore.IsChecked = settings.ChordAvoidBeforeLanes;
             _runRestart.IsChecked = settings.RestartPatternOnRun;
+            _enhancedChords.IsChecked = settings.EnhancedChordRules;
             foreach (var (name, box) in _textFields) box.Text = ValueText(settings, name);
             foreach (var (name, box) in _orderBoxes)
             {
@@ -131,8 +133,6 @@ public partial class SettingsPanel
         _extraLanes.ToolTip = policy.CanUseExtraLanes ? null : T("ExtraLanesUnavailable");
         // The wait matters only while immediate switching is on; the box keeps its value while locked.
         _textFields[nameof(VisualizerSettings.DownshiftNoteCount)].IsEnabled = _immediateDownshift.IsChecked == true;
-        // The magic circle values matter only while its bar is on; locked boxes keep their values.
-        // The magic circle switch disables its whole card; the tile count needs the fixed-tiles switch as well.
         // The magic circle rows matter only while the bar can appear in one, which its own card now decides.
         var magic = _judgmentMode.SelectedIndex != 0;
         foreach (var field in new[] { nameof(VisualizerSettings.MagicCircleNoteCount), nameof(VisualizerSettings.MagicCircleMaxIntervalMs),
@@ -140,6 +140,7 @@ public partial class SettingsPanel
                      nameof(VisualizerSettings.MagicCircleFadeOutMs) })
             _textFields[field].IsEnabled = magic;
         _magicFixedTiles.IsEnabled = magic;
+        _magicChords.IsEnabled = magic;
         // The count matters only while the arrow is drawn; the box keeps its value while locked.
         _textFields[nameof(VisualizerSettings.JudgmentAverageCount)].IsEnabled = _judgmentAverage.IsChecked == true;
         _magicTiles.IsEnabled = magic && _magicFixedTiles.IsChecked == true;
@@ -199,7 +200,6 @@ public partial class SettingsPanel
         return null;
     }
 
-    /// <summary>The setting of the row that holds this control.</summary>
     private string? FieldOf(DependencyObject? source)
     {
         for (var node = source; node is not null; node = VisualTreeHelper.GetParent(node))
@@ -426,9 +426,12 @@ public partial class SettingsPanel
             AutoCheckpointAdvance = _autoCheckpointBox.IsChecked == true,
             AutoCheckpointOnLoad = _autoCheckpointLoad.IsChecked == true,
             AutoSaveSettings = _autoSave.IsChecked == true,
-            NextIntervalTiles = _nextInterval.SelectedIndex == 1,
+            // Both gaps sit over the other choice, which keeps its value for when the box goes back to it.
+            NextIntervalTiles = _nextInterval.SelectedIndex == 1 || (_nextInterval.SelectedIndex == 2 && _current.NextIntervalTiles),
+            BothIntervalTiles = _nextInterval.SelectedIndex == 2,
             ChordAvoidBeforeLanes = _chordBefore.IsChecked == true,
             RestartPatternOnRun = _runRestart.IsChecked == true,
+            EnhancedChordRules = _enhancedChords.IsChecked == true,
             MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum : 0,
             MinimumTileCount = _minimum.SelectedItem is int minimum ? minimum : 0,
             DisplayLaneCount = _displayLanes.SelectedIndex <= 0 ? 0 : VisualizerSettings.Modes[_displayLanes.SelectedIndex - 1],
@@ -461,6 +464,7 @@ public partial class SettingsPanel
             ShowJudgmentAverage = _judgmentAverage.IsChecked == true,
             JudgmentAverageCount = Whole(nameof(VisualizerSettings.JudgmentAverageCount)),
             MagicCircleFixedTiles = _magicFixedTiles.IsChecked == true,
+            MagicCircleChords = _magicChords.IsChecked == true,
             MagicCircleTileCount = _magicTiles.SelectedItem is int magicTiles ? magicTiles : Defaults.MagicCircleTileCount,
             MagicCircleNoteCount = Whole(nameof(VisualizerSettings.MagicCircleNoteCount)),
             MagicCircleMaxIntervalMs = Number(nameof(VisualizerSettings.MagicCircleMaxIntervalMs)),

@@ -50,7 +50,7 @@ public sealed class KeyCaptureBox : TextBox
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        var key = e.Key switch { Key.System => e.SystemKey, Key.ImeProcessed => e.ImeProcessedKey, _ => e.Key };
+        var key = KeyNames.Real(e);
         if (key is Key.Tab or Key.Escape)
         {
             base.OnPreviewKeyDown(e);

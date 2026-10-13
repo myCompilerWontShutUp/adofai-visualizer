@@ -51,7 +51,7 @@ internal static class SettingsStoreTests
             ShowInputEffect = false, ShowMissEffect = false,
             MagicCircleJudgmentLine = true, MagicCircleNoteCount = 30, MagicCircleMaxIntervalMs = 150,
             MagicCircleFadeInMs = 300, MagicCircleLeadMs = 400, MagicCircleFadeOutMs = 200,
-            MagicCircleFixedTiles = false, MagicCircleTileCount = 2,
+            MagicCircleFixedTiles = false, MagicCircleTileCount = 2, MagicCircleChords = false,
             LaneEffectColor = "10, 20, 30", NoteColor = "11, 21, 31", ChordColor = "12, 22, 32",
             CheckpointColor = "13, 23, 33", JudgmentLineColor = "14, 24, 34", MissEffectColor = "15, 25, 35",
             PressedNoteTransparencyPercent = 50,
@@ -252,10 +252,18 @@ internal static class SettingsStoreTests
                 "The settings file keeps the folders");
             Assert(!portable.Contains("MapRootDirectory", StringComparison.Ordinal) && !portable.Contains("DataRootDirectory", StringComparison.Ordinal),
                 "The shared copy leaves the folders out");
-            // Only real settings are written: values worked out from others would do nothing if edited.
-            foreach (var derived in new[] { "UseChordSectionLanes", "PreferredChordLane", "UseChordCenterPair", "UseMagicCircleTiles",
-                         "MagicCircleTiles", "PressedNoteStrength", "CanUseExtraLanes", "FollowsThemeLaneBackgrounds" })
+            // Only real settings are written: values worked out from others would do nothing if edited, and an exported
+            // one that is not edited along with its source makes the import refuse the file. Every computed property is
+            // checked, so a new one cannot slip in unmarked.
+            foreach (var derived in typeof(VisualizerSettings).GetProperties().Where(property => !property.CanWrite).Select(property => property.Name))
                 Assert(!export.Contains($"\"{derived}\"", StringComparison.Ordinal), derived + " is not a setting and is not exported");
+            // So an exported file can be edited by hand: changing a setting alone imports.
+            var edited = System.Text.Json.Nodes.JsonNode.Parse(SettingsJson.ExportPortable(new VisualizerSettings()))!.AsObject();
+            edited[nameof(VisualizerSettings.JudgmentBarDifficulty)] = "Strict";
+            edited[nameof(VisualizerSettings.ExperimentalFeatures)] = true;
+            edited[nameof(VisualizerSettings.ChordAvoidBeforeLanes)] = true;
+            var hand = SettingsJson.Import(edited.ToJsonString(), new VisualizerSettings());
+            Assert(hand.JudgmentWindowMs == 40 && hand.UseChordAvoidBefore, "An edited export imports");
 
             // Import into a window that starts from the defaults, then Apply: nothing but the folders may change on the way.
             var here = new VisualizerSettings { MapRootDirectory = @"C:\Here\Maps", DataRootDirectory = "" };

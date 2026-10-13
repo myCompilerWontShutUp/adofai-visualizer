@@ -52,8 +52,8 @@ public partial class MainWindow : Window, ICmdHost
     private Visualizer.Core.Maps.ParsedTimeline? _editorTimeline;
     private bool _dialogOpen;
     /// <summary>
-    /// Whether another window of this app is being used. The settings and edit windows are not modal any more (the console
-    /// must stay usable), so they no longer disable this one and it has to keep out of the way itself.
+    /// Whether another part of this app is being used. The settings panel and the edit window are not modal (the console
+    /// must stay usable), so this window keeps out of the way itself.
     /// </summary>
     private bool Busy => _dialogOpen || _editor is not null;
     private bool _renderHooked;
@@ -101,14 +101,14 @@ public partial class MainWindow : Window, ICmdHost
         PreviewKeyDown += (_, e) =>
         {
             _model.NoteInput();
-            if (CmdWindow.IsShortcut(e.Key, Keyboard.Modifiers))
+            if (CmdWindow.IsShortcut(e))
             {
                 e.Handled = true;
-                ToggleConsole();
+                ConsoleKeyInWindow();
             }
             // Not while the settings or the editor are up: a tunneling handler on the window runs before the settings
             // panel's own, and the settings have to close themselves first (they may hold unapplied changes).
-            else if (!Busy && IsEditShortcut(e.Key, Keyboard.Modifiers))
+            else if (!Busy && IsEditShortcut(e))
             {
                 e.Handled = true;
                 if (EditLoadedSong() is { } reason) _model.SetMessage(reason);
@@ -267,7 +267,6 @@ public partial class MainWindow : Window, ICmdHost
     /// </summary>
     public static string GameSyncPipeName { get; set; } = Visualizer.Infrastructure.Sync.NamedPipeGameSyncServer.PipeName;
 
-    /// <summary>The app store in use: the one every copy shares under %LOCALAPPDATA%, or the folder set in settings.</summary>
     /// <summary>A store of the test's own for the checks that read one (scannow); the app never sets it.</summary>
     public static AppStorage? StoreForTests { get; set; }
 
@@ -447,7 +446,9 @@ public partial class MainWindow : Window, ICmdHost
     /// <summary>Ctrl+E: the note editor for the loaded song. Fixed, like Ctrl+T, so it is not in the key settings.</summary>
     public static bool IsEditShortcut(Key key, ModifierKeys modifiers) => key == Key.E && modifiers == ModifierKeys.Control;
 
-    /// <summary>The editor, from the button on the note field.</summary>
+    /// <summary>Whether a key event is Ctrl+E, whatever the input method made of the E.</summary>
+    public static bool IsEditShortcut(KeyEventArgs e) => IsEditShortcut(KeyNames.Real(e), Keyboard.Modifiers);
+
     private void EditSongClick(object sender, RoutedEventArgs e)
     {
         if (EditLoadedSong() is { } reason) _model.SetMessage(reason);
@@ -579,12 +580,15 @@ public partial class MainWindow : Window, ICmdHost
                 : FromRules(timeline, settings with { Language = reasons }, entry.SourceHash);
             // One lane of the main screen, so the sheet matches it; all eight lanes are shown either way.
             var laneWidth = Field.ActualWidth > 0 ? Field.ActualWidth / Math.Max(1, settings.GetDisplayTiles().Count) : 60;
-            var window = new NoteEditWindow(session, settings, _model.DisplayName(entry), Maps.SlotOf(entry), laneWidth)
+            var place = FamilyOf(entry);
+            var window = new NoteEditWindow(session, settings, _model.DisplayName(entry), Maps.SlotOf(entry), laneWidth,
+                topMs: _editorPlaces.TryGetValue(place, out var top) ? top : null)
             {
                 Owner = this,
                 Slots = Edits.SlotsOf(songFolder),
                 RuleNotes = RuleNotesOf(timeline, settings with { Language = reasons }, entry.SourceHash),
-                ToggleConsole = () => ToggleConsole()
+                ToggleConsole = () => ToggleConsole(),
+                ConsoleShortcut = ConsoleKeyInWindow
             };
             _editor = window;
             _editorSong = entry.Id;
@@ -593,6 +597,7 @@ public partial class MainWindow : Window, ICmdHost
             // while this one is open (user rule). So what followed the dialog happens when it closes.
             window.Closed += (_, _) =>
             {
+                _editorPlaces[place] = window.TopMs;
                 _editor = null;
                 _editorSong = null;
                 _editorTimeline = null;
@@ -604,6 +609,12 @@ public partial class MainWindow : Window, ICmdHost
         }
         catch (Exception error) when (IsExpectedError(error)) { return error.Message; }
     }
+
+    /// <summary>
+    /// Where the editor was left for each song, so opening it again goes back there (user rule). Kept until the app exits
+    /// and never written down. Keyed by the song with its edits, which share their hit times, so every version opens there.
+    /// </summary>
+    private readonly Dictionary<string, double> _editorPlaces = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The editor always shows tiles 1..8, whatever the key count.</summary>
     private static readonly int[] AllLanes = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -665,7 +676,7 @@ public partial class MainWindow : Window, ICmdHost
                 _model.MarkRecentEdit(saved.Id);
             _model.ReportSync([report]);
             if (reloadId is not null && _model.LoadedEntry?.Id == reloadId && _model.AllSongs.FirstOrDefault(song => song.Id == reloadId) is { } fresh)
-                _model.LoadCached(fresh);
+                _model.Reload(fresh);
         }
         catch (Exception error) when (IsExpectedError(error)) { _model.SetMessage(_model.Text.Format("SyncFailed", error.Message)); }
     }
@@ -957,7 +968,7 @@ public partial class MainWindow : Window, ICmdHost
             panel.EditSongRequested = () => { if (EditLoadedSong() is { } reason) _model.SetMessage(reason); };
             panel.SongListFields = string.Join(' ', _model.Settings.GetSongListFields());
             panel.OpenSongList = ShowSongList;
-            panel.OpenConsole = () => ToggleConsole();
+            panel.OpenConsole = ConsoleKeyInWindow;
             panel.SettingsApplied = ApplyFromDialog;
             panel.Previewing = ShowSettingsPreview;
             _settingsPanel = panel;
@@ -1114,7 +1125,7 @@ public partial class MainWindow : Window, ICmdHost
             return open;
         }
         // It opens the way this window was shown: with the focus in the app, without it in tests.
-        var console = new CmdWindow(new CmdSession(this), _appliedTheme) { ShowActivated = ShowActivated };
+        var console = new CmdWindow(new CmdSession(this), _appliedTheme) { ShowActivated = ShowActivated, Shortcut = ConsoleKeyInWindow };
         console.Closed += (_, _) => _console = null;
         _console = console;
         // An unshown main window (tests, captures) only creates it.
@@ -1136,6 +1147,7 @@ public partial class MainWindow : Window, ICmdHost
             _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
             _windowSource?.AddHook(ObserveMessage);
             _input.Start(new WindowInteropHelper(this).Handle);
+            _observingKeys = true;
             // The frames arrive on this thread, so it asks Windows for the multimedia scheduling class: with a game running,
             // frames the compositor did hand out were reaching this app late (console: fps, Handoff).
             _scheduling ??= MultimediaScheduling.Register();
@@ -1165,7 +1177,7 @@ public partial class MainWindow : Window, ICmdHost
     }
 
     /// <summary>Ctrl and T as the keyboard reports them; raw input gives the plain Ctrl code with a side flag.</summary>
-    private const int ControlKey = 0x11, LeftControlKey = 0xA2, RightControlKey = 0xA3, ConsoleKey = 0x54;
+    private const int ControlKey = 0x11, LeftControlKey = 0xA2, RightControlKey = 0xA3, ConsoleKey = 0x54, EscapeKey = 0x1B;
 
     /// <summary>Whether Ctrl is held, followed through the observed keys so Ctrl+T works while the game has the focus.</summary>
     private bool _controlHeld;
@@ -1174,6 +1186,12 @@ public partial class MainWindow : Window, ICmdHost
     {
         if (virtualKey is ControlKey or LeftControlKey or RightControlKey) _controlHeld = true;
         else if (virtualKey == ConsoleKey && _controlHeld && ObservedConsoleKey()) return;
+        // Esc stops link inspect wherever it is pressed, before anything else reads it.
+        if (virtualKey == EscapeKey && _inspection is not null)
+        {
+            StopInspect("Esc");
+            return;
+        }
         var hasAction = _bindings.TryGetValue(virtualKey, out var action);
         var hasLane = _laneKeys.TryGetValue(virtualKey, out var tile);
         if (!hasAction && !hasLane) return;
@@ -1195,7 +1213,11 @@ public partial class MainWindow : Window, ICmdHost
                     || WindowsForegroundObserver.IsProcessForeground(settings.AdofaiProcessName));
             var paused = _model.Playback.State == PlaybackState.Paused;
             var waiting = _model.Playback.State == PlaybackState.Waiting;
-            if (hasAction && InputPolicy.ShouldReact(action, settings,
+            // With link auto on, the linker alone puts the playhead anywhere (user rule): the keys that start, reset, pause or
+            // move it are the game's, and a lane key only marks its note.
+            // link inspect sends the lane keys itself, and its start key must not start or reset anything either.
+            var gameMoves = _linkAuto || _inspection is not null;
+            if (hasAction && !(gameMoves && InputPolicy.MovesPlayhead(action)) && InputPolicy.ShouldReact(action, settings,
                     action is InputAction.Toggle or InputAction.OpenSettings || Foreground(), false))
             {
                 switch (action)
@@ -1214,7 +1236,7 @@ public partial class MainWindow : Window, ICmdHost
             if (hasLane && _model.Playback.State != PlaybackState.Off
                 && InputPolicy.ShouldReact(InputAction.LaneKey, settings, Foreground(), false))
             {
-                if (InputPolicy.ShouldReact(InputAction.Start, settings, Foreground(), false))
+                if (!gameMoves && InputPolicy.ShouldReact(InputAction.Start, settings, Foreground(), false))
                 {
                     if (paused) _model.ResumeFromLane(tile);
                     else _model.StartFromLane(tile);
@@ -1226,15 +1248,30 @@ public partial class MainWindow : Window, ICmdHost
         catch (Exception error) when (IsExpectedError(error)) { _model.SetMessage(error.Message); }
     }
 
+    /// <summary>Whether the keyboard is observed, which is then where Ctrl+T is acted on.</summary>
+    private bool _observingKeys;
+
     /// <summary>
-    /// Ctrl+T seen from outside this app. The window handlers already have it whenever the app has the focus, so this only
-    /// covers the game being in front, and it follows the global input scope like every other observed key (user rule).
+    /// Ctrl+T as a window of this app saw it. While keys are observed, the observed press is what toggles the console, for
+    /// the game and every window of this app alike, so a window only keeps the key to itself: acting here as well would
+    /// toggle twice. Without observed keys the window is all there is.
+    /// </summary>
+    private void ConsoleKeyInWindow()
+    {
+        if (!_observingKeys) ToggleConsole();
+    }
+
+    /// <summary>
+    /// Ctrl+T as the keyboard reported it: the one place that acts on it while keys are observed (user rule: with the
+    /// game or this visualizer in front). Reading it here rather than in the windows means the Korean input method, a
+    /// window with no handler of its own (song list, help) or a window with nothing focused cannot swallow it.
     /// </summary>
     private bool ObservedConsoleKey()
     {
         try
         {
-            if (_dialogOpen) return false;
+            // A question waiting for an answer has the app to itself; the console comes after it.
+            if (System.Windows.Interop.ComponentDispatcher.IsThreadModal) return false;
             var settings = _model.Settings;
             if (!InputPolicy.ShouldOpenConsole(settings, WindowsForegroundObserver.IsCurrentProcessForeground(),
                     WindowsForegroundObserver.IsProcessForeground(settings.AdofaiProcessName))) return false;

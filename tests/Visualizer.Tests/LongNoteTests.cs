@@ -243,6 +243,25 @@ internal static class LongNoteTests
             Kinds(read, HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap, HitKind.Tap);
         });
 
+        yield return ("A long note keeps its lane through the note after it", () =>
+        {
+            // User rule: no other note on a lane while its long note runs, and the note after a long note never takes its
+            // lane (a long note on 2 and then 2 again is never placed), two long notes in a row included.
+            var generator = new NoteGenerator();
+            var settings = new VisualizerSettings { SimultaneousWindowMs = 0, TrillWindowMs = 0, MagicCircleFixedTiles = false,
+                DynamicTiming = true, MinimumTileCount = 1, TwoKeyBoundaryMs = 500 };
+            // 600ms apart is 1K: one lane, so the note right on the long note's end reaches for a second lane.
+            var slow = generator.Generate(new[] { 0d, 600, 1200, 1800 }, new double?[] { 600, null, null, null }, settings);
+            Assert(slow[1].Tile != slow[0].Tile, $"The note after the long note takes another lane: {string.Join(" ", slow.Select(n => n.Tile))}");
+            // Two long notes in a row, the second starting where the first ends, and the note after both.
+            var chain = generator.Generate(new[] { 0d, 600, 1200, 1800 }, new double?[] { 600, 1200, null, null }, settings);
+            Assert(chain[1].Tile != chain[0].Tile && chain[2].Tile != chain[1].Tile,
+                $"Each takes a lane of its own: {string.Join(" ", chain.Select(n => n.Tile))}");
+            // With a single lane at most there is nowhere else: preparing stops and says why rather than breaking the rule.
+            Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 600, 1200 }, new double?[] { 600, null, null },
+                settings with { MaximumTileCount = 1 }));
+        });
+
         yield return ("Long notes draw as a bar in the note color, are used up while held, and end on an early release", () =>
         {
             const int width = 200, height = 400;
@@ -296,22 +315,55 @@ internal static class LongNoteTests
             tapField.Tick();
             Assert(!NoteColor(Render(tapField), 125, 250), "A tap at the same time draws no bar");
 
+            // The long note width is the held part's only (user rule): head and tail stay as wide as a note, so a narrower
+            // hold reads as an I rather than one thin bar.
+            var narrow = new PlaybackSession(clock);
+            narrow.LoadParsedTimeline(timeline, settings with { HoldNoteWidth = 0.4 });
+            narrow.Toggle();
+            var narrowField = new NoteField { Session = narrow };
+            narrowField.Tick();
+            var shape = Render(narrowField, Path.Combine(artifactRoot, "long-note-narrow.png"));
+            int Span(int y) => Enumerable.Range(100, 50).Count(x => NoteColor(shape, x, y));
+            Assert(Span(334) >= 40 && Span(168) >= 40, $"Head and tail are note wide: {Span(334)} and {Span(168)}");
+            Assert(Span(250) is > 0 and <= 25, $"The held part is narrower between them: {Span(250)}");
+
             session.Start();
             Assert(judge.Press(session, 5, settings.KeyPressWindowMs) == 0, "The long note head is pressed");
             clock.NowMs = 100;
             field.Tick();
             var held = Render(field);
-            // Pressed notes blend 40% of the note color into the field (blue about 108); the lane background is far darker.
+            // The play's first note keeps its color when pressed (user rule), so this bar stays in full color.
             static int Blue(byte[] pixels, int x, int y) => pixels[(y * width + x) * 4];
-            Assert(Blue(held, 125, 250) is > 80 and < 160, $"A held long note is drawn dimmed (blue {Blue(held, 125, 250)})");
+            Assert(Blue(held, 125, 250) > 200, $"A held long note that starts the play keeps its color (blue {Blue(held, 125, 250)})");
             // Unclamped, the head 100ms past the line would reach below y 370; held, the bar ends at the judgment line (y 334 + 9).
-            Assert(Blue(held, 125, 330) is > 80 and < 160 && Blue(held, 125, 355) < 60, $"A held bar stops at the judgment line (blue {Blue(held, 125, 355)})");
+            Assert(Blue(held, 125, 330) > 200 && Blue(held, 125, 355) < 60, $"A held bar stops at the judgment line (blue {Blue(held, 125, 355)})");
             Assert(judge.Release(session, 5, settings.KeyPressWindowMs), "Letting go well before the end ends the long note early");
             Assert(judge.IsReleasedEarly(session.Notes, 0), "The early release is marked");
             Assert(!judge.Release(session, 5, settings.KeyPressWindowMs), "An ended long note is not released twice");
             field.Tick();
             var released = Render(field);
             Assert(Blue(released, 125, 250) < 60, $"An early released long note is no longer drawn (blue {Blue(released, 125, 250)})");
+
+            // Any other long note is drawn dimmed while held: pressed notes blend 40% of the note color into the field (blue
+            // about 108), and the lane background is far darker. The same bar one second later, behind a tap.
+            var middle = new PlaybackSession(clock);
+            clock.NowMs = 0;
+            middle.LoadParsedTimeline(new ParsedTimeline(new[] { 0d, 1000, 1360, 3000 },
+                hitKinds: new[] { HitKind.Tap, HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap }), settings);
+            middle.Toggle();
+            middle.Start();
+            var middleJudge = new NotePressJudge();
+            var hold = middle.Notes[1];
+            Assert(hold.IsHold, "The second note is the long one");
+            clock.NowMs = 1000;
+            Equal(middleJudge.Press(middle, hold.Tile, settings.KeyPressWindowMs), (int?)1);
+            clock.NowMs = 1100;
+            var middleField = new NoteField { Session = middle, Judge = middleJudge };
+            middleField.Tick();
+            var lanes = settings.GetDisplayTiles(middle.Notes.Select(note => note.Tile)).ToList();
+            var x = lanes.IndexOf(hold.Tile) * (width / lanes.Count) + width / lanes.Count / 2;
+            var middleHeld = Render(middleField);
+            Assert(Blue(middleHeld, x, 250) is > 80 and < 160, $"A held long note is drawn dimmed (blue {Blue(middleHeld, x, 250)})");
 
             var late = new PlaybackSession(clock);
             clock.NowMs = 0;

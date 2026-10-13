@@ -5,12 +5,16 @@ using Visualizer.Core.Maps;
 namespace Visualizer.Application.Sync;
 
 /// <summary>Why following is not happening, or <see cref="Following"/> while it is.</summary>
-public enum GameSyncFollowState { Off, NoLevel, WrongSong, NoNotes, WaitingForGame, HeldHere, Dropped, GameOver, Following }
+public enum GameSyncFollowState
+{
+    Off, NoLevel, WrongSong, NoNotes, WaitingForGame, HeldHere, Dropped, LevelChanged, GameOver, GameStopped, OtherLevel,
+    OtherRate, Silent, Following
+}
 
 /// <summary>
 /// Keeps the app's playhead on the game's own clock while the game plays.
 ///
-/// The game reports the song position it draws with; every tile of the map sits at that position plus one fixed offset,
+/// The game reports the song position it judges presses by; every tile of the map sits at that position plus one fixed offset,
 /// which <see cref="GameTileCheck"/> measures from the game's own tile times. So a reading becomes a point on this app's
 /// clock, and the playhead is pulled towards it rather than snapped to it: snapping every reading would show the game's
 /// frame rate as judder, while a gentle pull rides out the small differences and still follows a drifting rate.
@@ -25,11 +29,25 @@ public sealed class GameSyncFollower
     private const double Pull = 0.15;
     /// <summary>A reading older than this is stale: the game stopped sending, so following stops.</summary>
     public const double StaleMs = 500;
+    /// <summary>
+    /// How long readings may keep arriving with the very same position before the game counts as standing still. The
+    /// game moves the position every frame it plays, so only a stopped clock repeats it; a hitch sends nothing at all and
+    /// is not mistaken for one.
+    /// </summary>
+    public const double StillMs = 150;
+    /// <summary>How far the game's real rate may be from 100% and still be followed: the falling notes run at 100%.</summary>
+    private const double RateTolerance = 0.001;
 
     private double _lastAppliedMs = double.NaN;
     private IReadOnlyList<double> _tileTimes = [];
     private ParsedTimeline? _prepared;
+    private GameSyncLevel? _level;
+    private string? _path;
     private double _frozenMs = double.NaN;
+    private double _seenPositionMs = double.NaN;
+    private double _seenSinceMs = double.NaN;
+    private bool _moving;
+    private double _gameRate = 1;
     private int _snaps;
     private int _pulls;
 
@@ -78,6 +96,8 @@ public sealed class GameSyncFollower
         }
         OffsetMs = check.MedianOffsetMs;
         _tileTimes = level.TimesMs;
+        _level = level;
+        _path = level.Path;
         _prepared = timeline;
         session.HideNotesBeforeMs = double.NegativeInfinity;
         // From here the game owns the song: the session stops moving it on its own and stops taking calibration presses.
@@ -86,6 +106,9 @@ public sealed class GameSyncFollower
         _snaps = 0;
         _pulls = 0;
         _lastAppliedMs = double.NaN;
+        _frozenMs = double.NaN;
+        _seenPositionMs = double.NaN;
+        _moving = false;
         return null;
     }
 
@@ -95,38 +118,73 @@ public sealed class GameSyncFollower
         OffsetMs = null;
         _tileTimes = [];
         _prepared = null;
+        _level = null;
+        _path = null;
         _frozenMs = double.NaN;
         State = GameSyncFollowState.Off;
         LastErrorMs = double.NaN;
     }
 
+    /// <summary>Ends following and hands the session back, with <paramref name="why"/> left for the console.</summary>
+    private void Drop(PlaybackSession session, GameSyncFollowState why)
+    {
+        Stop();
+        session.ClockFollowsGame = false;
+        session.HideNotesBeforeMs = double.NegativeInfinity;
+        State = why;
+    }
+
+    /// <summary>
+    /// The game sent this level's tiles again: every new connection does, and its editor can change them under the same
+    /// name. The same tiles change nothing; others are checked like the first ones, and following ends if they no longer
+    /// line up rather than carrying on with an offset that belongs to another map.
+    /// </summary>
+    private bool Recheck(GameSyncLevel level, PlaybackSession session)
+    {
+        if (level.TimesMs.SequenceEqual(_tileTimes)) { _level = level; return true; }
+        var check = GameTileCheck.Compare(level.TimesMs, _prepared!);
+        if (check.Matched == 0 || check.Unmatched > 0 || check.MaxOffsetMs - check.MinOffsetMs > GameTileCheck.Tolerance)
+        {
+            Drop(session, GameSyncFollowState.LevelChanged);
+            return false;
+        }
+        OffsetMs = check.MedianOffsetMs;
+        _tileTimes = level.TimesMs;
+        _level = level;
+        return true;
+    }
+
+    /// <summary>
+    /// The notes stand where they are: the game is over, silent, on another level or at another rate. Nothing starts from
+    /// here, and a running playhead is held on the spot it had, so it neither runs on alone nor jumps.
+    /// </summary>
+    private bool Stand(PlaybackSession session, GameSyncFollowState why)
+    {
+        State = why;
+        if (session.State != PlaybackState.Playing) return false;
+        if (double.IsNaN(_frozenMs)) _frozenMs = session.TimelineTimeMs;
+        return session.MoveClock(_frozenMs);
+    }
+
     /// <summary>
     /// One frame's worth of following. <paramref name="reading"/> is the newest one the game sent and
     /// <paramref name="arrivedMs"/> when it came, on the same clock as <paramref name="nowMs"/>, so the position is carried
-    /// forward over the time since. Returns whether the clock was moved.
+    /// forward over the time since. <paramref name="level"/> is the newest tile times the game sent, which may have been
+    /// sent again since <see cref="Prepare"/>. Returns whether the clock was moved.
     /// </summary>
-    public bool Follow(GameSyncMessage? reading, double arrivedMs, double nowMs, PlaybackSession session)
+    public bool Follow(GameSyncMessage? reading, double arrivedMs, double nowMs, PlaybackSession session, GameSyncLevel? level = null)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (OffsetMs is not { } offset) return false;
+        if (OffsetMs is null) return false;
         // One place decides that following is no longer what the app is doing. Anything that re-prepares the notes or
         // moves the song on its own would quietly fight the game, so it ends following instead (user rule).
         if (!ReferenceEquals(session.Timeline, _prepared) || session.StartHitIndex > 0
             || session.Settings.PlaybackSpeedPercent != 100)
         {
-            Stop();
-            session.ClockFollowsGame = false;
-            session.HideNotesBeforeMs = double.NegativeInfinity;
-            State = GameSyncFollowState.Dropped;
+            Drop(session, GameSyncFollowState.Dropped);
             return false;
         }
-        if (reading is null || !double.IsFinite(arrivedMs) || !double.IsFinite(nowMs) || nowMs - arrivedMs > StaleMs)
-        {
-            State = GameSyncFollowState.WaitingForGame;
-            return false;
-        }
-        // The game keeps its own clock running through a fail, so only a paused game means "do not move".
-        if (reading.Paused) { State = GameSyncFollowState.WaitingForGame; return false; }
+        if (level is not null && !ReferenceEquals(level, _level) && level.Path == _path && !Recheck(level, session)) return false;
         if (session.State is not (PlaybackState.Playing or PlaybackState.Paused or PlaybackState.Waiting))
         {
             State = GameSyncFollowState.NoNotes;
@@ -138,22 +196,50 @@ public sealed class GameSyncFollower
             State = GameSyncFollowState.HeldHere;
             return false;
         }
+        var playing = session.State == PlaybackState.Playing;
+        if (reading is null || !double.IsFinite(arrivedMs) || !double.IsFinite(nowMs) || nowMs - arrivedMs > StaleMs)
+            return Stand(session, playing ? GameSyncFollowState.Silent : GameSyncFollowState.WaitingForGame);
+        // The offset belongs to one map: the game playing another must not move these notes.
+        if (reading.Path != _path) return Stand(session, GameSyncFollowState.OtherLevel);
         // The game keeps the song running through a game over, so following it would carry the notes on past the end.
         // They stand still where the run ended until it restarts, which then puts them back by itself.
-        if (reading.Dead && session.State == PlaybackState.Playing)
+        if (reading.Dead) return Stand(session, GameSyncFollowState.GameOver);
+        // A level waiting for its first key (scrController state Start, also where a restart lands) reports a song position
+        // that runs on in real time while nothing is played (measured: about 3 s in 3 s on PLUM MEGAMIX 2's start screen).
+        // Followed, the notes would run with it; they wait for the countdown instead.
+        if (reading.State is "Start" or "None")
+            return Stand(session, playing ? GameSyncFollowState.GameStopped : GameSyncFollowState.WaitingForGame);
+        // The notes fall at 100%; a game played faster or slower would have them chase it. Checked after a game over,
+        // which slows the music down by itself.
+        if (!double.IsFinite(reading.PitchRate) || Math.Abs(reading.PitchRate - 1) > RateTolerance)
         {
-            if (double.IsNaN(_frozenMs)) _frozenMs = session.TimelineTimeMs;
-            session.MoveClock(_frozenMs);
-            State = GameSyncFollowState.GameOver;
-            return true;
+            _gameRate = reading.PitchRate;
+            return Stand(session, GameSyncFollowState.OtherRate);
         }
         _frozenMs = double.NaN;
+        // A restart may put the tile back a frame after the song position, so the first reading can still name the tile
+        // the run ended on. A lower tile afterwards shows the notes from there again instead of hiding them all attempt.
+        if (double.IsFinite(session.HideNotesBeforeMs) && (uint)reading.Floor < (uint)_tileTimes.Count)
+            session.HideNotesBeforeMs = Math.Min(session.HideNotesBeforeMs,
+                session.NoteTimeOf(_tileTimes[reading.Floor] - OffsetMs.Value));
 
-        // The reading is as old as the time since it arrived, and the song has moved on by that much.
-        var position = reading.PositionMs + (nowMs - arrivedMs);
-        var target = session.TimelineTimeOf(position - offset);
-        if (session.State != PlaybackState.Playing)
+        // A paused game, or one whose clock has stopped, is exactly where it says: nothing is carried forward, and the
+        // notes wait there with it instead of running on and jumping back. One reading alone does not show a moving
+        // clock either, so a game sitting on its start screen starts nothing.
+        if (reading.PositionMs != _seenPositionMs)
         {
+            _moving = !double.IsNaN(_seenPositionMs);
+            _seenPositionMs = reading.PositionMs;
+            _seenSinceMs = arrivedMs;
+        }
+        var standing = reading.Paused || !_moving || arrivedMs - _seenSinceMs >= StillMs;
+        // The reading is as old as the time since it arrived, and the song has moved on by that much.
+        var position = standing ? reading.PositionMs : reading.PositionMs + (nowMs - arrivedMs);
+        var target = session.TimelineTimeOf(position - OffsetMs.Value);
+        if (!playing)
+        {
+            // Nothing to start while the game stands still; it starts with the game.
+            if (standing) { State = GameSyncFollowState.WaitingForGame; return false; }
             // The game started: begin here rather than waiting for a key.
             if (!session.Start()) return false;
             session.MoveClock(target);
@@ -167,7 +253,7 @@ public sealed class GameSyncFollower
 
         var error = target - session.TimelineTimeMs;
         LastErrorMs = error;
-        State = GameSyncFollowState.Following;
+        State = standing ? GameSyncFollowState.GameStopped : GameSyncFollowState.Following;
         FirstNoteWaitMs = session.Notes.Count == 0 ? 0
             : Math.Max(0, session.Notes[0].HitTimeMs + session.Offsets.TotalMs - target);
         if (Math.Abs(error) > SnapMs)
@@ -180,10 +266,16 @@ public sealed class GameSyncFollower
                 // The game rewound to the tile it will carry on from; the tiles before it are not going to be played,
                 // so they must not fall during its countdown.
                 if ((uint)reading.Floor < (uint)_tileTimes.Count)
-                    session.HideNotesBeforeMs = session.NoteTimeOf(_tileTimes[reading.Floor] - offset);
+                    session.HideNotesBeforeMs = session.NoteTimeOf(_tileTimes[reading.Floor] - OffsetMs.Value);
             }
             _lastAppliedMs = target;
             _snaps++;
+            return true;
+        }
+        if (standing)
+        {
+            session.MoveClock(target);
+            _lastAppliedMs = target;
             return true;
         }
         var moved = session.TimelineTimeMs + error * Pull;
@@ -199,6 +291,7 @@ public sealed class GameSyncFollower
     public IReadOnlyList<string> Lines()
     {
         string Ms(double value) => double.IsFinite(value) ? value.ToString("0.0", CultureInfo.InvariantCulture) : "-";
+        static string Percent(double rate) => double.IsFinite(rate) ? (rate * 100).ToString("0.#", CultureInfo.InvariantCulture) + "%" : "an unknown rate";
         var what = State switch
         {
             GameSyncFollowState.Off => "not following.",
@@ -208,7 +301,12 @@ public sealed class GameSyncFollower
             GameSyncFollowState.WaitingForGame => "waiting for the game to play.",
             GameSyncFollowState.HeldHere => "paused here. Resume in the app to follow the game again.",
             GameSyncFollowState.Dropped => "stopped: the song, the start point or the playback speed changed here. Use link follow again.",
+            GameSyncFollowState.LevelChanged => "stopped: the game sent other tiles for this level, and they do not line up with the song here. Use link follow again.",
             GameSyncFollowState.GameOver => "the game is over; the notes wait here until it starts again.",
+            GameSyncFollowState.GameStopped => "the game is paused or its clock stands still; the notes wait with it.",
+            GameSyncFollowState.OtherLevel => "the game is playing another level; the notes wait here until it is back on this one.",
+            GameSyncFollowState.OtherRate => $"the game plays at {Percent(_gameRate)}, and the notes only follow it at 100%. They wait here until it is back at 100%.",
+            GameSyncFollowState.Silent => "nothing from the game for a moment; the notes wait here until it sends again.",
             _ => "following the game."
         };
         var lines = new List<string> { "Follow   " + what };

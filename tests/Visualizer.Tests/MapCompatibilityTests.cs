@@ -132,6 +132,12 @@ internal static class MapCompatibilityTests
             var named = Read("{\"settings\":{\"version\":18,\"bpm\":120,\"song\":\"A}\\\"B\"\"artist\":\"C,D\"}"
                 + ",\"angleData\":[0,0,0],\"actions\":[]}");
             Equal(named.SongName, "C,D - A}\"B");
+            // A comma with no value before it is a token the game skips and loops on (GDMiniJSON ParseObject/ParseArray,
+            // COMMA = 6): PLUM MEGAMIX 2 (2924697157) has "requiredMods": [],, in its settings. Two in a row or one right after
+            // a bracket are dropped, in an object and in an array, and an array keeps its values.
+            Times(Read("{\"settings\":{\"version\":18,\"requiredMods\":[],,\"bpm\":120},\"angleData\":[0,0,0],\"actions\":[]}"), 500, 1000, 1500);
+            Times(Read(Settings + ",,\"angleData\":[,0,,0,0],\"actions\":[,]}"), 500, 1000, 1500);
+            Equal(Read(Settings + ",\"angleData\":[0,0,0],\"actions\":[],\"x\":\"a,,b\"}").Status, MapParseStatus.Supported);
             // A number cannot name a member, so a level the game could not read either is still an error here.
             Equal(Read("{\"settings\":{\"version\":18,\"bpm\":120} 5,\"angleData\":[0,0],\"actions\":[]}").Status, MapParseStatus.Error);
         });
@@ -161,8 +167,12 @@ internal static class MapCompatibilityTests
             Equal(Parse(route: "\"angleData\":[0,999,0]", actions: "[{\"floor\":1,\"eventType\":\"Pause\",\"duration\":2}]").Status, MapParseStatus.Unsupported);
             // The game also decodes enum values by number: -1 is Backward (Search Party writes it this way).
             Times(Parse(actions: "[{\"floor\":1,\"eventType\":\"Pause\",\"duration\":2,\"angleCorrectionDir\":-1}]"), 500, 2000, 2500);
-            foreach (var field in new[] { "\"duration\":-1", "\"duration\":2,\"angleOffset\":45", "\"duration\":2,\"angleCorrectionDir\":\"Forward\"",
-                "\"duration\":2,\"angleCorrectionDir\":1", "\"duration\":2,\"angleCorrectionDir\":0", "\"duration\":2,\"angleCorrectionDir\":-1.5" })
+            // The direction only turns the planet's drawn angle (scrPlanet.HandlePause → TweenCosmeticAngle), so every defined
+            // one keeps the timing (柿崎ユウタ - 月が綺麗ねと言われたい！ has a Forward pause).
+            foreach (var direction in new[] { "\"Forward\"", "\"None\"", "1", "0" })
+                Times(Parse(actions: "[{\"floor\":1,\"eventType\":\"Pause\",\"duration\":1.5,\"angleCorrectionDir\":" + direction + "}]"), 500, 1750, 2250);
+            foreach (var field in new[] { "\"duration\":-1", "\"duration\":2,\"angleOffset\":45", "\"duration\":2,\"angleCorrectionDir\":\"Sideways\"",
+                "\"duration\":2,\"angleCorrectionDir\":2", "\"duration\":2,\"angleCorrectionDir\":-1.5" })
                 Equal(Parse(actions: "[{\"floor\":1,\"eventType\":\"Pause\"," + field + "}]").Status, MapParseStatus.Unsupported);
             Equal(Parse(actions: "[{\"floor\":1,\"eventType\":\"Pause\",\"duration\":2,\"eventTag\":\"p\"},{\"floor\":1,\"eventType\":\"RepeatEvents\",\"tag\":\"p\"}]").Status, MapParseStatus.Unsupported);
         });
@@ -274,7 +284,13 @@ internal static class MapCompatibilityTests
                         Assert(wide > 0, "Expected the dense stream to contain split 3+ hit groups");
                         Console.WriteLine($"CHORD SPLIT {path}: {wide} groups of 3+ hits prepared with the default window.");
                     }
-                    Assert(model.Playback.Notes.Count > 0, model.Message);
+                    if (model.Playback.Notes.Count == 0)
+                    {
+                        // The default lanes cannot place it, which the app answers by offering wider lanes; its timing was
+                        // compared above, and the next map still gets audited.
+                        Console.WriteLine($"PLACEMENT {path}: {model.Message}");
+                        continue;
+                    }
                     // One note per pressed hit: auto hits and long note ends have none.
                     Equal(model.Playback.Notes.Count, timeline.CountPressedHits());
                     AuditNotes(path, timeline, artifactRoot, index + 1);

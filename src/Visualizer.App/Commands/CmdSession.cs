@@ -131,6 +131,12 @@ public interface ICmdHost
     /// notes go on the game's clock, with the same checks typing it by hand makes. The loaded song is never changed.
     /// </summary>
     IReadOnlyList<string> GameSyncAuto(bool on);
+    /// <summary>
+    /// link inspect (measurement only): presses the visualizer's notes into the game while every rule of it holds, or stops.
+    /// </summary>
+    IReadOnlyList<string> GameSyncInspect(bool on) => ["link inspect is not available here."];
+    /// <summary>The lines of the last <paramref name="count"/> inspect runs (every run for 0), or null when none is kept.</summary>
+    IReadOnlyList<string>? InspectLines(int count) => null;
 
     /// <summary>Where the link mod would come from and go to, so the console can say what it will write before it writes.</summary>
     LinkerPlace FindLinker();
@@ -1845,8 +1851,16 @@ public sealed class CmdSession
             Syntax<object>(line);
             return;
         }
+        if (what == "inspect")
+        {
+            // It presses keys into the game, so it always asks (user rule), even though every rule is checked first.
+            Confirm(line.Has("-proceed"), "link inspect presses the lane key of every note the visualizer draws into the game, with No Fail on. Go ahead?",
+                answer => Show(answer ? _host.GameSyncInspect(true) : ["Nothing was pressed."], copy));
+            return;
+        }
         Show(what switch
         {
+            "uninspect" => _host.GameSyncInspect(false),
             "tiles" => _host.GameSyncTiles(),
             "follow" => _host.GameSyncFollow(true),
             "unfollow" => _host.GameSyncFollow(false),
@@ -2811,7 +2825,8 @@ public sealed class CmdSession
         // The word comes first and the title is the rest of the line. Options may sit on either side of the word, since a
         // title is free text and the parser leaves everything after the command alone.
         var rest = line.Rest.Trim();
-        var after = new HashSet<string>(StringComparer.Ordinal);
+        // Each option read here with its value: -inspect:3 says how many runs, not only that it is there.
+        var after = new Dictionary<string, string>(StringComparer.Ordinal);
         string Next()
         {
             var space = rest.IndexOf(' ');
@@ -2825,7 +2840,7 @@ public sealed class CmdSession
             var space = rest.IndexOf(' ');
             var word = space < 0 ? rest : rest[..space];
             if (CmdCatalog.Option(word) is not { } read || !line.Command.OptionNames.Contains(read.Option.Name)) return false;
-            after.Add(read.Option.Name);
+            after[read.Option.Name] = read.Value;
             Next();
             return true;
         }
@@ -2835,7 +2850,7 @@ public sealed class CmdSession
         // Quotes keep a title that is spelled like one of the words; they are never needed otherwise.
         if (rest.Length >= 2 && rest.StartsWith('"') && rest.EndsWith('"')) rest = rest[1..^1];
         bool Has(string option) => line.Has(option)
-            || (CmdCatalog.Option(option) is { } known && after.Contains(known.Option.Name));
+            || (CmdCatalog.Option(option) is { } known && after.ContainsKey(known.Option.Name));
         // -copy may stand after the word as well, so the printing branches read it from here.
         copy = copy || Has("-copy");
         var title = rest;
@@ -2857,7 +2872,9 @@ public sealed class CmdSession
         {
             case "create":
             case "write":
-                NewReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), Has("-force"), Has("-proceed"));
+                if (line.Options.TryGetValue("-inspect", out var which) || after.TryGetValue("-inspect", out which))
+                    InspectReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), which, Has("-force"), Has("-proceed"));
+                else NewReport(title, verb.Equals("create", StringComparison.OrdinalIgnoreCase), Has("-force"), Has("-proceed"));
                 return;
             case "colon":
                 Show([.. EditorCommands.Select(each => $"  {each.Command,-12}{each.Means}")], copy);
@@ -2955,6 +2972,45 @@ public sealed class CmdSession
             {
                 if (!answer) { Write("Nothing was replaced."); return; }
                 Edit(title, []);
+            });
+    }
+
+    /// <summary>
+    /// report -inspect[:n|*] create / write <title>: writes what link inspect found into a note (user rule). create starts the note with
+    /// it, write adds it below what the note holds; n is how many of the latest runs (1, the last one, when nothing follows),
+    /// * every run kept since the app opened.
+    /// </summary>
+    private void InspectReport(string title, bool creating, string? which, bool force, bool yes)
+    {
+        var word = creating ? "create" : "write";
+        if (title.Length == 0) { Write($"report {word} <title> -inspect needs a title."); return; }
+        var count = which is null or "" ? 1 : which == "*" ? 0 : int.Parse(which, System.Globalization.CultureInfo.InvariantCulture);
+        if (_host.InspectLines(count) is not { } found) { Write("No inspect run is kept. link inspect makes one."); return; }
+        var lines = found.ToArray();
+        var existing = _host.ReadReport(title, out var problem);
+        if (problem is { } reason) { Write(reason); return; }
+        void Save(IReadOnlyList<string> text, string done)
+        {
+            if (_host.WriteReport(title, text) is { } failed) { Write(failed); return; }
+            Write(done);
+        }
+        if (!creating)
+        {
+            if (existing is null) { Write($"There is no note called \"{title}\". report -inspect create {title} starts one."); return; }
+            Save([.. existing, "", .. lines], $"Added {lines.Length} lines of inspect results below \"{title}\".");
+            return;
+        }
+        if (existing is null) { Save(lines, $"Wrote {lines.Length} lines of inspect results to \"{title}\"."); return; }
+        if (!force)
+        {
+            Write($"\"{title}\" is already there. report -inspect write {title} adds to it, or report -inspect create -force {title} replaces it.");
+            return;
+        }
+        Confirm(yes, $"Replace \"{title}\" ({existing.Count} lines) with the inspect results?",
+            answer =>
+            {
+                if (!answer) { Write("Nothing was replaced."); return; }
+                Save(lines, $"Replaced \"{title}\" with {lines.Length} lines of inspect results.");
             });
     }
 

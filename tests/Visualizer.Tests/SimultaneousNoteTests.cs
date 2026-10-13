@@ -148,8 +148,10 @@ internal static class SimultaneousNoteTests
             NoRepeat(mixed);
             Assert(mixed[3].Lanes[0] - mixed[4].Lanes[0] == 1 && mixed[4].Lanes[0] != 2, "A 2K trill rolls on an outer pair: " + Text(mixed));
 
-            // Trills among singles at 2K and 4K pace (user rules): every trill rolls right to left on a pair it may take,
-            // two trills in a row take two pairs (not 1-2 1-2), and the single after a trill sits beside it (1-2 3, 3-4 2).
+            // Trills among singles at 2K and 4K pace (user rules): every trill rolls right to left, the center pair only
+            // where it carries the run on from the note before it (4 3-2), two trills in a row take two pairs (not 1-2 1-2),
+            // and the single after a trill sits beside it on the side the roll ran to (4-3 2); after a roll into the edge
+            // (2-1) the pattern simply goes on, so no lane drops out of the cycle (4 3-2 1 4, not 2-1 3).
             var units = "TTSTSSTTTSTSTTSS";
             var paces = new[] { 300d, 220, 100, 160 };
             var flowTimes = new List<double>();
@@ -165,15 +167,17 @@ internal static class SimultaneousNoteTests
                 if (trill)
                 {
                     var (first, second) = (flow[i].Lanes[0], flow[i + 1].Lanes[0]);
-                    Assert(first - second == 1 && second != 2, $"A trill rolls right to left on an outer pair at {flow[i].Time}: " + Text(flow));
+                    Assert(first - second == 1, $"A trill rolls right to left at {flow[i].Time}: " + Text(flow));
+                    Assert(second != 2 || (i > 0 && flow[i - 1].Lanes[0] - first == 1),
+                        $"A trill on the center pair carries the run on at {flow[i].Time}: " + Text(flow));
                     Assert(lastTrill is null || lastTrill.Min() != second, $"Two trills in a row take two pairs at {flow[i].Time}: " + Text(flow));
                     lastTrill = [first, second];
                     i++;
                     continue;
                 }
                 if (lastTrill is { } pair)
-                    Assert(pair.Any(lane => Math.Abs(lane - flow[i].Lanes[0]) == 1) && !pair.Contains(flow[i].Lanes[0]),
-                        $"The single after a trill sits beside it at {flow[i].Time}: " + Text(flow));
+                    Assert(pair[1] > 1 ? flow[i].Lanes[0] == pair[1] - 1 : !pair.Contains(flow[i].Lanes[0]),
+                        $"The single after a trill sits beside it on the side the roll ran to at {flow[i].Time}: " + Text(flow));
                 lastTrill = null;
             }
 
@@ -189,6 +193,139 @@ internal static class SimultaneousNoteTests
             foreach (var trills in new[] { 40d, 0 })
                 NoRepeat(Events(generator.Generate(mixedTimes, settings with { TrillWindowMs = trills })));
         });
+        yield return ("Difficult patterns from the user's charts are gone: quick returns, a lane after a chord, rolls at the edge", () =>
+        {
+            // User report (memo "난해한 패턴들", Wont Let You Go and PLUM MEGAMIX 2), on the user's own layout: tiles 3 4 5 6 played
+            // 6 to 3, so lanes 4 to 1, 2K on the center pair. A lane that comes back within twice the 4K boundary while another
+            // lane sat free is hard to play; so is a single after a chord that is not beside it, and a trill that skips a lane.
+            var generator = new NoteGenerator();
+            var settings = new VisualizerSettings { FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", MaximumTileCount = 4, InitialTile = 5,
+                SimultaneousWindowMs = 20, TrillWindowMs = 40, NoTrillCenterPair = true, MagicCircleFixedTiles = false, NextIntervalTiles = true,
+                FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, EightKeyBoundaryMs = 29, SixKeyBoundaryMs = 30, DownshiftNoteCount = 3 };
+            var quick = 2 * settings.FourKeyBoundaryMs;
+            (double Time, int[] Lanes)[] Events(IReadOnlyList<VisualizerNote> notes) => notes
+                .GroupBy(note => note.HitTimeMs).Select(group => (group.Key, group.Select(note => note.Tile - 2).Order().ToArray())).ToArray();
+            string Show((double Time, int[] Lanes)[] events) => string.Join(" ", events.Select(e => string.Join("-", e.Lanes)));
+            // No single comes back to a lane within the quick window while another lane has rested longer, with at most four
+            // notes in that window (five on four lanes have to repeat one).
+            void NoQuickReturn((double Time, int[] Lanes)[] events, string what)
+            {
+                for (var i = 1; i < events.Length; i++)
+                {
+                    if (events[i].Lanes.Length != 1) continue;
+                    var lane = events[i].Lanes[0];
+                    var last = Array.FindLastIndex(events, i - 1, i, e => e.Lanes.Contains(lane));
+                    if (last < 0 || events[i].Time - events[last].Time >= quick) continue;
+                    if (Enumerable.Range(last, i - last).Any(j => events[j].Lanes.Length != 1)) continue;
+                    if (events.Count(e => e.Time > events[i].Time - quick && e.Time <= events[i].Time) > 4) continue;
+                    var rested = Enumerable.Range(1, 4).Any(other => other != lane
+                        && Array.FindLastIndex(events, i - 1, i, e => e.Lanes.Contains(other)) is var at && (at < 0 || events[at].Time < events[last].Time));
+                    Assert(!rested, $"{what}: lane {lane} comes back after {events[i].Time - events[last].Time:0} ms with another lane free: {Show(events)}");
+                }
+            }
+
+            // 2K that suddenly speeds up (Wont Let You Go, 37 s): 2 3 2 3 at 43 ms left lanes 1 and 4 empty. The gaps around a note
+            // add up to less than twice the 4K boundary, so 4K starts on that note instead of at the end of the 2K cycle.
+            var burst = new[] { 0d, 171, 342, 513, 599, 642, 685, 856, 1027 };
+            NoQuickReturn(Events(generator.Generate(burst, settings)), "2K burst");
+            // Both gaps: a note between a fast gap and a slow one is as busy as the fast side, wherever it is. At the end of the
+            // 2K cycle the note after the 50 ms gap asks for 4K that way, where the gap after it alone keeps 2K.
+            var gaps = new[] { 0d, 300, 350, 650, 950 };
+            Equal(generator.Generate(gaps, settings with { BothIntervalTiles = true })[2].Mode, 4);
+            Equal(generator.Generate(gaps, settings)[2].Mode, 2);
+
+            // Restarting the pattern on a run (experimental) never brings the lane just played back that soon (3 2 | 4 3 2).
+            var runs = settings with { ExperimentalFeatures = true, RestartPatternOnRun = true };
+            var stream = new[] { 0d, 94, 188, 282, 376, 470, 564, 658, 752, 846, 940, 1034, 1128, 1222, 1410, 1504, 1598, 1692, 1786 };
+            NoQuickReturn(Events(generator.Generate(stream, runs)), "run restart");
+
+            // A single after a chord sits beside it, even where the run after the chords starts the pattern again (1-2 4 read
+            // 1-2 3 in Wont Let You Go, 60 s).
+            var afterChord = new[] { 0d, 5, 171, 176, 342, 347, 513, 518, 684, 770, 856, 942, 1028 };
+            var placed = Events(generator.Generate(afterChord, runs));
+            var chordAt = Array.FindLastIndex(placed, e => e.Lanes.Length == 2);
+            Assert(placed[chordAt + 1].Lanes[0] is var next && placed[chordAt].Lanes.Any(lane => Math.Abs(lane - next) == 1),
+                "The single after the chord sits beside it: " + Show(placed));
+
+            // Trills about 190 ms apart take turns (4-3 2-1 4-3), never coming back to the pair just played (MEGAMIX 2, 122 s).
+            var trills = new[] { 0d, 31, 187, 218, 374, 405, 561, 592, 748, 779 };
+            var rolled = Events(generator.Generate(trills, settings));
+            NoQuickReturn(rolled, "trills in a row");
+
+            // At the far edge a roll goes back the other way (user rule) instead of jumping back up: 4 3 2 1 then 2-3, not 4-3.
+            var edge = Events(generator.Generate(new[] { 0d, 56, 112, 168, 224, 252, 280 }, settings));
+            Assert(!(edge[3].Lanes[0] == 1 && edge[4].Lanes[0] == 4), "No jump back up after the edge: " + Show(edge));
+        });
+
+        yield return ("Enhanced chord rules keep a chord in place among singles, by how many singles there are", () =>
+        {
+            // User rule (ネコーン - 俳徹句): chords and singles taking turns, the chord jumping between 1-2 and 3-4. Experimental and
+            // off by default: with it, every chord keeps the first one's lanes and the singles sit beside it.
+            var generator = new NoteGenerator();
+            var settings = new VisualizerSettings { FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", MaximumTileCount = 4, InitialTile = 5,
+                SimultaneousWindowMs = 20, TrillWindowMs = 40, MagicCircleFixedTiles = false, NextIntervalTiles = true,
+                FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, EightKeyBoundaryMs = 29, SixKeyBoundaryMs = 30,
+                ExperimentalFeatures = true, EnhancedChordRules = true };
+            (double Time, int[] Lanes)[] Events(IReadOnlyList<VisualizerNote> notes) => notes
+                .GroupBy(note => note.HitTimeMs).Select(group => (group.Key, group.Select(note => note.Tile - 2).Order().ToArray())).ToArray();
+            string Show((double Time, int[] Lanes)[] events) => string.Join(" ", events.Select(e => string.Join("-", e.Lanes)));
+            // A chord every (singles + 1) steps of 102 ms, singles between.
+            double[] Times(int singles, int chords, double step)
+            {
+                var list = new List<double>();
+                var t = 0d;
+                for (var c = 0; c < chords; c++)
+                {
+                    list.Add(t); list.Add(t + 5); t += step;
+                    for (var s = 0; s < singles; s++) { list.Add(t); t += step; }
+                }
+                list.Add(t); list.Add(t + 5);
+                return list.ToArray();
+            }
+            foreach (var singles in new[] { 1, 2, 3 })
+            {
+                var events = Events(generator.Generate(Times(singles, 6, 102), settings));
+                var chords = events.Where(e => e.Lanes.Length == 2).Select(e => string.Join("-", e.Lanes)).Distinct().ToArray();
+                Equal(chords.Length, 1);
+                var pair = events.First(e => e.Lanes.Length == 2).Lanes;
+                Assert(events.Where(e => e.Lanes.Length == 1).All(e => !pair.Contains(e.Lanes[0])), $"{singles} singles keep off the chord: {Show(events)}");
+                // The single right after each chord is beside it.
+                for (var i = 0; i + 1 < events.Length; i++)
+                    if (events[i].Lanes.Length == 2 && events[i + 1].Lanes.Length == 1)
+                        Assert(pair.Any(lane => Math.Abs(lane - events[i + 1].Lanes[0]) == 1), $"Beside the chord: {Show(events)}");
+            }
+            // Three singles faster than the 4K boundary alternate: 1-2 3 4 3 1-2 4 3 4.
+            var fast = Events(generator.Generate(Times(3, 4, 85), settings));
+            var groups = new List<string>();
+            for (var i = 0; i + 3 < fast.Length; i++)
+                if (fast[i].Lanes.Length == 2 && fast[i + 1].Lanes.Length == 1 && fast[i + 2].Lanes.Length == 1 && fast[i + 3].Lanes.Length == 1)
+                    groups.Add($"{fast[i + 1].Lanes[0]}{fast[i + 2].Lanes[0]}{fast[i + 3].Lanes[0]}");
+            Assert(groups.Count >= 2 && groups[0] != groups[1] && groups.All(g => g[0] == g[2]), "Fast threes alternate: " + Show(fast));
+            // Off (the default), nothing of this applies: the chord is placed by the usual rules.
+            Assert(!new VisualizerSettings().UseEnhancedChordRules, "Off by default");
+        });
+
+        yield return ("Trills keep the run going: the center pair when it must, the edge, and a single that leads a trill", () =>
+        {
+            // User rules, on the user's own layout (tiles 3 4 5 6, played 6 to 3, lanes 4 to 1 below): a trill may take the
+            // center pair, but only where every other pair breaks the run; after a roll into the edge the pattern goes on, so
+            // no lane drops out of the cycle; and a single that a trill follows closely leads the roll (4 3-2, not 2 4-3).
+            var generator = new NoteGenerator();
+            var settings = new VisualizerSettings { FourKeyPattern = "3 4 5 6", MaximumTileCount = 4, DynamicTiming = false,
+                SimultaneousWindowMs = 0, TrillWindowMs = 40, NoTrillCenterPair = true, MagicCircleFixedTiles = false, InitialTile = 6 };
+            int[] Lanes(double[] times, VisualizerSettings? other = null) =>
+                generator.Generate(times, other ?? settings).Select(note => note.Tile - 2).ToArray();
+            // A single with a trill close after it heads a roll off the center first (user rule, in this order: 3 2-1, then
+            // 4 3-2 on the center only where no tile heads such a roll, and 4 2-1 never).
+            Sequence(Lanes([0, 80, 110, 220]), 3, 2, 1, 4);
+            // A roll into the edge, 2-1, and the single after it goes on to 4 (not back to 3: 4 3 2-1 3 left 4 out).
+            Sequence(Lanes([0, 100, 160, 190, 300]), 4, 3, 2, 1, 4);
+            // A single just before a trill heads the roll: 4 3-2 rather than 2 4-3.
+            Sequence(Lanes([0, 300, 400, 460, 490]), 4, 3, 4, 3, 2);
+            // With no run before it a trill keeps off the center pair, as before: starting on 3, it rolls 2-1.
+            Sequence(Lanes([0, 30, 1000, 1030], settings with { InitialTile = 5 }), 2, 1, 4, 3);
+        });
+
         yield return ("Wide chords split into two-note chords plus the latest single", () =>
         {
             var generator = new NoteGenerator();

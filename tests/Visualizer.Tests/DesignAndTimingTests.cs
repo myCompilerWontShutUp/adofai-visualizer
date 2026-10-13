@@ -12,7 +12,7 @@ using static Visualizer.Tests.Program;
 namespace Visualizer.Tests;
 
 /// <summary>
-/// App 0.1.2 settings: magic circle sections and their timing bar, the one-time press calibration, the note and long note
+/// Magic circle sections and their timing bar, the one-time press calibration, the note and long note
 /// width scales with the transparency of a hit note, and the single lane press color.
 /// </summary>
 internal static class DesignAndTimingTests
@@ -43,6 +43,23 @@ internal static class DesignAndTimingTests
             // A chord shares one display time, so it counts as one note of the run.
             var chord = steady.Take(19).Append(new VisualizerNote(1800, 4, 2, true)).OrderBy(n => n.HitTimeMs).ToList();
             Equal(MagicCircleFinder.Find(chord, on).Single().IntervalMs, 100d);
+            // Chords in magic circles (user rule): on by default. Off, chords and singles never share a run, so a chord in
+            // the middle of 20 singles leaves two runs too short to count...
+            Equal(new VisualizerSettings().MagicCircleChords, true);
+            var apart = on with { MagicCircleChords = false };
+            var middle = Enumerable.Range(0, 20).Select(i => new VisualizerNote(i * 100d, 1 + i % 4, 4, i == 10))
+                .Append(new VisualizerNote(1000, 2, 4)).OrderBy(n => n.HitTimeMs).ToList();
+            Equal(MagicCircleFinder.Find(middle, on).Count, 1);
+            Equal(MagicCircleFinder.Find(middle, apart).Count, 0);
+            // ...while a run of chords alone still is one, each chord being one note.
+            var chordsOnly = Enumerable.Range(0, 20).SelectMany(i => new[] { new VisualizerNote(i * 100d, 1, 4, true), new VisualizerNote(i * 100d, 2, 4) }).ToList();
+            Equal(MagicCircleFinder.Find(chordsOnly, apart).Single().IntervalMs, 100d);
+            // The same marks while notes are prepared: one per display time.
+            var groupTimes = Enumerable.Range(0, 20).Select(i => i * 100d).ToArray();
+            var groupChords = Enumerable.Range(0, 20).Select(i => i == 10).ToArray();
+            Equal(MagicCircleFinder.Find(groupTimes, apart, groupChords).Count, 0);
+            Equal(MagicCircleFinder.Find(groupTimes, on, groupChords).Count, 1);
+            Throws<ArgumentException>(() => MagicCircleFinder.Find(groupTimes, apart, [true]));
             foreach (var invalid in new[] { 15, 0, -1 })
                 Throws<ArgumentException>(() => (on with { MagicCircleNoteCount = invalid }).EnsureValid());
             foreach (var invalid in new[] { -1d, double.NaN })
@@ -52,6 +69,9 @@ internal static class DesignAndTimingTests
             Assert(visual.HasSameNoteRulesAs(visual with { MagicCircleNoteCount = 99, MagicCircleLeadMs = 0, MagicCircleJudgmentLine = false }),
                 "The bar never changes the notes");
             Assert(!visual.HasSameNoteRulesAs(visual with { MagicCircleFixedTiles = true }), "Holding the tile count is a note rule");
+            Assert(visual.HasSameNoteRulesAs(visual with { MagicCircleChords = false }), "Without fixed tiles, which runs count is visual");
+            var fixedTiles = on with { MagicCircleFixedTiles = true };
+            Assert(!fixedTiles.HasSameNoteRulesAs(fixedTiles with { MagicCircleChords = false }), "With fixed tiles it moves notes");
 
             // The song info counts the sections, but only while the bar is switched on.
             var model = new Visualizer.App.ViewModels.MainViewModel();
@@ -192,8 +212,9 @@ internal static class DesignAndTimingTests
         yield return ("Trills put two close singles on one lane pair, after the chords and with their own rules", () =>
         {
             // User request: two single notes inside the trill window are played with two fingers, so they take the two
-            // lanes of a pair. Chords are grouped first (their window wins), the center pair is refused on four lanes and
-            // the preference picks the pair; a trill is not colored differently.
+            // lanes of a pair. Chords are grouped first (their window wins), the center pair is the last resort on four lanes
+            // (taken only where every other pair breaks a run) and the preference picks the pair; a trill is not colored
+            // differently.
             var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 20, MagicCircleFixedTiles = false };
             Equal(settings.TrillWindowMs, 40d);
             Equal(settings.NoTrillCenterPair, true);
@@ -207,9 +228,10 @@ internal static class DesignAndTimingTests
 
             var generator = new NoteGenerator();
             int[] Tiles(IEnumerable<VisualizerNote> notes) => notes.Select(note => note.Tile).ToArray();
-            // 0 and 30ms: past the chord window, inside the trill window. The cursor would put them on 5 and 4, which is
-            // the pair across the center, so the pattern skips a step and rolls 4-3 in its own direction (user rule: on a
-            // 6-5-4-3 pattern a trill reads 4-3 or 6-5, never 5-6). The next trill opens the next pair.
+            // 0 and 30ms: past the chord window, inside the trill window. The cursor would put them on 5 and 4, the pair
+            // across the center; with no run before them to carry on, the pattern skips a step and rolls 4-3 in its own
+            // direction (user rule: on a 6-5-4-3 pattern a trill reads 4-3 or 6-5, never 5-6). The next trill opens the
+            // next pair.
             var trill = generator.Generate(new[] { 0d, 30, 1000, 1030 }, settings);
             Assert(trill.All(note => !note.StartsChord), "A trill is two notes, not a chord");
             Sequence(Tiles(trill), 4, 3, 6, 5);
@@ -327,6 +349,23 @@ internal static class DesignAndTimingTests
             Assert(Shows(fromCheckpoint, settings.StartNoteColor) && !Shows(fromCheckpoint, settings.CheckpointColor),
                 "The checkpoint note that starts the play wears the start color");
             Assert(Shows(fromCheckpoint, settings.EndNoteColor) && !Shows(fromCheckpoint, settings.NoteColor), "and the other is the last note");
+
+            // Pressed, they keep their colors (user rule): the start press marks the first note as played, and with a strong
+            // press transparency the play's first note faded the moment it began, so its color was never seen (user report).
+            var clock = new Clock();
+            // Two colors of their own, or the last note on screen would pass for the first.
+            var faded = settings with { PressedNoteTransparencyPercent = 80, StartNoteColor = "255, 79, 216", EndNoteColor = "255, 150, 30" };
+            var played = new PlaybackSession(clock) { Presses = new NotePressJudge() };
+            played.LoadParsedTimeline(timeline, faded);
+            played.Toggle();
+            played.Start();
+            Equal(played.Presses.Press(played, played.Notes[0].Tile, faded.KeyPressWindowMs), (int?)0);
+            clock.NowMs = 50;
+            Assert(Shows(Render(new NoteField { Session = played, Judge = played.Presses }), faded.StartNoteColor), "The start note keeps its color");
+            clock.NowMs = 3000;
+            Equal(played.Presses.Press(played, played.Notes[^1].Tile, faded.KeyPressWindowMs), (int?)(played.Notes.Count - 1));
+            clock.NowMs = 3050;
+            Assert(Shows(Render(new NoteField { Session = played, Judge = played.Presses }), faded.EndNoteColor), "So does the last one");
         });
 
         yield return ("Press calibration shifts the display once, within the press window", () =>

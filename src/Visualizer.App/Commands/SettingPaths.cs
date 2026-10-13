@@ -111,6 +111,7 @@ public static class SettingPaths
             new("timing", "calibration", nameof(VisualizerSettings.CalibrationNoteCount), Whole, "notes"),
             new("magic", "notes", nameof(VisualizerSettings.MagicCircleNoteCount), Whole, "notes"),
             new("magic", "max-interval", nameof(VisualizerSettings.MagicCircleMaxIntervalMs), Number, "ms"),
+            new("magic", "chords", nameof(VisualizerSettings.MagicCircleChords), Toggle),
             new("magic", "fade-in", nameof(VisualizerSettings.MagicCircleFadeInMs), Number, "ms"),
             new("magic", "lead", nameof(VisualizerSettings.MagicCircleLeadMs), Number, "ms"),
             new("magic", "fade-out", nameof(VisualizerSettings.MagicCircleFadeOutMs), Number, "ms"),
@@ -137,12 +138,14 @@ public static class SettingPaths
             new("advanced", "experimental", nameof(VisualizerSettings.ExperimentalFeatures), Toggle),
             new(ExperimentalSection, "chord-before", nameof(VisualizerSettings.ChordAvoidBeforeLanes), Toggle),
             new(ExperimentalSection, "run-restart", nameof(VisualizerSettings.RestartPatternOnRun), Toggle),
+            new(ExperimentalSection, "enhanced-chords", nameof(VisualizerSettings.EnhancedChordRules), Toggle),
             new("advanced", "extra-lanes", nameof(VisualizerSettings.ExtraLanes), Toggle),
             new("advanced", "slowdown", nameof(VisualizerSettings.SlowNotesPastJudgmentLine), Toggle),
             new("advanced", "tile-order", nameof(VisualizerSettings.EnableTilePreference), Toggle),
             new("advanced", "chord-lanes", nameof(VisualizerSettings.ChordSectionLanes), Toggle),
             new("advanced", "keep-speed", nameof(VisualizerSettings.KeepSpeedOnLoad), Toggle),
             new("advanced", "next-gap", nameof(VisualizerSettings.NextIntervalTiles), Toggle),
+            new("advanced", "both-gaps", nameof(VisualizerSettings.BothIntervalTiles), Toggle),
             new("timing", "pause-align", nameof(VisualizerSettings.AlignNextNoteOnPause), Toggle),
             new("advanced", "map-folder", nameof(VisualizerSettings.MapRootDirectory), Folder),
             new("advanced", "data-folder", nameof(VisualizerSettings.DataRootDirectory), DataFolder),
@@ -325,7 +328,8 @@ public static class SettingPaths
             nameof(VisualizerSettings.DownshiftNoteCount) => settings.ImmediateDownshift ? null : "Locked while tiles.instant-down is false.",
             nameof(VisualizerSettings.MagicCircleNoteCount) or nameof(VisualizerSettings.MagicCircleMaxIntervalMs)
                 or nameof(VisualizerSettings.MagicCircleFadeInMs) or nameof(VisualizerSettings.MagicCircleLeadMs)
-                or nameof(VisualizerSettings.MagicCircleFadeOutMs) or nameof(VisualizerSettings.MagicCircleFixedTiles) =>
+                or nameof(VisualizerSettings.MagicCircleFadeOutMs) or nameof(VisualizerSettings.MagicCircleFixedTiles)
+                or nameof(VisualizerSettings.MagicCircleChords) =>
                 settings.MagicCircleJudgmentLine ? null : "Locked while magic.line is false.",
             nameof(VisualizerSettings.MagicCircleTileCount) => settings.UseMagicCircleTiles ? null : "Locked while magic.line or magic.fixed is false.",
             nameof(VisualizerSettings.ExtraLanes) => settings.CanUseExtraLanes ? null : "Locked: side lanes work only while tiles.max is 2, 4 or 6.",

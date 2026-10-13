@@ -90,7 +90,7 @@ internal static class CheckpointControlTests
             plain.ResetFromKey(true);
             Equal(plain.Checkpoint, 1);
             Equal(plain.Playback.State, PlaybackState.Waiting);
-            // The notice is in the playback notify list, or the screen would keep the last answer (0.9.2 lesson).
+            // The notice is in the playback notify list, or the screen would keep the last answer.
             Assert(MainViewModel.PlaybackNames.Contains(nameof(MainViewModel.ShowSongEndNotice))
                 && MainViewModel.PlaybackNames.Contains(nameof(MainViewModel.ShowLastCheckpointButton)),
                 "Both are raised with the playback bindings");

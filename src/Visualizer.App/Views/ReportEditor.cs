@@ -68,7 +68,12 @@ public sealed class ReportEditor : Grid
         _status.SetResourceReference(TextBlock.BackgroundProperty, "SurfaceBrush");
         _text.TextChanged += (_, _) => ShowStatus();
         _text.SelectionChanged += (_, _) => ShowStatus();
-        _text.PreviewKeyDown += (_, e) => { if (Press(e.Key, Keyboard.Modifiers)) e.Handled = true; };
+        _text.PreviewKeyDown += (_, e) =>
+        {
+            // Ctrl+T is read through the input method, which is on here for writing in Hangul; the rest stays as typed.
+            if (CmdWindow.IsShortcut(e)) { e.Handled = true; ToggleConsole?.Invoke(); }
+            else if (Press(e.Key, Keyboard.Modifiers)) e.Handled = true;
+        };
         // While the text is read only the typed letters are the editor's own: ":" opens the command line, and an answer
         // to a question is one letter.
         _text.PreviewTextInput += (_, e) =>
@@ -77,7 +82,6 @@ public sealed class ReportEditor : Grid
         };
     }
 
-    /// <summary>The note's title, shown in the line at the bottom.</summary>
     public string Title { get; private set; } = "";
 
     /// <summary>
@@ -104,7 +108,6 @@ public sealed class ReportEditor : Grid
     /// <summary>Removes the note; the text says what happened, null when it went.</summary>
     public Func<string?>? Delete { get; set; }
 
-    /// <summary>Closes the editor and goes back to the console.</summary>
     public Action? Leave { get; set; }
 
     /// <summary>Puts text on the clipboard, which is what <c>:copy</c> does with the note.</summary>

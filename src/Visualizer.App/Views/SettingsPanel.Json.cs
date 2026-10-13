@@ -60,7 +60,7 @@ public partial class SettingsPanel
         foreach (var (button, style) in new[] { (_exportButton, "ToolButton"), (_importButton, "ToolButton"),
                      (_resetButton, "DangerButton"), (_jsonApply, "PrimaryButton"), (_jsonCancel, "ToolButton") })
             button.SetResourceReference(StyleProperty, style);
-        // Four buttons share one row, so they carry less side padding than the style gives; the labels were clipped before.
+        // The buttons share one row, so they carry less side padding than the style gives, or their labels clip.
         foreach (var button in new[] { _exportButton, _importButton, _resetButton })
             button.Padding = new Thickness(4, 0, 4, 0);
         _exportButton.Click += (_, _) => ExportJson();

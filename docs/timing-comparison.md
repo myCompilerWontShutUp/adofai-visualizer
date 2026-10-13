@@ -1,89 +1,37 @@
-# 타이밍 대조 결과와 실제 플레이 확인
+# 타이밍 대조
 
-## 완료한 계산 대조
+세 가지를 구분합니다: **자동 테스트**, **독립 기준 계산 대조**(이 문서), **게임 자체와의 대조**(게임 링크 `link tiles`, [게임 동기화](game-sync-plan.md))와 실제 플레이.
 
-2026-09-13, 사용자가 지정한 Workshop 맵 네 곡의 전체 8,113개 hit를 독립 기준 계산과 대조했습니다. 처음부터 및 체크포인트를 시작점으로 잡은 24개 구간의 상대 시각도 확인했습니다.
+## 독립 기준 계산기
 
-| 곡 | hit 수 | 시작 구간 수 | 최대 hit 시각 차이 | 최대 인접 간격 차이 | 최대 재시작 구간 차이 |
-|---|---:|---:|---:|---:|---:|
-| Plum - R | 726 | 7 | 0.000126ms | 0.000019ms | 0.000126ms |
-| RUSH E | 1357 | 1 | 0.000655ms | 0.000159ms | 0.000655ms |
-| HeHeHe | 3310 | 1 | 0.011603ms | 0.000079ms | 0.011603ms |
-| Machinegun Psystyle | 2720 | 15 | 0.000639ms | 0.000058ms | 0.000639ms |
+`tests/Visualizer.Tests/GameRuleTimingComparison.cs`는 운영 파서를 부르지 않는 테스트 전용 계산기입니다. 설치된 `Assembly-CSharp.dll`을 ReflectionOnly로 읽어 확인한 규칙을 float/radian으로 따로 구현합니다(파서는 double/degree).
 
-2026-09-22(앱 0.6.6), 사용자 제보로 Tanchiky - ENERGY SYNERGY MATRIX(Workshop 3481210158, 형식 15) 한 곡을 프로젝트 안 임시 사본으로 같은 방식으로 대조했습니다.
+- `scrLevelMaker.InstantiateFloatFloors`: float 각도에서 radian 입·출구 각도, 중간 회전.
+- `scnGame.ApplyCoreEventsToFloors`: BPM 배율, 회전 방향, Pause·Hold·FreeRoam 추가 박자.
+- `scrLevelMaker.CalculateFloorEntryTimes`: floor별 도착 시간 누적, 거의 0/360도 처리.
+- `scrMisc.GetTimeBetweenAngles` / `GetAngleMoved`: 게임 radian 상수·modulo·BPM 환산.
+- hit 종류(자동·hold 시작·hold 끝)도 따로 계산해 대조합니다.
 
-| 곡 | hit 수 | 시작 구간 수 | 최대 hit 시각 차이 | 최대 인접 간격 차이 | 최대 재시작 구간 차이 |
-|---|---:|---:|---:|---:|---:|
-| ENERGY SYNERGY MATRIX (수정 후) | 707 | 5 | 0.000627ms | 0.000020ms | 0.000627ms |
+확인한 게임 DLL 해시가 다르면 비교를 거부합니다. 양쪽 모두 첫 hit를 원점으로 맞추므로 음악 offset·카운트다운은 비교 대상이 아닙니다. 출구 각도 곱은 double로 유지합니다(Search Party 헤어핀을 사용자가 게임에서 확인 — IL 근거가 아님). **같은 IL을 읽은 구현이라 같은 누락을 공유할 수 있으므로**(いますぐ輪廻), 대조 통과는 게임 실행 시각과 맞는다는 뜻이 아닙니다.
 
-수정 전 파서는 중간 회전 뒤에 남는 3.2e-6° 회전 5곳(floor 160·500·504·644·741)을 0으로 계산해, 기준 계산(게임과 같은 1e-6 rad 한 바퀴 규칙)보다 곳마다 375ms씩, 곡 끝에서는 1875ms 앞서 있었습니다. 기준 계산기는 처음부터 게임 규칙을 따르고 있었으나 이 곡은 대조한 적이 없었습니다.
+허용 기준은 1ms입니다. 지금까지 대조한 곡(Plum - R, RUSH E, HeHeHe, Machinegun Psystyle, Megamix, Search Party, ENERGY SYNERGY MATRIX, Up In My Jam, 정령의 성, いますぐ輪廻 등)은 모두 최대 차이 0.012ms 이하입니다. **2026-10-12 Workshop 전체(63파일, 사용자 요청)**: 58곡 대조, 57곡 1ms 안(최대 0.08ms, He_He_He main). 계산기에 없던 규칙을 따로 넣음 — 쉼표 생략·여분 쉼표, Toggle 문자열(`"Enabled"`), 미드스핀을 건너는 롱노트와 연속 롱노트(`HoldChain`), pitch(곡 시계 = 실제 × pitch). THE END OF HATSUNE MIKU(3011005213)는 그때 최대 3000.8ms(계산기에 MultiPlanet이 없었음) → 게임 자체 타일 시각으로 파서의 3행성 부호 오류를 찾아 고친 뒤 게임과 1450개 hit 오프셋 동일, 계산기(IL 그대로 MultiPlanet 추가)와 최대 0.002ms(2026-10-12, 이 곡의 로컬 사본만). PLUM MEGAMIX 2(2924697157)는 게임이 보낸 타일 시각 6545개와 오프셋 퍼짐 0.0ms(게임 값 대조). なきそ - いますぐ輪廻는 20ms 안에 hit 5개가 몰린 곳(62.9초)에서 기본 4레인 배치가 멈춤(규칙대로, 앱은 넓은 레인을 제안). 원본 63개 SHA-256·수정 시각 불변.
 
-2026-09-23(앱 0.6.7), 사용자 요청으로 Kubbi & Jonas Dam - Up In My Jam(Workshop 3012378858, 형식 13) 한 곡을 같은 방식으로 대조했습니다. 자동 FreeRoam 구간(floor 206, duration 64)과 자동 타일로 이어지는 Hold(floor 205)를 지원한 뒤 처음 불러와진 곡입니다.
-
-| 곡 | hit 수 | 누르는 노트 수 | 체크포인트 | 최대 hit 시각 차이 | 최대 인접 간격 차이 | 최대 재시작 구간 차이 | 최대 체크포인트 활성화 차이 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Up In My Jam | 451 | 407 | 7 | 0.000290ms | 0.000040ms | 0.000290ms | 0.000232ms |
-
-기준 계산기의 FreeRoam 규칙은 파서와 같은 IL(`ApplyCoreEventsToFloors` 이벤트 44)에서 따로 옮긴 것이라, 이 대조는 두 구현이 같은 규칙을 같게 계산한다는 뜻이지 게임 실행 시각과 맞춘 것이 아닙니다. 원본은 SHA-256·수정 시각이 그대로였고 임시 사본은 검사 뒤 지웠습니다.
-
-2026-09-23(앱 0.6.8), 사용자 제보로 두 곡을 같은 방식으로 대조했습니다. 곡마다 프로젝트 안 임시 사본을 썼고 검사 뒤 지웠습니다.
-
-| 곡 | hit 수 | 체크포인트 | 최대 hit 시각 차이 | 최대 인접 간격 차이 | 최대 재시작 구간 차이 |
-|---|---:|---:|---:|---:|---:|
-| ToTheMoon - 정령의 성(형식 3, 처음 지원) | 977 | 0 | 0.000330ms | 0.000086ms | 0.000330ms |
-| なきそ (NAKISO) - いますぐ輪廻(꺼진 SetSpeed 수정 후) | 1308 | 0 | 0.001098ms | 0.000044ms | 0.001098ms |
-
-- いますぐ輪廻는 수정 전에도 두 구현이 같았습니다. 둘 다 `"active": false`를 읽지 않았기 때문입니다. 그래서 이 대조로는 원인을 찾을 수 없었고, 이벤트 JSON과 게임 IL로 찾았습니다(`docs/debug-logs/timing-mismatch.md`).
-- 수정 전 파서는 floor 529·530을 580 BPM으로 세어, hit 520부터 103.448ms 늦었습니다.
-- 이 곡은 기본 설정(최대 4키)으로 동타를 배치할 수 없어(노트 638) 감사 그룹 자체는 배치 단계에서 실패합니다. 0.6.8부터 대조가 배치보다 먼저 돌아 결과가 나옵니다.
-
-최대 체크포인트 활성화 시각 차이는 Machinegun Psystyle의 0.000581ms였습니다. 수치 비교의 허용 기준은 1ms로 정했고 모든 항목이 통과했습니다. 이는 측정 장비의 정확도나 실제 화면 지연을 뜻하지 않습니다.
-
-원본 파일은 읽기만 했으며 SHA-256과 수정 시각이 동일했습니다. Release 빌드 경고·오류 0개, 회귀 검증 44/44 그룹 통과입니다.
-
-## 기준 계산의 근거와 한계
-
-`tests/Visualizer.Tests/GameRuleTimingComparison.cs`는 운영 파서의 타이밍 함수를 호출하지 않는 테스트 전용 기준 계산기입니다. 설치된 `Assembly-CSharp.dll`을 ReflectionOnly로 읽어 확인한 다음 내용을 사용합니다.
-
-- `scrLevelMaker.InstantiateFloatFloors`: float 각도에서 radian 입·출구 각도 구성, 중간 회전, 다음 floor 입구 구성.
-- `scnGame.ApplyCoreEventsToFloors`: float BPM 배율, 회전 방향, Pause 추가 박자.
-- `scrLevelMaker.CalculateFloorEntryTimes`: floor별 도착 시간 누적 및 거의 0/360도인 구간의 처리.
-- `scrMisc.GetTimeBetweenAngles` / `GetAngleMoved`: 게임의 radian 상수와 modulo, BPM 환산.
-
-확인한 게임 DLL 해시가 다르면 비교 실행을 거부합니다. 외부 DLL은 실행하거나 프로그램 참조로 추가하지 않습니다. Visualizer는 double/degree 기반이고 기준 계산은 확인한 float/radian 처리에 맞춘 독립 구현입니다. 양쪽 모두 첫 hit를 원점으로 맞추므로 음악 offset·카운트다운 같은 공통 원점 차이는 비교 대상에서 제외됩니다.
-
-2026-09-15 정밀도 수정: IL의 출구 각도 `(90-각도)×0.01745329`는 r4 연산이지만, 기준 계산기가 이 곱을 single로 반올림하자 NoLongerNull - Search Party의 큰 음수 각도 헤어핀(floor 759·762·764·765·767·768)이 거의 0ms가 되어 최대 3000ms 차이가 났습니다. 사용자가 게임에서 이 구간이 모두 정박 2박임을 확인해(실제 플레이 확인이며 hit 시각 측정은 아님), 기준 계산기는 곱을 double로 유지합니다. 수정 후 사용자 Workshop 6곡 대조 최대 차이는 HeHeHe 0.011152ms, RUSH E 0.001110ms, Search Party 0.001000ms, Megamix 0.000580ms, Machinegun 0.000329ms, Plum 0.000317ms이며 115/115 그룹 통과입니다.
-
-**실제 게임에서 측정한 hit 시각과의 비교가 아닙니다.** 게임의 화면 표시, 음악 출력, 실제 키 입력 지연과 디스플레이 보정은 별도로 확인해야 합니다. 비교 당시 ADOFAI 프로세스는 실행되어 있지 않았습니다. 따라서 실제 플레이 동기화까지 완료했다고 표시하지 않습니다.
-
-## 재현 명령과 산출물
+## 실행 (사용자가 요청할 때만)
 
 ```powershell
-.\build.ps1 -Configuration Release -Test `
-  -ReadOnlyMapRoot 'C:\Program Files (x86)\Steam\steamapps\workshop\content\977950' `
-  -CompareGameRules
+.\build.ps1 -Configuration Release -Test -ReadOnlyMapRoot '<맵 루트>' -CompareGameRules
 ```
 
-프로젝트 내부 `.local/test-artifacts/`에만 결과를 기록합니다.
+결과는 `.local/test-artifacts/`에만 씁니다: `timing-comparison.md`(요약), `timing-map-N-hits.csv`(hit별 floor·양쪽 상대 시각·차이), `timing-map-N-checkpoints.csv`(시작점별 활성화 시각·구간 최대 오차). 원본은 읽기만 하며 SHA-256·수정 시각 불변을 검사합니다. 한 곡만 볼 때는 [디버그 기록](debug-logs/README.md)의 사본 절차를 씁니다.
 
-- `timing-comparison.md`: 계산 비교 요약.
-- `timing-map-1-hits.csv` ~ `timing-map-4-hits.csv`: 각 hit의 floor 번호, 양쪽 상대 시각과 차이.
-- `timing-map-1-checkpoints.csv` ~ `timing-map-4-checkpoints.csv`: 시작점별 활성화 시각 및 구간 전체 최대 상대 오차.
+## 실제 플레이로 확인할 때
 
-이번 실행의 파일 순서는 Plum - R, RUSH E, HeHeHe, Machinegun Psystyle입니다. 다시 실행할 때에는 콘솔에 표시되는 파일 순서도 확인합니다. 기본 테스트는 게임 DLL이나 외부 맵을 읽지 않습니다.
+- 표시 보정을 0ms로 두고 같은 곡·같은 시작 구간을 고릅니다. 게임 링크 없이 할 때는 시작 키를 **실제 첫 타격 순간**에 누릅니다(카운트다운 시작이 아님).
+- 처음부터 끝까지 같은 양만큼 어긋나면 시작 기준이나 표시 지연이고, 시간이 지날수록 커지거나 특정 변속·Pause에서 갑자기 생기면 구간 타이밍 문제입니다([timing-mismatch](debug-logs/timing-mismatch.md)). 일정한 차이에만 표시 보정을 쓰고, 구간마다 다른 오차를 보정값으로 숨기지 않습니다.
+- 게임 링크가 있으면 `link tiles`가 모든 타일의 차이를 한 번에 보여 줍니다(한 맵 1360타일 전부 같은 오프셋, 퍼짐 0.0ms 확인).
 
-## 실제 플레이 대조 준비
- 
-2026-09-23 · Wake Up, Piano! 형식 6 지원(0.6.10): 타이밍 공식 변경 없이 테스트 전용 사본으로 959 hit와 기본 설정의 959개 노트 준비를 확인했습니다. 이번 작업에서 독립 계산 대조(`-CompareGameRules`)와 외부 맵 회귀(`-ReadOnlyMapRoot`)는 실행하지 않았으며 실제 플레이는 미측정입니다. 근거는 [해결 기록](debug-logs/unsupported-maps.md)을 참고하세요.
+## 2026-10-12 · THE END OF HATSUNE MIKU 재제보 대조
 
-1. Visualizer를 다시 실행하고 **맵 선택 → 맵 동기화 → 곡 불러오기**를 진행합니다. 점검 당시 라이브러리는 이전 `adofai-angle-v1` 캐시였으므로 반드시 갱신합니다.
-2. `setting`의 표시 시간 보정을 우선 0ms로 두고, ADOFAI 활성 창 제한과 프로세스 이름을 확인합니다. 양쪽에서 같은 곡·같은 시작 구간을 선택합니다.
-3. 게임은 사용자가 직접 실행하고 조작합니다. 맵 편집·저장 없이 게임과 Visualizer를 나란히 표시합니다.
-4. Visualizer를 켜고 **재설정**해 첫 노트를 판정선에 정지 배치합니다. 게임의 카운트다운을 시작하는 입력과 실제 첫 타격을 구분합니다. Visualizer의 **시작/J는 실제 첫 타격 순간**에 맞춥니다. 카운트다운 시작 순간에 J를 누르면 그 대기 시간만큼 일찍 흐를 수 있습니다.
-5. Plum - R 처음부터, 중반·후반, 체크포인트 1~6 순서로 비교합니다. 특히 체크포인트 5는 타일 361에서 재시작한 뒤 첫 타격 362를 기준으로 합니다.
-6. 다음으로 RUSH E의 첫 hit 이후 4초 간격과 변속, HeHeHe의 빠른 구간·중간 회전, Machinegun Psystyle의 floor 2376 Pause 전후 및 체크포인트를 비교합니다.
+사용자 명시 승인으로 이 곡의 앱 저장소 맵을 프로젝트 내부 임시 폴더에 복사해 한 곡만 `build.ps1 -Test -ReadOnlyMapRoot <사본> -CompareGameRules`로 검사함. 파서 v25, hit 1450개·누르는 노트 1385개·체크포인트 9개. 독립 계산 최대 차이 **0.001784ms**, 간격 0.000154ms, 재시작 구간 0.002071ms, 체크포인트 활성화 0.001190ms. 268/268(일반 테스트 267개 + 한 곡 대조), 빌드 경고·오류 0.
 
-처음부터 끝까지 비슷하게 앞서거나 늦으면 시작 기준 또는 표시 지연을 먼저 확인합니다. 시간이 지날수록 차이가 커지거나 특정 변속/Pause에서 갑자기 차이가 생기면 구간 타이밍 문제로 구분해 조사합니다. 일정한 차이에만 표시 시간 보정을 사용하고, 구간별로 달라지는 오차를 보정값으로 숨기지 않습니다.
-
-사용자가 직접 플레이하는 화면 관찰이나 녹화 자료가 확보되기 전까지 실제 플레이 대조 결과는 **미측정**입니다. 자동 입력, 게임 프로세스 메모리 접근, DLL 주입을 통해 측정값을 얻지 않습니다.
+재제보 당시 저장된 v24 캐시는 310번까지 v25와 같고, 311번부터 133.333ms 늦음(325번에서 1626.667ms). 원인은 수정 전 캐시의 재사용으로 확인: 앱 재시작·Map Sync·다시 불러오기 필요. 128번 타일은 정상이라고 사용자가 정정함. 원본 SHA-256·수정 시각 불변, 이번에 게임의 값을 새로 측정하지 않음. 자세한 기록은 [타이밍 제보](debug-logs/timing-mismatch.md).

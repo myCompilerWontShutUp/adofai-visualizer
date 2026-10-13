@@ -2,7 +2,7 @@ using Visualizer.Core.Maps;
 
 namespace Visualizer.Application.Maps;
 
-/// <summary>Reserved for a parser backed by verified timing rules. No guessed implementation.</summary>
+/// <summary>Reads a level into a timeline by verified timing rules only; anything else comes back Unsupported.</summary>
 public interface IMapTimelineParser
 {
     string Version { get; }

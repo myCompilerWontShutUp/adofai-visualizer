@@ -119,7 +119,6 @@ public sealed class EditSlotDialog : Window
     /// <summary>The line under the slots that says what is replaced; empty for an empty slot.</summary>
     public string Warning => _warning.Text;
 
-    /// <summary>Whether the folded details are open.</summary>
     public bool DetailsOpen
     {
         get => _more.IsChecked == true;

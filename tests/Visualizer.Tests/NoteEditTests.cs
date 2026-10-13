@@ -372,7 +372,7 @@ internal static class NoteEditTests
         ("The editor shows the rules' notes behind the edited ones and never lets them be picked", () =>
         {
             // User request: a layer under the edited notes showing where the current settings would put them, dimmed,
-            // position only, not clickable. The options that switch it live in the panel that slides out of the right.
+            // position only, not clickable. Its toggle is in the tool panel beside the sheet.
             var store = new MemorySettingsLayoutStore();
             var settings = new VisualizerSettings();
             var session = new NoteEditSession(
@@ -484,7 +484,7 @@ internal static class NoteEditTests
             var zoom = sheet.Zoom;
             window.Wheel(120, ModifierKeys.Control, middle);
             Assert(sheet.Zoom > zoom, "Ctrl zooms in");
-            // It zooms in much further than before (1.5 px/ms).
+            // It zooms in well past 1.5 px/ms.
             sheet.Zoom = 100;
             Equal(sheet.Zoom, NoteEditField.MaximumZoom);
             Assert(NoteEditField.MaximumZoom >= 6, "Deep zoom is allowed");
@@ -891,6 +891,32 @@ internal static class NoteEditTests
 
             static void Sequence(int[] actual, params int[] expected) =>
                 Assert(actual.SequenceEqual(expected), "Got: " + string.Join(" ", actual));
+        }),
+
+        ("The editor opens again where it was left", () =>
+        {
+            // User request: until the app exits, closing the editor and opening it again goes back to the same place.
+            var settings = new VisualizerSettings();
+            var notes = Enumerable.Range(0, 120).Select(i => new EditNote(i, i * 500d, i * 500d, 1 + i % 4, null, 0)).ToArray();
+            NoteEditWindow Open(double? top) => new(new NoteEditSession(notes, [1, 2, 3, 4, 5, 6, 7, 8], "hash"), settings, "Plum - R",
+                currentSlot: null, topMs: top) { Left = -20000, Top = -20000, ShowActivated = false };
+            var first = Open(null);
+            first.Show();
+            Equal(first.TopMs, 8000d);
+            first.Wheel(120 * 3, ModifierKeys.Shift, new Point(10, 200));
+            var left = first.TopMs;
+            Assert(left > 20_000, "Scrolled well into the song: " + left);
+            first.Close();
+
+            var again = Open(left);
+            again.Show();
+            Equal(again.TopMs, left);
+            again.Close();
+            // A place past the end of this sheet is held to it, the way scrolling is.
+            var past = Open(1e9);
+            past.Show();
+            Assert(past.TopMs < 60_000 + 10_000, "Held to the sheet: " + past.TopMs);
+            past.Close();
         }),
     };
 }

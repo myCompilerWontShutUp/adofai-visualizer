@@ -18,7 +18,7 @@ using static Visualizer.Tests.Program;
 
 namespace Visualizer.Tests;
 
-/// <summary>The song list: order, hidden songs, display names, its store and the search toggle.</summary>
+/// <summary>The song list: order, hidden songs, display names and its store.</summary>
 internal static class SongListTests
 {
     /// <summary>Collects progress as it is reported. Progress&lt;T&gt; would post it and the test would read an empty list.</summary>
@@ -798,8 +798,9 @@ internal static class SongListTests
             model.SongFamily = entry => maps.SlotOf(entry) is null
                 ? Path.GetFileName(Path.GetDirectoryName(Path.Combine(entry.RootDirectory, entry.RelativePath)))!
                 : maps.EditedSongOf(entry)!;
+            // Tile numbers, so a practice tile can be picked.
             MapCacheEntry In(string id, string root, string relative) =>
-                Song(id, "Plum - R") with { RootDirectory = root, RelativePath = relative };
+                Song(id, "Plum - R") with { RootDirectory = root, RelativePath = relative, Timeline = new ParsedTimeline([0, 500, 1000, 1500], hitFloors: [1, 2, 3, 4]) };
             var custom = In("c", Path.Combine(maps.CustomRoot, "1234"), "main.adofai");
             var third = In("e3", maps.EditedRoot, Path.Combine("1234", "3", "main.adofai"));
             var first = In("e1", maps.EditedRoot, Path.Combine("1234", "1", "main.adofai"));
@@ -824,6 +825,18 @@ internal static class SongListTests
             model.SelectedSlot = 0;
             Equal(model.LoadedEntry?.Id, "c");
             Assert(model.OverlayTileParts.All(part => part.Text != "수정본 3"), "The original says nothing about a slot");
+
+            // The practice tile is the song's, not the version's: picking another version keeps it, and so does saving the
+            // loaded edit again from the editor, which loads it once more (user rule).
+            model.SectionText = "2";
+            Assert(model.SectionText == "2", "The section is taken: " + model.Message);
+            model.SelectedSlot = 3;
+            Equal(model.SectionText, "2");
+            model.Reload(model.LoadedEntry!);
+            Equal(model.SectionText, "2");
+            Equal(model.Playback.StartTile, (int?)2);
+            model.SelectedSlot = 0;
+            model.SectionText = "";
 
             // A song with no edits still shows the picker, reading "원본" (user rule): the three controls keep one shape.
             model.SelectedMap = model.Library.Single(entry => entry.Id == "z");

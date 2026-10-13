@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Visualizer.App.Commands;
+using Visualizer.App.Input;
 using Visualizer.App.Themes;
 
 namespace Visualizer.App.Views;
@@ -60,7 +61,6 @@ public sealed class CmdWindow : Window
         _editor.Start();
     }
 
-    /// <summary>Back to the transcript, with the note put away.</summary>
     private void CloseReport()
     {
         _session.Log.Report = null;
@@ -78,6 +78,15 @@ public sealed class CmdWindow : Window
     /// rebound, so the key boxes never see it.
     /// </summary>
     public static bool IsShortcut(Key key, ModifierKeys modifiers) => key == Key.T && modifiers == ModifierKeys.Control;
+
+    /// <summary>Whether a key event is Ctrl+T, whatever the input method made of the T.</summary>
+    public static bool IsShortcut(KeyEventArgs e) => IsShortcut(KeyNames.Real(e), Keyboard.Modifiers);
+
+    /// <summary>
+    /// What Ctrl+T in this window does. The app sets it so one press toggles the console once, wherever it was seen; on
+    /// its own the window minimizes itself.
+    /// </summary>
+    public Action? Shortcut { get; set; }
 
     public CmdWindow(CmdSession session, string theme)
     {
@@ -114,7 +123,7 @@ public sealed class CmdWindow : Window
         _editor.Delete = () => _session.DeleteReport(_editor.Title);
         _editor.Leave = CloseReport;
         _editor.Copy = _session.CopyOut;
-        _editor.ToggleConsole = ToggleMinimized;
+        _editor.ToggleConsole = () => (Shortcut ?? ToggleMinimized)();
         var layers = new Grid();
         layers.Children.Add(_screen);
         layers.Children.Add(_editor);
@@ -211,10 +220,10 @@ public sealed class CmdWindow : Window
     private void ScreenKeyDown(object sender, KeyEventArgs e)
     {
         // Ctrl+T in the console minimizes it; pressed again in the app, it comes back.
-        if (IsShortcut(e.Key, Keyboard.Modifiers))
+        if (IsShortcut(e))
         {
             e.Handled = true;
-            ToggleMinimized();
+            (Shortcut ?? ToggleMinimized)();
             return;
         }
         // A long command owns the screen while it runs: only Ctrl+T (above) and copying get through, as in a terminal.

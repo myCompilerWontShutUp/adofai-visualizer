@@ -113,8 +113,9 @@ public static class CmdCatalog
         new("link", "Help", "link [<what>]", "Show or drive the game link.",
             "With nothing, show what the read-only sync mod is sending: how often readings arrive, how much the delay varies, the game's state, speed and level, and the state changes so far. "
             + "start opens the pipe and stop closes it; tiles compares the game's own tile times with the loaded song; follow puts the notes on the game's clock and unfollow takes them back; again starts a new measurement. "
-            + "Nothing is sent to the game and nothing is saved.",
-            "-copy", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual"),
+            + "inspect is for measuring only: with link auto off, the same song open in the game and No Fail on there, it presses the lane key of every note the visualizer draws as the note reaches the judgment line, into the game alone, and keeps the game's judgments for report -inspect; uninspect or Esc stops it. "
+            + "Apart from inspect nothing is sent to the game, and nothing is saved.",
+            "-proceed / -copy", CmdArgument.None, "start, stop, tiles, follow, unfollow, again, auto, manual, inspect, uninspect"),
         new("install", "Help", "install <what>[, …]", "Install the game link mod, or put a part back.",
             "install linker writes the read-only link mod into the game's own Mods folder, which is the one place outside this app's folders it ever writes, and only when Unity Mod Manager is there. "
             + "It asks first, writes the mod's two files and nothing else, and leaves other mods alone. A mod already there with the same version is left as it is. "
@@ -244,7 +245,7 @@ public static class CmdCatalog
             + "ask <title> > <why> says it is not settled and what is still needed, in the language the settings are set to; state prints that "
             + "standing alone for an agent to read; erase removes a note and sweep removes every one already done; rename <old> > <new> gives one "
             + "another name; colon lists the editor's : commands.",
-            "-force, -proceed / -copy", CmdArgument.Note,
+            "-force, -proceed / -copy / -inspect", CmdArgument.Note,
             "list, create, write, print, done, undone, ask, state, erase, sweep, rename, colon"),
         new("update", "Console", "update", "Get the latest version.",
             "Ask the repository whether this copy is the latest one. When it is, it says so; when a newer version is there, it asks, "
@@ -305,7 +306,8 @@ public static class CmdCatalog
         new("-answers", "Whether the answered questions come along.", "", "with,skip", "skip"),
         new("-count", "What is counted when counting messages back.", "", "all,others", "others"),
         new("-version", "Which version to go to: latest, or one written as 1.0.0.", "-v", "latest," + VersionMark, "latest"),
-        new("-reinstall", "Write it again even when it is there, as this version has it.")
+        new("-reinstall", "Write it again even when it is there, as this version has it."),
+        new("-inspect", "With report create or write, what link inspect found: the last run, the last n, or * for every run kept.", "", NumberMark + ",*", "1")
     ];
 
     /// <summary>The areas scannow checks and install -reinstall names, in the order both work through them.</summary>
@@ -394,6 +396,10 @@ public static class CmdCatalog
         if (option.Values == NumberMark)
             return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number is >= 1 and <= 9
                 ? (option, value) : null;
+        // A count with words beside it (-inspect:3, -inspect:*): any whole number from 1, or one of the words.
+        if (option.ValueNames.Contains(NumberMark, StringComparer.Ordinal))
+            return option.ValueNames.Contains(value, StringComparer.Ordinal)
+                || (int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count >= 1) ? (option, value) : null;
         if (option.ValueNames.Contains(VersionMark, StringComparer.Ordinal))
             return value == "latest" || IsVersion(value) ? (option, value) : null;
         return option.ValueNames.Contains(value, StringComparer.Ordinal) ? (option, value) : null;
@@ -424,8 +430,10 @@ public static class CmdCatalog
         ["follow"] = "Put the notes on the game's clock instead of the start key.",
         ["unfollow"] = "Take the notes back off the game's clock.",
         ["again"] = "Start a new measurement.",
-        ["auto"] = "Match the tiles by itself once the game loads the song that is loaded here.",
+        ["auto"] = "Load the song the game moves to and match its tiles by itself.",
         ["manual"] = "Stop matching by itself; link follow still does it by hand.",
+        ["inspect"] = "Press the visualizer's notes into the game to measure them (No Fail on, link auto off, the same song).",
+        ["uninspect"] = "Stop pressing and keep what was found for report -inspect.",
         ["linker"] = "The read-only game link mod.",
         ["app"] = "This build: the version it was built from, its source's later changes, and its language and theme files.",
         ["source"] = "The repository's files, against the version this copy is on.",
@@ -603,6 +611,8 @@ public static class CmdCatalog
                         ? $"{typed} is not a slot. Slots are 1 to 9, as in {option.Name}:3, or {option.Name} on its own for every edit."
                     : option.ValueNames.Contains(VersionMark, StringComparer.Ordinal)
                         ? $"{typed} is not a version. Write it as 1.0.0, as in {option.Name}:1.0.0, or {option.Name} on its own for the latest."
+                    : option.ValueNames.Contains(NumberMark, StringComparer.Ordinal)
+                        ? $"{typed} is not a count. Write {option.Name}:3 for the last three, {option.Name}:* for all, or {option.Name} on its own for {option.Default}."
                         : $"{typed} is not one of {option.Name}'s values. It takes {string.Join(" or ", option.ValueNames)}, or {option.Name} on its own for {option.Default}.";
             }
             if (!command.OptionNames.Contains(read.Option.Name))
