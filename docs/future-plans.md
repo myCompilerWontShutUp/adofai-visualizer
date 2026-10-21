@@ -29,3 +29,9 @@
 
 - `hide`·`show`·`remove <id>, …`, `info <id>, …`, `get <setting>, …`, `help`·`option`·`keyword <cmd>, …`
 - `playlist`·`id`·`title <string>, …`(합집합), `report done`·`undone`·`erase <title>, …`
+
+## 4. 레인보다 넓은 동타 묶음 (사용자 결정, 추후 진행)
+
+- 사례: Camellia - Hello (BPM) 2026(3689881235). 25ms 안에 최대 28노트라 레인을 8개로 늘려도 놓을 수 없어 어떤 설정으로도 불러오지 못합니다(동타 판정 2ms 이하만 가능).
+- 정한 방식: 묶음을 쓸 수 있는 레인 수(화면 + 켜진 여분 레인)만큼 자르고, 나머지는 자기 시각의 다음 동타로(트릴을 레인 수만큼 굴리는 것과 같음). 지금 불러와지는 곡은 바뀌지 않고, "5노트 동타 → 실패 → 여분·넓은 레인 제안" 흐름은 사라집니다.
+- 시제품(`SimultaneousNotePlanner.Group`에서 `end - start < 화면 + 여분 레인` 조건 하나)으로 이 곡 24,397노트와 나머지 곡 전부가 불러와지는 것을 확인했습니다. 남은 일: 실패를 기대하던 시험들(`SimultaneousNoteTests`의 실패 두 개·`ExtraLaneTests`·`SixKeyTests`·`AdvancedFeatureTests`의 넓은 레인 제안)을 새 규칙으로 바꾸고, AGENTS·note-rules의 동타 규칙을 고칩니다.

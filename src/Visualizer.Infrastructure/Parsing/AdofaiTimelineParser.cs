@@ -9,7 +9,7 @@ namespace Visualizer.Infrastructure.Parsing;
 public sealed class AdofaiTimelineParser : IMapTimelineParser
 {
     // Raise this whenever what is cached changes (the app then asks for a map sync); docs/adofai-parser.md has the evidence.
-    public const string CurrentVersion = "adofai-v25-three-planets-shorter";
+    public const string CurrentVersion = "adofai-v26-format-10";
     /// <summary>
     /// Level formats checked against the game and a real map each. The game reads the level version only for 7 (LoadLevel),
     /// 9 (editor MakeLevel), decoration components up to 12 and the level list (above 19), so none of these has a timing branch
@@ -22,7 +22,7 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
     /// durations the file holds, which is what is read here.
     /// </para>
     /// </summary>
-    public static IReadOnlyList<int> FormatVersions { get; } = [2, 3, 4, 6, 8, 9, 11, 13, 15, 18, 19];
+    public static IReadOnlyList<int> FormatVersions { get; } = [2, 3, 4, 6, 8, 9, 10, 11, 13, 15, 18, 19];
     /// <summary>The game's margin (rad) around no turn and a whole circle; see the floor loop.</summary>
     private const double WholeTurnMargin = 1e-6;
     /// <summary>

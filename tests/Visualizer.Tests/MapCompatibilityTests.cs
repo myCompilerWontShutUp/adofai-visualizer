@@ -53,7 +53,7 @@ internal static class MapCompatibilityTests
         });
         yield return ("Version compatibility preserves timing and rejects unknown versions", () =>
         {
-            foreach (var version in new[] { 2, 3, 4, 6, 8, 11, 13, 15, 18, 19 }) Times(Parse(version), 500, 1000, 1500);
+            foreach (var version in new[] { 2, 3, 4, 6, 8, 10, 11, 13, 15, 18, 19 }) Times(Parse(version), 500, 1000, 1500);
             foreach (var version in new[] { 0, 1, 5, 20, 999 }) Equal(Parse(version).Status, MapParseStatus.Unsupported);
         });
         yield return ("load -force reads an unverified format as the nearest verified one below, else above, and nothing else", () =>

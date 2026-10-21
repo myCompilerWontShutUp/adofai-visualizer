@@ -1,10 +1,10 @@
 # ADOFAI 파서와 실제 맵 호환 범위
 
-`AdofaiTimelineParser`(`adofai-v25-three-planets-shorter`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
+`AdofaiTimelineParser`(`adofai-v26-format-10`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
 
 ## 지원 범위
 
-- 형식 version 2/3/4/6/8/9/11/13/15/18/19, 첫 방향 0도, 두·세 행성, 기본 planetEase=Linear.
+- 형식 version 2/3/4/6/8/9/10/11/13/15/18/19, 첫 방향 0도, 두·세 행성, 기본 planetEase=Linear.
 - `angleData`의 일반 각도는 음수·다회전을 360도 기준으로 정규화하고 정확히 999만 중간 회전입니다. 구형 `pathData`의 절대 각도 문자와 `!`(중간 회전)를 지원하고 상대 각도·알 수 없는 문자는 거부합니다.
 - 구형 JSON 문자열 안의 줄바꿈·제어 문자, 생략된 쉼표는 메모리에서만 보정합니다(`AdofaiJson`). 문자열 밖 구문 오류는 복구하지 않습니다.
 - `SetSpeed`(Bpm/Multiplier), `Twirl`, `Pause`(유한한 0 이상 duration, angleCorrectionDir는 Backward·None·Forward(이름이나 -1·0·1) 또는 생략).
