@@ -12,18 +12,22 @@ internal static class SimultaneousNotePlanner
     /// <summary>
     /// One cycle step. <paramref name="Count"/> hits share <paramref name="TimeMs"/>, every one of them within the chord window
     /// of the first, so start and end are both in it (user rule). Two or more are one chord on lanes side by side as long as
-    /// the screen has the lanes; a group wider than the screen is laid out as two-note chords in order.
+    /// the screen has the lanes; a group wider than the screen takes the spare lanes as two-note chords in order.
     /// </summary>
     internal sealed record GroupedHit(double TimeMs, int Count, int SourceIndex);
 
     internal static IReadOnlyList<GroupedHit> Group(double[] times, VisualizerSettings settings)
     {
         var result = new List<GroupedHit>();
+        // A group never holds more notes than it has lanes for, the screen's and any spare ones: its notes never share a lane,
+        // so a wider one could never be placed. What is left starts the next group at its own time, as a roll too long for
+        // the lanes does (user rule, from Camellia - Hello (BPM) 2026: 28 notes in 25ms).
+        var cap = settings.GetVisibleTiles().Count + settings.GetExtraTiles().Count;
         for (var start = 0; start < times.Length;)
         {
             var end = start + 1;
             // Anchor to the first hit, not the preceding hit: no transitive drift.
-            while (end < times.Length && times[end] - times[start] <= settings.SimultaneousWindowMs) end++;
+            while (end < times.Length && end - start < cap && times[end] - times[start] <= settings.SimultaneousWindowMs) end++;
             result.Add(new(times[start], end - start, start));
             start = end;
         }

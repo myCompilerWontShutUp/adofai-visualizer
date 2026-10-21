@@ -150,7 +150,9 @@ internal static class SixKeyTests
             AssertPairs(three, six);
             // Two chords and two singles in one 6K cycle: the chords take the preferred pairs, tiles 2-3 and 4-5.
             AssertPreferred(generator.Generate(new[] { 0d, 1, 100, 101, 200, 300 }, six), six);
-            Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, six));
+            // Seven at once are more than the six lanes: six of them are the chord, the seventh comes at its own time.
+            var seven = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, six);
+            Equal(seven.Count(n => n.HitTimeMs == 0), 6); Equal(seven.Count(n => n.HitTimeMs == 6), 1);
 
             // Slow (1K/2K) sections on a 6-lane screen also keep the pairs.
             var slow = new VisualizerSettings { MaximumTileCount = 6 };
@@ -178,19 +180,18 @@ internal static class SixKeyTests
 
         yield return ("Unplaceable 4-lane chords offer the smallest wider maximum that places the song", () =>
         {
-            ParsedTimeline Group(int size) => new(new[] { 0d }.Concat(Enumerable.Range(0, size).Select(i => 500d + i)).Append(1000));
             var asked = new List<string>();
             var model = new MainViewModel { ConfirmWiderLanes = message => { asked.Add(message); return true; } };
-            model.SelectedMap = Entry("six", Group(5));
+            model.SelectedMap = Entry("six", HeldChord(3));
             model.LoadSelectedSong();
             Equal(asked.Count, 1); Assert(asked[0].Contains("최대 4키") && asked[0].Contains("6개"), "Asks for 6 lanes: " + asked[0]);
-            Equal(model.Settings.MaximumTileCount, 6); Equal(model.Playback.Notes.Count, 7);
+            Equal(model.Settings.MaximumTileCount, 6); Equal(model.Playback.Notes.Count, 5);
 
             var eight = new MainViewModel { ConfirmWiderLanes = message => { asked.Add(message); return true; } };
-            eight.SelectedMap = Entry("eight", Group(7));
+            eight.SelectedMap = Entry("eight", HeldChord(4));
             eight.LoadSelectedSong();
-            Assert(asked[^1].Contains("8개"), "Seven notes need 8 lanes: " + asked[^1]);
-            Equal(eight.Settings.MaximumTileCount, 8); Equal(eight.Playback.Notes.Count, 9);
+            Assert(asked[^1].Contains("8개"), "Four notes beside the long note need 8 lanes: " + asked[^1]);
+            Equal(eight.Settings.MaximumTileCount, 8); Equal(eight.Playback.Notes.Count, 6);
 
             var window = new MainWindow();
             var main = (MainViewModel)window.DataContext;

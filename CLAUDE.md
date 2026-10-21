@@ -127,6 +127,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - 마법진(같은 간격 ±5ms 연속)은 `MagicCircleFinder`(`Find(times, settings, chords)`: `MagicCircleChords`가 꺼지면 동타·단타가 같은 구간끼리만), 고정 타일은 `MagicCircleTiles`(clamp, 설정 값은 유지).
 - 실험적 기능은 `ExperimentalFeatures`가 켜져야 적용: `UseChordAvoidBefore`(`Place`가 앞 단타를 옮김), `UseRestartOnRun`(`TilePatternCursor.RestartCycle`). `NextIntervalTiles`는 고급 설정. `UseChordSectionLanes`·`UseChordCenterPair`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일 읽기용.
 - **배치 코드**: `NoteGenerator`(묶음·키 수 `unit`·`crowded`·`QuickReturnMs`·`busyUntil`) → `TilePatternCursor`(`FreshStart`·`OpenTrill`·`OpenRoll`·`RollHead`·`BesideTrill`·`RestartCycle`) → `SimultaneousNotePlanner.Place`(`Assign`+`Flow`·`Shift`·`LockChords`·`SplitTrills`/`LayRoll`). 트릴 묶음 `TrillRuns`, 롱노트 레인 `HeldUntil`. 함수별 역할은 `docs/code-map.md`.
+- 묶음은 `SimultaneousNotePlanner.Group`이 만들고 화면 + 여분 레인 수에서 자릅니다(나머지는 다음 묶음).
 - 동타는 `StartsChord`로만 그립니다(마지막을 뺀 모든 멤버, `ChordSpan`). 읽는 곳: `NoteField`·`NoteEditField.Members`·`NoteEditSession.CanMerge`·`MainWindow.FromRules`·`CmdSession.FormatNotes(Json)`.
 - 고급 설정 밖의 토글은 기본 켜짐이 되도록 이름을 정합니다(사용자 선호).
 

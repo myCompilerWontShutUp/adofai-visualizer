@@ -28,6 +28,17 @@ internal static class Program
         return window;
     }
 
+    /// <summary>
+    /// A long note, then right as it ends a chord of <paramref name="size"/> notes, then one more note well after. The chord
+    /// cannot have the long note's lane (user rule), so it needs that many lanes side by side beside it: with the long note on
+    /// tile 5 (the default initial tile) three notes do not fit four lanes but fit six, four need eight, five fit nowhere.
+    /// A chord wider than the lanes is cut at them, so this is what is left to fail.
+    /// </summary>
+    internal static Visualizer.Core.Maps.ParsedTimeline HeldChord(int size) => new(
+        new[] { 0d, 500 }.Concat(Enumerable.Range(1, size).Select(i => 500d + i)).Append(2000),
+        hitKinds: new[] { Visualizer.Core.Maps.HitKind.HoldStart, Visualizer.Core.Maps.HitKind.HoldEnd }
+            .Concat(Enumerable.Repeat(Visualizer.Core.Maps.HitKind.Tap, size + 1)));
+
     internal static void Assert(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);

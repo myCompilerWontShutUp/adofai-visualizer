@@ -1001,10 +1001,10 @@ internal static class CmdConsoleTests
 
             // A placement problem reads in the console's language, which is the app's (user rule): English in English, and
             // Korean through and through in Korean.
-            var english = new CmdSession(new Host { Timeline = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 }) }, new CmdLog());
+            var english = new CmdSession(new Host { Timeline = HeldChord(3) }, new CmdLog());
             english.Submit("note all");
             Assert(Output(english.Log).Contains("The notes could not be placed.", StringComparison.Ordinal) && !HasHangul(Output(english.Log)), "English reason");
-            var korean = new CmdSession(new Host { Timeline = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 }), Language = Languages.Korean,
+            var korean = new CmdSession(new Host { Timeline = HeldChord(3), Language = Languages.Korean,
                 Settings = new VisualizerSettings { Language = Languages.Korean } }, new CmdLog());
             korean.Submit("note all");
             Assert(Output(korean.Log).StartsWith("노트를 배치하지 못했습니다.", StringComparison.Ordinal), "Korean reason: " + Output(korean.Log));

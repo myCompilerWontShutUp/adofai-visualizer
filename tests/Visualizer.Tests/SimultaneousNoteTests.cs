@@ -609,17 +609,42 @@ internal static class SimultaneousNoteTests
             foreach (var group in wide.GroupBy(note => note.HitTimeMs).Select(g => g.ToArray()))
                 Equal(group.Select(note => note.Tile).Distinct().Count(), group.Length);
         });
+        yield return ("A chord wider than its lanes is cut at them, and the rest is the next chord at its own time", () =>
+        {
+            // User rule, from Camellia - Hello (BPM) 2026 (28 notes in 25ms, more than any lanes): a group holds no more notes
+            // than it has lanes, the screen's and any spare ones; what is left starts the next group, as a long roll does.
+            var generator = new NoteGenerator();
+            var seven = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6, 500 }, Settings);
+            Equal(seven.Count, 8);
+            Assert(seven.Take(4).All(note => note.HitTimeMs == 0) && seven.Take(4).Select(note => note.Tile).Distinct().Count() == 4,
+                "The first four are one chord over the four lanes: " + string.Join(" ", seven.Select(note => $"{note.Tile}@{note.HitTimeMs}")));
+            Assert(seven.Skip(4).Take(3).All(note => note.HitTimeMs == 4) && seven.Skip(4).Take(3).Select(note => note.Tile).Distinct().Count() == 3,
+                "The other three are the next chord at their own first time: " + string.Join(" ", seven.Select(note => $"{note.Tile}@{note.HitTimeMs}")));
+            // With spare lanes on, the group first fills them, as before.
+            var spare = Settings with { ExtraLanes = true };
+            var wide = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6, 500 }, spare);
+            Equal(wide.Count(note => note.HitTimeMs == 0), 6); Equal(wide.Count(note => note.HitTimeMs == 6), 1);
+            // A dense stream of the kind the song has: every note is placed, and no lane carries two notes at one time.
+            var stream = Enumerable.Range(0, 120).Select(i => 1000 + i * 0.9).ToArray();
+            var streamed = generator.Generate(stream, Settings);
+            Equal(streamed.Count, stream.Length);
+            Assert(streamed.GroupBy(note => note.HitTimeMs).All(group => group.Count() <= 4 && group.Select(note => note.Tile).Distinct().Count() == group.Count()),
+                "Every group fits the four lanes");
+        });
         yield return ("Unplaceable chords fail clearly without silent expansion or dropped hits", () =>
         {
             var generator = new NoteGenerator();
             Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 100, 105 }, Settings with { MaximumTileCount = 2 }));
             Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1, 2 }, Settings with { MaximumTileCount = 2 }));
-            Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1, 2, 3, 4 }, Settings));
-            Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1 }, Settings with { MaximumTileCount = 1 }));
+            // A chord right as a long note ends keeps off its lane (user rule): the long note is on tile 2, so three notes
+            // have only 1 and 3-4 beside it.
+            double[] held = [0, 501, 502, 503, 2000];
+            double?[] ends = [500, null, null, null, null];
+            Throws<NotePlacementException>(() => generator.Generate(held, ends, Settings));
             var pair = generator.Generate(new[] { 0d, 1 }, Settings);
             Equal(pair.Count, 2); Assert(pair[0].Tile != pair[1].Tile, "Never overlay notes on one tile");
             var english = Settings with { Language = Languages.English };
-            try { generator.Generate(new[] { 0d, 1, 2, 3, 4 }, english); throw new InvalidOperationException("Expected failure"); }
+            try { generator.Generate(held, ends, english); throw new InvalidOperationException("Expected failure"); }
             catch (NotePlacementException e) { Assert(e.Message.Contains("Cannot place chords"), "Localized actionable failure"); }
         });
         yield return ("Failed preparation blocks Start and recovers from retained source", () =>
@@ -639,7 +664,7 @@ internal static class SimultaneousNoteTests
             var prepared = playback.Notes;
             playback.Start(); Assert(ReferenceEquals(prepared, playback.Notes), "Start cannot replan chords");
             playback.Reset(Settings); Assert(prepared.SequenceEqual(playback.Notes), "Reset deterministic");
-            Throws<NotePlacementException>(() => playback.LoadTimeline(new[] { 0d, 1, 2, 3, 4 }, Settings));
+            Throws<NotePlacementException>(() => playback.LoadParsedTimeline(HeldChord(3), Settings));
             Assert(!playback.Start(), "New invalid song must not retain old playback");
             playback.ApplySettings(Settings with { SimultaneousWindowMs = 0 });
             Equal(playback.State, PlaybackState.Waiting);
@@ -669,9 +694,11 @@ internal static class SimultaneousNoteTests
             var model = new MainViewModel();
             var safe = Settings with { SimultaneousWindowMs = 0 };
             model.ApplySettings(safe);
-            // Five hits within the window need five distinct lanes, more than the four visible ones.
-            var timeline = new ParsedTimeline(new[] { 0d, 100, 101, 102, 103, 104, 200, 300 },
-                new[] { new TimelineCheckpoint(1, 0), new TimelineCheckpoint(2, 6) }, true);
+            // Three hits within the window right as a long note ends need three lanes side by side off its lane, which four
+            // lanes do not have.
+            var timeline = new ParsedTimeline(new[] { 0d, 100, 101, 102, 103, 200, 300 },
+                new[] { new TimelineCheckpoint(1, 0), new TimelineCheckpoint(2, 5) }, true,
+                hitKinds: new[] { HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap, HitKind.Tap, HitKind.Tap, HitKind.Tap, HitKind.Tap });
             model.Playback.LoadParsedTimeline(timeline, safe);
             model.Toggle(); model.Start();
             Throws<NotePlacementException>(() => model.ApplySettings(Settings));
@@ -688,7 +715,7 @@ internal static class SimultaneousNoteTests
             // The rejected settings above were never applied, so load the invalid song with a model on the strict settings.
             var loader = new MainViewModel();
             loader.ApplySettings(Settings);
-            var invalid = new ParsedTimeline(new[] { 0d, 1, 2, 3, 4 });
+            var invalid = HeldChord(3);
             loader.SelectedMap = new Visualizer.Application.Cache.MapCacheEntry("bad-chord", "unused", "map.adofai", "chord test",
                 MapParseStatus.Supported, invalid, Array.Empty<string>(), "test", "test");
             loader.LoadSelectedSong(); loader.Toggle(); loader.Toggle(); loader.Start();

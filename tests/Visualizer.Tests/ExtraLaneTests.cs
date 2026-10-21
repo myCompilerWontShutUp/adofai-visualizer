@@ -38,9 +38,6 @@ internal static class ExtraLaneTests
     private static MapCacheEntry Entry(string id, ParsedTimeline timeline) =>
         new(id, "unused", "map.adofai", id, MapParseStatus.Supported, timeline, Array.Empty<string>(), "test", "test");
 
-    private static ParsedTimeline Group(int size) =>
-        new(new[] { 0d }.Concat(Enumerable.Range(0, size).Select(i => 500d + i)).Append(1000));
-
     public static IEnumerable<(string Name, Action Run)> Create(string artifacts)
     {
         yield return ("Display lanes widen the screen only, and a spare lane is drawn where a note really sits", () =>
@@ -102,7 +99,10 @@ internal static class ExtraLaneTests
             Assert(generator.Generate(placeable, basis).Count(n => n.StartsChord) == 2, "Chords are marked explicitly");
 
             var five = new[] { 0d, 1, 2, 3, 4, 500 };
-            Throws<NotePlacementException>(() => generator.Generate(five, basis));
+            // Without spare lanes a group wider than the screen is cut at it (user rule): four at once, then the fifth.
+            var cut = generator.Generate(five, basis);
+            Assert(cut.Count(n => n.HitTimeMs == 0) == 4 && cut.Count(n => n.HitTimeMs == 4) == 1 && cut.All(n => n.Tile is >= 3 and <= 6),
+                "Cut at four lanes: " + string.Join(" ", cut.Select(n => $"{n.Tile}@{n.HitTimeMs}")));
             var group = generator.Generate(five, on).Take(5).ToArray();
             Equal(group.Select(n => n.Tile).Distinct().Count(), 5);
             Equal(group.Count(n => n.StartsChord), 2);
@@ -112,7 +112,9 @@ internal static class ExtraLaneTests
             Assert(group.All(n => n.HitTimeMs == 0 && n.Mode == 4), "Display time and mode stay the group's");
 
             Equal(generator.Generate(new[] { 0d, 1, 2, 3, 4, 5 }, on).Count(n => n.Tile is 2 or 7), 2);
-            Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, on));
+            // Seven are more than the six lanes with the spare ones: six at once, then the seventh.
+            var seven = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, on);
+            Equal(seven.Count(n => n.HitTimeMs == 0), 6); Equal(seven.Count(n => n.HitTimeMs == 6), 1);
             // Two lanes: a chord plus a single needs three contiguous lanes; the single goes to a spare lane instead.
             var two = basis with { MaximumTileCount = 2, ExtraLanes = true };
             Throws<NotePlacementException>(() => generator.Generate(new[] { 0d, 1, 2 }, two with { ExtraLanes = false }));
@@ -129,7 +131,7 @@ internal static class ExtraLaneTests
                 ConfirmExtraLanes = message => { asked.Add(message); return false; },
                 ConfirmWiderLanes = _ => { eightAsked++; return false; }
             };
-            declined.SelectedMap = Entry("five", Group(5));
+            declined.SelectedMap = Entry("held", HeldChord(3));
             declined.LoadSelectedSong();
             Equal(asked.Count, 1); Equal(eightAsked, 0);
             Assert(asked[0].Contains("여분 레인 배치") && asked[0].Contains("노트 배치 중단"), "The question carries the reason: " + asked[0]);
@@ -138,10 +140,10 @@ internal static class ExtraLaneTests
             Equal(asked.Count, 1); Equal(eightAsked, 0);
 
             var accepted = new MainViewModel { ConfirmExtraLanes = _ => true, ConfirmWiderLanes = _ => throw new InvalidOperationException("Must not ask") };
-            accepted.SelectedMap = Entry("five", Group(5));
+            accepted.SelectedMap = Entry("held", HeldChord(3));
             accepted.LoadSelectedSong();
             Assert(accepted.Settings.ExtraLanes && accepted.Playback.Settings.ExtraLanes, "Accepting turns extra lanes on");
-            Equal(accepted.Settings.MaximumTileCount, 4); Equal(accepted.Playback.Notes.Count, 7);
+            Equal(accepted.Settings.MaximumTileCount, 4); Equal(accepted.Playback.Notes.Count, 5);
             Assert(accepted.Message.Contains("여분 레인 배치"), "The switch is reported: " + accepted.Message);
             // The forced change is a step of its own that rollback undoes: the song then stays unplaced,
             // and loading it again does not ask a second time.
@@ -153,18 +155,21 @@ internal static class ExtraLaneTests
             accepted.Reset();
             Assert(!accepted.Settings.ExtraLanes, "Stays rolled back");
 
-            // Seven notes do not fit six lanes: extra lanes are not offered, 8 lanes are.
-            var eight = new MainViewModel { ConfirmExtraLanes = _ => throw new InvalidOperationException("Must not ask"), ConfirmWiderLanes = _ => true };
-            eight.SelectedMap = Entry("seven", Group(7));
-            eight.LoadSelectedSong();
-            Equal(eight.Settings.MaximumTileCount, 8); Equal(eight.Playback.Notes.Count, 9);
+            // Where spare lanes cannot be had (one lane), a wider maximum is asked instead: the note right after a long note
+            // never takes its lane, which a single lane cannot avoid.
+            var wider = new MainViewModel { ConfirmExtraLanes = _ => throw new InvalidOperationException("Must not ask"), ConfirmWiderLanes = _ => true };
+            wider.ApplySettings(wider.Settings with { MaximumTileCount = 1, MinimumTileCount = 1 });
+            wider.SelectedMap = Entry("one", new ParsedTimeline(new[] { 0d, 500, 501, 2000 },
+                hitKinds: new[] { HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap, HitKind.Tap }));
+            wider.LoadSelectedSong();
+            Equal(wider.Settings.MaximumTileCount, 2); Equal(wider.Playback.Notes.Count, 3);
 
             var none = new MainViewModel
             {
                 ConfirmExtraLanes = _ => throw new InvalidOperationException("Must not ask"),
                 ConfirmWiderLanes = _ => throw new InvalidOperationException("Must not ask")
             };
-            none.SelectedMap = Entry("nine", Group(9));
+            none.SelectedMap = Entry("held", HeldChord(6));
             none.LoadSelectedSong();
             Equal(none.Playback.Notes.Count, 0); Assert(!none.Settings.ExtraLanes && none.Settings.MaximumTileCount == 4, "Nothing switches");
         });

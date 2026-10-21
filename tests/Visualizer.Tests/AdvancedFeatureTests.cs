@@ -497,12 +497,12 @@ internal static class AdvancedFeatureTests
 
         yield return ("4-lane chord failures offer the smallest wider maximum once and switch on consent", () =>
         {
-            ParsedTimeline Wide() => new(new[] { 0d, 500, 501, 502, 503, 504, 1000 });
+            static ParsedTimeline Wide() => HeldChord(3);
             var asked = new List<string>();
             var declined = new MainViewModel { ConfirmWiderLanes = message => { asked.Add(message); return false; } };
             declined.SelectedMap = Entry("wide", Wide());
             declined.LoadSelectedSong();
-            // Five notes fit six lanes, so 6 (not 8) is offered.
+            // Three notes beside the long note fit six lanes, so 6 (not 8) is offered.
             Equal(asked.Count, 1); Assert(asked[0].Contains("6개") && asked[0].Contains("노트 배치 중단"), "The question carries the reason: " + asked[0]);
             Equal(declined.Settings.MaximumTileCount, 4); Equal(declined.Playback.Notes.Count, 0);
             Assert(declined.Message.Contains("동타를 배치할 수 없습니다"), "Declining keeps the reason visible");
@@ -513,12 +513,12 @@ internal static class AdvancedFeatureTests
             accepted.SelectedMap = Entry("wide", Wide());
             accepted.LoadSelectedSong();
             Equal(accepted.Settings.MaximumTileCount, 6); Equal(accepted.Playback.Settings.MaximumTileCount, 6);
-            Equal(accepted.Playback.Notes.Count, 7); Assert(accepted.Message.Contains("6키"), "The switch is reported: " + accepted.Message);
+            Equal(accepted.Playback.Notes.Count, 5); Assert(accepted.Message.Contains("6키"), "The switch is reported: " + accepted.Message);
             accepted.ApplySettings(accepted.Settings with { MaximumTileCount = 4, NoteTravelTimeMs = 900 });
             Equal(accepted.Settings.MaximumTileCount, 6); Equal(accepted.Settings.NoteTravelTimeMs, 900d);
 
             var none = new MainViewModel { ConfirmWiderLanes = _ => throw new InvalidOperationException("Must not ask") };
-            none.SelectedMap = Entry("wider", new ParsedTimeline(new[] { 0d, 500, 501, 502, 503, 504, 505, 506, 507, 508, 1000 }));
+            none.SelectedMap = Entry("wider", HeldChord(5));
             none.LoadSelectedSong();
             Equal(none.Playback.Notes.Count, 0); Equal(none.Settings.MaximumTileCount, 4);
             var silent = new MainViewModel();

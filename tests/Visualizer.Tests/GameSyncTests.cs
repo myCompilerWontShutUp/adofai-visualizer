@@ -965,8 +965,9 @@ internal static class GameSyncTests
         {
             var settings = new VisualizerSettings { StartDelayMs = 0 };
             var session = new PlaybackSession(new Clock());
-            // The first two hits are a chord, which is what a single lane cannot place.
-            session.LoadParsedTimeline(new ParsedTimeline([0, 10, 300], hitFloors: [1, 2, 3]), settings);
+            // A long note, and the note after it never takes its lane, which is what a single lane cannot place.
+            session.LoadParsedTimeline(new ParsedTimeline([0, 10, 300], hitFloors: [1, 2, 3],
+                hitKinds: [HitKind.HoldStart, HitKind.HoldEnd, HitKind.Tap]), settings);
             session.Toggle();
             session.Reset(settings);
             var first = session.Prepared;
@@ -975,7 +976,7 @@ internal static class GameSyncTests
             // notes instead of preparations would leave the automatic follow waiting for the game to reload the level.
             var slow = settings with { PlaybackSpeedPercent = 50 };
             session.ApplySettings(slow);
-            Equal(session.Notes.Count, 3);
+            Equal(session.Notes.Count, 2);
             Assert(session.Prepared > first, $"A speed change is a new preparation: {first} -> {session.Prepared}");
             var second = session.Prepared;
             session.ApplySettings(settings);
