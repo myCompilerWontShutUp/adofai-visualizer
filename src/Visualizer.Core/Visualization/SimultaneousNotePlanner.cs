@@ -356,6 +356,9 @@ internal static class SimultaneousNotePlanner
         // Every note is checked against the long notes already placed, so no note ever lands on a lane still held, nor the
         // note after a long note on its lane (HeldUntil).
         var groupTimes = groups.Select(group => group.TimeMs).ToArray();
+        // Experimental (user rule): on eight lanes a four-note chord takes one hand, the other one than the last such chord.
+        var oneHand = settings.UseOneHandFourChords && visible.Length == 8;
+        var lastHand = 1;
         void Add(VisualizerNote note, int sourceIndex)
         {
             if (note.HitTimeMs <= busyUntil[note.Tile]) throw HoldOverlap(settings, sourceIndex, note.HitTimeMs);
@@ -415,7 +418,9 @@ internal static class SimultaneousNotePlanner
                     blockEnd++;
                 }
                 var block = groups.Skip(blockStart).Take(blockEnd - blockStart).ToArray();
-                var candidates = mode >= 4 ? preferred : preferred.Concat(visible).Distinct().ToArray();
+                // A four-note chord on one hand may need lanes outside the section's pattern (4K is 3-6 on eight lanes).
+                var hand = oneHand && block.Any(group => group.Count == 4) ? 1 - lastHand : -1;
+                var candidates = mode >= 4 && hand < 0 ? preferred : preferred.Concat(visible).Distinct().ToArray();
                 // Chord pairs are tried from the most centered (tiles 3-4 and 5-6 first) outward. Spare lanes are used only when
                 // no pairing places the block on the pattern lanes, with as few spare notes as possible; with spare notes, placements
                 // that send only leftover singles to spare lanes (every chord kept) come before breaking a chord.
@@ -441,10 +446,15 @@ internal static class SimultaneousNotePlanner
                         .SelectMany(keepChords => Enumerable.Range(1, 3).Select(level => (style, keepChords, level))))
                     .Select(option => Assign(block, candidates, visible, mode, extras, budget, option.level, option.keepChords, busyUntil,
                         option.style.Avoid ? lanes : null, option.style.Avoid ? used : null, option.style.Repeat, option.style.NoFollow, previous,
-                        settings.GetPreferredChordLanes(), settings.UseChordCenterPair, option.style.Fresh ? flow : null))
+                        settings.GetPreferredChordLanes(), settings.UseChordCenterPair, option.style.Fresh ? flow : null, hand))
                     .FirstOrDefault(found => found is not null);
                 var assignment = Find(0) ?? Enumerable.Range(1, extras.Length).Select(Find).FirstOrDefault(found => found is not null);
                 if (assignment is null) throw Failure(settings, block[0].SourceIndex, block[0].TimeMs, mode, count);
+                if (hand >= 0)
+                    for (int g = 0, at = 0; g < block.Length; at += block[g].Count, g++)
+                        if (block[g].Count == 4 && Array.IndexOf(visible, assignment[at].Tile) is var first && first % 4 == 0
+                            && Enumerable.Range(0, 4).All(k => Array.IndexOf(visible, assignment[at + k].Tile) == first + k))
+                            lastHand = first / 4;
                 // Experimental: a single right before a chord keeps off the chord's lanes, so "3 3-4" reads "2 3-4".
                 // Chords are placed after the singles, so the single is the one that moves; the chord keeps its pair.
                 if (settings.UseChordAvoidBefore && result.Count > 0
@@ -642,7 +652,7 @@ internal static class SimultaneousNotePlanner
     /// </summary>
     private static (int Tile, bool StartsChord)[]? Assign(GroupedHit[] groups, int[] candidates, int[] visible, int mode, int[] extras, int budget,
         int level, bool keepChords, double[] busyUntil, int[]? sectionLanes, int[]? sectionUsed, bool repeatSingles, bool noFollow,
-        int[] previousLanes, IReadOnlyList<int> preferredLanes, bool centerPair, Flow? flow = null)
+        int[] previousLanes, IReadOnlyList<int> preferredLanes, bool centerPair, Flow? flow = null, int hand = -1)
     {
         var fresh = flow is not null;
         var total = groups.Sum(g => g.Count);
@@ -726,6 +736,10 @@ internal static class SimultaneousNotePlanner
                 : choices.OrderBy(tile => Array.IndexOf(visible, tile) is var lane
                         && preferredLanes.Any(start => lane >= start && lane <= start + 1) ? 0 : 1)
                     .ThenBy(tile => Array.IndexOf(visible, tile) is var lane && lane >= 0 ? lane : int.MaxValue).ToArray();
+            // One hand per four-note chord on eight lanes (experimental): it starts on lane 1 or 5, the wanted hand first.
+            // Only an order, so a chord that cannot have either hand is still placed.
+            if (hand >= 0 && member == 0 && groups[groupIndex].Count == 4 && visible.Length == 8)
+                ordered = ordered.OrderBy(tile => Array.IndexOf(visible, tile) is var lane && lane == hand * 4 ? 0 : lane == (1 - hand) * 4 ? 1 : 2).ToArray();
             var before = Before(groupIndex);
             if (flow is not null && single)
             {

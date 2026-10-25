@@ -56,6 +56,7 @@ public partial class SettingsPanel
             _chordLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.ChordLanePreference.Trim()));
             _trillCenter.IsChecked = settings.NoTrillCenterPair;
             _trillOne.IsChecked = settings.TrillAsOneNote;
+            _chordsAboveFour.IsChecked = settings.ChordsOnlyAboveFourKeys;
             _trillLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.TrillLanePreference.Trim()));
             _judgmentMode.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentModes, settings.JudgmentBarMode.Trim()));
             _judgmentDifficulty.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentDifficulties, settings.JudgmentBarDifficulty.Trim()));
@@ -76,6 +77,7 @@ public partial class SettingsPanel
             _chordBefore.IsChecked = settings.ChordAvoidBeforeLanes;
             _runRestart.IsChecked = settings.RestartPatternOnRun;
             _enhancedChords.IsChecked = settings.EnhancedChordRules;
+            _oneHandChords.IsChecked = settings.OneHandFourChords;
             foreach (var (name, box) in _textFields) box.Text = ValueText(settings, name);
             foreach (var (name, box) in _orderBoxes)
             {
@@ -433,6 +435,7 @@ public partial class SettingsPanel
             ChordAvoidBeforeLanes = _chordBefore.IsChecked == true,
             RestartPatternOnRun = _runRestart.IsChecked == true,
             EnhancedChordRules = _enhancedChords.IsChecked == true,
+            OneHandFourChords = _oneHandChords.IsChecked == true,
             MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum : 0,
             MinimumTileCount = _minimum.SelectedItem is int minimum ? minimum : 0,
             DisplayLaneCount = _displayLanes.SelectedIndex <= 0 ? 0 : VisualizerSettings.Modes[_displayLanes.SelectedIndex - 1],
@@ -460,6 +463,7 @@ public partial class SettingsPanel
             ChordLanePreference = ChordLanes[Math.Clamp(_chordLane.SelectedIndex, 0, ChordLanes.Length - 1)],
             NoTrillCenterPair = _trillCenter.IsChecked == true,
             TrillAsOneNote = _trillOne.IsChecked == true,
+            ChordsOnlyAboveFourKeys = _chordsAboveFour.IsChecked == true,
             TrillLanePreference = ChordLanes[Math.Clamp(_trillLane.SelectedIndex, 0, ChordLanes.Length - 1)],
             JudgmentBarMode = JudgmentModes[Math.Clamp(_judgmentMode.SelectedIndex, 0, JudgmentModes.Length - 1)],
             JudgmentBarDifficulty = JudgmentDifficulties[Math.Clamp(_judgmentDifficulty.SelectedIndex, 0, JudgmentDifficulties.Length - 1)],

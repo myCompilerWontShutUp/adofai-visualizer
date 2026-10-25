@@ -78,6 +78,7 @@ public partial class SettingsPanel : UserControl
     private readonly ComboBox _chordLane = new();
     private readonly CheckBox _trillCenter = new();
     private readonly CheckBox _trillOne = new();
+    private readonly CheckBox _chordsAboveFour = new();
     private readonly ComboBox _trillLane = new();
     private readonly CheckBox _magicFixedTiles = new();
     private readonly CheckBox _magicChords = new();
@@ -104,6 +105,7 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _chordBefore = new();
     private readonly CheckBox _runRestart = new();
     private readonly CheckBox _enhancedChords = new();
+    private readonly CheckBox _oneHandChords = new();
     private readonly CheckBox _judgmentAverage = new();
     private readonly ComboBox _judgmentMode = new();
     private readonly ComboBox _judgmentDifficulty = new();
@@ -265,6 +267,7 @@ public partial class SettingsPanel : UserControl
         // The chord rules sit under the chord window.
         AddField("No chord center pair", _chordCenter, nameof(settings.NoChordCenterPair), "NoChordCenterHelp");
         AddField("Chord lane preference", _chordLane, nameof(settings.ChordLanePreference), "ChordLaneHelp");
+        AddField("Above four keys only for chords", _chordsAboveFour, nameof(settings.ChordsOnlyAboveFourKeys), "ChordsAboveFourHelp");
         // Trills are worked out after the chords and have the same two rules of their own (user request).
         AddText("Trill window (ms)", nameof(settings.TrillWindowMs), "TrillHelp");
         AddField("Trill as one note", _trillOne, nameof(settings.TrillAsOneNote), "TrillAsOneHelp");
@@ -327,6 +330,7 @@ public partial class SettingsPanel : UserControl
         AddField("Chord keeps the lane before it", _chordBefore, nameof(settings.ChordAvoidBeforeLanes), "ChordBeforeHelp");
         AddField("Restart the pattern each run", _runRestart, nameof(settings.RestartPatternOnRun), "RunRestartHelp");
         AddField("Enhanced chord and trill rules", _enhancedChords, nameof(settings.EnhancedChordRules), "EnhancedChordsHelp");
+        AddField("Four-note chords on one hand", _oneHandChords, nameof(settings.OneHandFourChords), "OneHandChordsHelp");
         // Parked here while the field makes room for the slot picker (user rule): the editor is reached from the console
         // as well, so this is a way in, not the only one.
         AddField("Note editor", _editSongButton);
@@ -371,7 +375,7 @@ public partial class SettingsPanel : UserControl
         _immediateDownshift.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Checked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
-        foreach (var box in new[] { _chordLanes, _chordCenter, _trillCenter, _trillOne })
+        foreach (var box in new[] { _chordLanes, _chordCenter, _trillCenter, _trillOne, _chordsAboveFour, _oneHandChords })
         {
             box.Checked += (_, _) => FormChanged();
             box.Unchecked += (_, _) => FormChanged();

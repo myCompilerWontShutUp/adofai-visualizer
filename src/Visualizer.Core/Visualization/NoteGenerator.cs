@@ -105,8 +105,11 @@ public sealed class NoteGenerator
         // A long note keeps its lane busy until it ends (user rule): a later note on that lane takes the next pattern lane.
         var busyUntil = SimultaneousNotePlanner.NewBusyLanes();
         var selector = new DynamicTimingSelector(settings);
+        // Above four keys only for chords (user rule): the gaps pick 4K at most, and a chord wider than that asks for more below.
+        var gapCap = settings.ChordsOnlyAboveFourKeys ? Math.Max(4, settings.MinimumTileCount) : VisualizerSettings.LaneKeyCount;
+        int Pick(double gap) => Math.Min(selector.Select(gap), gapCap);
         // No interval exists for a single note: dynamic mode uses the slowest (1K) case.
-        var initialMode = selector.Select(unitTimes.Count > 1 ? unitTimes[1] - unitTimes[0] : double.MaxValue);
+        var initialMode = Pick(unitTimes.Count > 1 ? unitTimes[1] - unitTimes[0] : double.MaxValue);
         var cursor = new TilePatternCursor(settings, initialMode);
         // The tile count may be held through a magic circle (user rule); the runs are found from the same display times.
         var magic = settings.UseMagicCircleTiles ? MagicCircleFinder.Find(times, settings, groups.Select(g => g.Count > 1).ToArray()) : [];
@@ -124,8 +127,8 @@ public sealed class NoteGenerator
             // Which gap decides this note's tile count. The gap after it is what the hand has to be ready for; the gap
             // before it is what the note just came from (user rule, the long-standing behaviour); both takes the shorter.
             // The last note has no gap after it, so it keeps the one it came from and stays with its run.
-            var before = u > 0 ? selector.Select(unitTimes[u] - unitTimes[u - 1]) : initialMode;
-            var after = u + 1 < unitTimes.Count ? selector.Select(unitTimes[u + 1] - unitTimes[u]) : before;
+            var before = u > 0 ? Pick(unitTimes[u] - unitTimes[u - 1]) : initialMode;
+            var after = u + 1 < unitTimes.Count ? Pick(unitTimes[u + 1] - unitTimes[u]) : before;
             var requested = settings.BothIntervalTiles ? u == 0 ? after : Math.Max(before, after)
                 : settings.NextIntervalTiles ? after : before;
             // Anticipate 1K -> 2K and 2K -> 4K only: start the faster cycle on the first member of the close run, rather
@@ -133,13 +136,13 @@ public sealed class NoteGenerator
             // only applies to the other way round.
             var anticipated = !settings.NextIntervalTiles && !settings.BothIntervalTiles && u > 0 && cursor.CurrentMode == requested
                 && requested is 1 or 2 && u + 1 < unitTimes.Count
-                && selector.Select(unitTimes[u + 1] - unitTimes[u]) == requested * 2;
+                && Pick(unitTimes[u + 1] - unitTimes[u]) == requested * 2;
             if (anticipated) requested *= 2;
             // In 2K a lane comes back two notes later. When the gaps on both sides of this note together are shorter than
             // twice the faster boundary, the lane before it would be back faster than 4K allows, so the count goes up on this
             // note instead of at the end of the cycle (user rule: in 2K, 2 3 2 3 at 43 ms left lanes 1 and 4 empty). Twice the
             // boundary, so one short gap among long ones is not enough; 4K brings a lane back only every fourth note.
-            var pair = u > 0 && u + 1 < unitTimes.Count ? selector.Select((unitTimes[u + 1] - unitTimes[u - 1]) / 2) : 0;
+            var pair = u > 0 && u + 1 < unitTimes.Count ? Pick((unitTimes[u + 1] - unitTimes[u - 1]) / 2) : 0;
             var crowded = cursor.CurrentMode == 2 && pair > cursor.CurrentMode;
             if (crowded) requested = Math.Max(requested, pair);
             // A trill counted as one note asks once; its later notes go on with that answer and count no second time.
@@ -201,7 +204,13 @@ public sealed class NoteGenerator
             }
             played[tile] = times[i];
             var holdEnd = holdEndsMs?[groups[i].SourceIndex];
-            notes.Add(new VisualizerNote(times[i], tile, cursor.CurrentMode, false, groups[i].Count == 1 ? holdEnd : null));
+            // A chord the gaps' tile count cannot hold takes the count it needs for itself alone (user rule); the pattern goes
+            // on as it was, and the planner lays the chord on that count's lanes.
+            var mode = settings.ChordsOnlyAboveFourKeys && groups[i].Count > gapCap
+                ? Math.Max(cursor.CurrentMode, VisualizerSettings.Modes.Where(count => count > gapCap && count <= settings.MaximumTileCount)
+                    .DefaultIfEmpty(settings.MaximumTileCount).FirstOrDefault(count => count >= groups[i].Count, settings.MaximumTileCount))
+                : cursor.CurrentMode;
+            notes.Add(new VisualizerNote(times[i], tile, mode, false, groups[i].Count == 1 ? holdEnd : null));
             if (groups[i].Count == 1 && holdEnd is double end) busyUntil[tile] = SimultaneousNotePlanner.HeldUntil(times, end);
         }
         return SimultaneousNotePlanner.Place(groups, notes, settings, holdEndsMs);

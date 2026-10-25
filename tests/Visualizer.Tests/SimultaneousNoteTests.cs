@@ -609,6 +609,51 @@ internal static class SimultaneousNoteTests
             foreach (var group in wide.GroupBy(note => note.HitTimeMs).Select(g => g.ToArray()))
                 Equal(group.Select(note => note.Tile).Distinct().Count(), group.Length);
         });
+        yield return ("Above four keys only for chords: the gaps pick 4K at most, and a chord of five or more widens for itself", () =>
+        {
+            // User rule: on eight lanes fast singles stay in four keys, and only a chord that four lanes cannot hold takes the
+            // lanes it needs, for that chord alone; chords of two to four notes never ask for them.
+            var generator = new NoteGenerator();
+            var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 70,
+                FourKeyBoundaryMs = 120, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20, TrillWindowMs = 0, ChordsOnlyAboveFourKeys = true };
+            var times = Enumerable.Range(0, 16).Select(i => i * 30d)
+                .Concat([600, 601, 602, 603, 604]).Concat([700, 701, 702])
+                .Concat(Enumerable.Range(0, 8).Select(i => 800 + i * 30d)).ToArray();
+            var notes = generator.Generate(times, eight);
+            var four = eight.GetPattern(4).ToHashSet();
+            Assert(notes.Take(16).All(n => n.Mode == 4 && four.Contains(n.Tile)), "30ms singles stay in 4K: "
+                + string.Join(" ", notes.Take(16).Select(n => $"{n.Tile}/{n.Mode}")));
+            var wide = notes.Where(n => n.HitTimeMs == 600).ToArray();
+            Equal(wide.Length, 5);
+            Assert(wide.All(n => n.Mode == 6 && eight.GetPattern(6).Contains(n.Tile)) && wide.Select(n => n.Tile).Distinct().Count() == 5,
+                "The five-note chord takes six lanes: " + string.Join(" ", wide.Select(n => $"{n.Tile}/{n.Mode}")));
+            Assert(notes.Where(n => n.HitTimeMs > 604).All(n => n.Mode <= 4), "The three-note chord and what follows go back to four keys");
+            // Off, the gaps pick eight keys again.
+            Assert(generator.Generate(times, eight with { ChordsOnlyAboveFourKeys = false }).Take(16).Any(n => n.Mode == 8), "Off: 8K by the gaps");
+            Assert(!new VisualizerSettings().ChordsOnlyAboveFourKeys, "Off by default (user decision)");
+            Assert(!eight.HasSameNoteRulesAs(eight with { ChordsOnlyAboveFourKeys = false }), "It is a note rule");
+        });
+        yield return ("Four-note chords on one hand on eight lanes (experimental), the hands in turn", () =>
+        {
+            // User rule, from S3RL - play it loud: four notes at once every 79ms read a s d f / j k l ;, not d f j k (the 4K
+            // lanes 3-6 across both hands).
+            var generator = new NoteGenerator();
+            var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 50,
+                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20, ExperimentalFeatures = true, OneHandFourChords = true };
+            var times = Enumerable.Range(0, 6).SelectMany(k => Enumerable.Repeat(k * 79d, 4)).ToArray();
+            var visible = eight.GetVisibleTiles().ToList();
+            var chords = generator.Generate(times, eight).GroupBy(n => n.HitTimeMs)
+                .Select(g => g.Select(n => visible.IndexOf(n.Tile) + 1).Order().ToArray()).ToArray();
+            Equal(chords.Length, 6);
+            for (var k = 0; k < chords.Length; k++)
+                Assert(chords[k].SequenceEqual(k % 2 == 0 ? new[] { 1, 2, 3, 4 } : new[] { 5, 6, 7, 8 }),
+                    "Left, right, left: " + string.Join(" | ", chords.Select(c => string.Join(" ", c))));
+            // Off, or with the experimental features off, the chord keeps the 4K lanes as before.
+            Sequence(generator.Generate(times, eight with { OneHandFourChords = false }).Take(4).Select(n => n.Tile).Order(), 3, 4, 5, 6);
+            Sequence(generator.Generate(times, eight with { ExperimentalFeatures = false }).Take(4).Select(n => n.Tile).Order(), 3, 4, 5, 6);
+            Assert(!new VisualizerSettings().UseOneHandFourChords, "Off by default");
+            Assert(!eight.HasSameNoteRulesAs(eight with { OneHandFourChords = false }), "It is a note rule");
+        });
         yield return ("A chord wider than its lanes is cut at them, and the rest is the next chord at its own time", () =>
         {
             // User rule, from Camellia - Hello (BPM) 2026 (28 notes in 25ms, more than any lanes): a group holds no more notes

@@ -312,6 +312,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `timing.chord-window` | SimultaneousWindowMs | ms |
 | `timing.no-center-pair` | NoChordCenterPair | 토글 |
 | `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
+| `timing.chords-above-four` | ChordsOnlyAboveFourKeys | 토글 (5키 이상은 5노트 이상 동타에만, 기본 꺼짐) |
 | `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
 | `timing.no-trill-center-pair` | NoTrillCenterPair | 토글 |
 | `timing.trill-as-one` | TrillAsOneNote | 토글 (키 수를 정할 때 트릴을 노트 한 개로, 기본 켜짐) |
@@ -350,6 +351,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `experimental.chord-before` | ChordAvoidBeforeLanes | 토글 |
 | `experimental.run-restart` | RestartPatternOnRun | 토글 |
 | `experimental.enhanced-chords` | EnhancedChordRules | 토글 |
+| `experimental.one-hand-chords` | OneHandFourChords | 토글 (8레인 4동타를 한 손씩 번갈아) |
 
 새 설정을 추가하면 `SettingPaths`에 이름을 넣어야 `CmdConsoleTests`의 "every setting has a name" 검사를 통과합니다.
 

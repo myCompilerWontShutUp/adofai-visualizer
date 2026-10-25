@@ -232,6 +232,7 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.ChordAvoidBeforeLanes)] = ("StateChordBeforeOn", "StateChordBeforeOff"),
         [nameof(VisualizerSettings.RestartPatternOnRun)] = ("StateRunRestartOn", "StateRunRestartOff"),
         [nameof(VisualizerSettings.EnhancedChordRules)] = ("StateEnhancedChordsOn", "StateEnhancedChordsOff"),
+        [nameof(VisualizerSettings.OneHandFourChords)] = ("StateOneHandOn", "StateOneHandOff"),
         [nameof(VisualizerSettings.MagicCircleFixedTiles)] = ("StateFixedTilesOn", "StateFixedTilesOff"),
         [nameof(VisualizerSettings.MagicCircleChords)] = ("StateMagicChordsOn", "StateMagicChordsOff"),
         [nameof(VisualizerSettings.ShowInputEffect)] = ("StateEffectOn", "StateEffectOff"),
@@ -243,6 +244,7 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.NoChordCenterPair)] = ("StateCenterPairOff", "StateCenterPairOn"),
         [nameof(VisualizerSettings.NoTrillCenterPair)] = ("StateTrillCenterLast", "StateCenterPairOn"),
         [nameof(VisualizerSettings.TrillAsOneNote)] = ("StateTrillOneNote", "StateTrillEachNote"),
+        [nameof(VisualizerSettings.ChordsOnlyAboveFourKeys)] = ("StateChordsAboveFourOn", "StateChordsAboveFourOff"),
         [nameof(VisualizerSettings.KeepSpeedOnLoad)] = ("StateKeepSpeedOn", "StateKeepSpeedOff")
     };
 

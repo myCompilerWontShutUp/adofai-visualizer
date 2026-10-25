@@ -128,6 +128,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - 실험적 기능은 `ExperimentalFeatures`가 켜져야 적용: `UseChordAvoidBefore`(`Place`가 앞 단타를 옮김), `UseRestartOnRun`(`TilePatternCursor.RestartCycle`). `NextIntervalTiles`는 고급 설정. `UseChordSectionLanes`·`UseChordCenterPair`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일 읽기용.
 - **배치 코드**: `NoteGenerator`(묶음·키 수 `unit`·`crowded`·`QuickReturnMs`·`busyUntil`) → `TilePatternCursor`(`FreshStart`·`OpenTrill`·`OpenRoll`·`RollHead`·`BesideTrill`·`RestartCycle`) → `SimultaneousNotePlanner.Place`(`Assign`+`Flow`·`Shift`·`LockChords`·`SplitTrills`/`LayRoll`). 트릴 묶음 `TrillRuns`, 롱노트 레인 `HeldUntil`. 함수별 역할은 `docs/code-map.md`.
 - 묶음은 `SimultaneousNotePlanner.Group`이 만들고 화면 + 여분 레인 수에서 자릅니다(나머지는 다음 묶음).
+- 4키 초과는 동타만(`ChordsOnlyAboveFourKeys`): `NoteGenerator`의 `gapCap`·`Pick`(간격 모드 상한)과 넓은 동타의 `mode`(그 노트만, 커서는 그대로). 8레인 4동타 한 손(`UseOneHandFourChords`): `Place`의 `oneHand`·`lastHand` → `Assign(hand)`가 첫 멤버를 레인 1·5 순으로 정렬(후보에 화면 레인 전부).
 - 동타는 `StartsChord`로만 그립니다(마지막을 뺀 모든 멤버, `ChordSpan`). 읽는 곳: `NoteField`·`NoteEditField.Members`·`NoteEditSession.CanMerge`·`MainWindow.FromRules`·`CmdSession.FormatNotes(Json)`.
 - 고급 설정 밖의 토글은 기본 켜짐이 되도록 이름을 정합니다(사용자 선호).
 

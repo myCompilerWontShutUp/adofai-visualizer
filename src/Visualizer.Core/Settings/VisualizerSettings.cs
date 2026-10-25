@@ -105,6 +105,12 @@ public sealed record VisualizerSettings
     /// </summary>
     public bool TrillAsOneNote { get; init; } = Flag(nameof(TrillAsOneNote));
     /// <summary>
+    /// Above four keys only for chords (user rule): the gaps pick 4K at most, and a chord of more notes than that takes the
+    /// smallest larger tile count that holds it (6 or 8, up to the maximum), for that chord alone; two-, three- and four-note
+    /// chords never ask for it. Off, the gaps pick any count up to the maximum.
+    /// </summary>
+    public bool ChordsOnlyAboveFourKeys { get; init; } = Flag(nameof(ChordsOnlyAboveFourKeys));
+    /// <summary>
     /// When enabled, fewer tiles start on the note that asks for them instead of at the end of the running cycle, the 1K→2K
     /// and 2K→4K anticipation switches there too, and a switch never repeats the tile just played. When disabled, every switch
     /// waits for the cycle boundary.
@@ -190,6 +196,13 @@ public sealed record VisualizerSettings
     public bool EnhancedChordRules { get; init; } = Flag(nameof(EnhancedChordRules));
     [JsonIgnore]
     public bool UseEnhancedChordRules => ExperimentalFeatures && EnhancedChordRules;
+    /// <summary>
+    /// Experimental (user rule, from S3RL - play it loud): on eight lanes a four-note chord sits on one hand, lanes 1-4 or
+    /// 5-8, rather than across the middle (3-6), and four-note chords in a row take the hands in turn.
+    /// </summary>
+    public bool OneHandFourChords { get; init; } = Flag(nameof(OneHandFourChords));
+    [JsonIgnore]
+    public bool UseOneHandFourChords => ExperimentalFeatures && OneHandFourChords;
     /// <summary>
     /// Which lane pair a chord takes first, as screen lanes: "1-2" (the left hand), "3-4", or "None" for the pattern order.
     /// Only a preference: a taken pair still moves the chord elsewhere.
@@ -361,7 +374,7 @@ public sealed record VisualizerSettings
         && FourKeyBoundaryMs == other.FourKeyBoundaryMs && TwoKeyBoundaryMs == other.TwoKeyBoundaryMs && InitialTile == other.InitialTile
         && SimultaneousWindowMs == other.SimultaneousWindowMs && TrillWindowMs == other.TrillWindowMs
         && NoTrillCenterPair == other.NoTrillCenterPair && TrillLanePreference.Trim() == other.TrillLanePreference.Trim()
-        && TrillAsOneNote == other.TrillAsOneNote
+        && TrillAsOneNote == other.TrillAsOneNote && ChordsOnlyAboveFourKeys == other.ChordsOnlyAboveFourKeys
         && ImmediateDownshift == other.ImmediateDownshift
         && (!ImmediateDownshift || DownshiftNoteCount == other.DownshiftNoteCount)
         && StartDelayMs == other.StartDelayMs && PlaybackSpeedPercent == other.PlaybackSpeedPercent
@@ -375,7 +388,7 @@ public sealed record VisualizerSettings
             && MagicCircleChords == other.MagicCircleChords))
         && NextIntervalTiles == other.NextIntervalTiles && BothIntervalTiles == other.BothIntervalTiles
         && UseChordAvoidBefore == other.UseChordAvoidBefore && UseRestartOnRun == other.UseRestartOnRun
-        && UseEnhancedChordRules == other.UseEnhancedChordRules
+        && UseEnhancedChordRules == other.UseEnhancedChordRules && UseOneHandFourChords == other.UseOneHandFourChords
         && EnableTilePreference == other.EnableTilePreference
         && (!EnableTilePreference || (TwoKeyOrder == other.TwoKeyOrder && FourKeyOrder == other.FourKeyOrder
             && SixKeyOrder == other.SixKeyOrder && EightKeyOrder == other.EightKeyOrder));

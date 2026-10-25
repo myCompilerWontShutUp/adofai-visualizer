@@ -745,9 +745,9 @@ internal static class AdvancedFeatureTests
                 "The experimental card appears once experiments are on");
             Equal(window.BuildSettings().ExperimentalFeatures, true);
             var experimentalCard = (FrameworkElement)expanders[^1].Content;
-            // Three placement rules are being tried out; they only apply while experiments are on.
-            Assert(FindAll<CheckBox>(experimentalCard).Count() == 3 && !FindAll<ComboBox>(experimentalCard).Any(),
-                "The experimental card holds the three rules");
+            // Four placement rules are being tried out; they only apply while experiments are on.
+            Assert(FindAll<CheckBox>(experimentalCard).Count() == 4 && !FindAll<ComboBox>(experimentalCard).Any(),
+                "The experimental card holds the four rules");
             Capture(window, Path.Combine(artifacts, "settings-experimental.png"), 520, 3600);
             // A switched-on toggle is the accent blue of the pill toggles with a barely visible gradient, not the purple of the
             // primary buttons.

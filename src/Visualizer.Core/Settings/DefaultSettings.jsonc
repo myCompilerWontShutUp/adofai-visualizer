@@ -29,6 +29,8 @@
   "ChordAvoidBeforeLanes": false,
   "RestartPatternOnRun": false,
   "EnhancedChordRules": false,
+  // Experimental, on eight lanes: a four-note chord on one hand (lanes 1-4 or 5-8), the hands in turn.
+  "OneHandFourChords": false,
   "ResetKey": "Enter",
   "StartTriggerKey": "J",
   "VisualizerToggleKey": "F8",
@@ -53,6 +55,8 @@
   "TrillLanePreference": "1-2,3-4",
   // On: a trill counts as one note when the tile count is worked out (the gaps around it decide); lanes are laid as with it off.
   "TrillAsOneNote": true,
+  // On: the gaps pick 4K at most, and only a chord of five notes or more takes 6 or 8 lanes, for that chord alone.
+  "ChordsOnlyAboveFourKeys": false,
   // On: fewer tiles start mid-cycle (after DownshiftNoteCount notes in a row) and never repeat the tile just played.
   // Off: the app 0.1.2 rule, where every switch waits for the running cycle to end.
   "ImmediateDownshift": true,
