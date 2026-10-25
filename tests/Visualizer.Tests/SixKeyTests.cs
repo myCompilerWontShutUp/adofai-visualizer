@@ -162,7 +162,7 @@ internal static class SixKeyTests
             // Eight lanes keep chords on the left-hand pairs 1-2 and 3-4 (the default preference).
             var eightSlow = new VisualizerSettings { MaximumTileCount = 8 };
             AssertPreferred(generator.Generate(new[] { 0d, 600, 601, 1200, 1800, 1801, 2400, 2700, 2701, 3000, 3300, 3301 }, eightSlow), eightSlow);
-            AssertFirstChordPreferred(generator.Generate(new[] { 0d, 25, 26, 50, 75, 76, 100, 125, 150, 151 }, eightSlow), eightSlow);
+            AssertFirstChordPreferred(generator.Generate(new[] { 0d, 45, 46, 90, 135, 136, 180, 225, 270, 271 }, eightSlow), eightSlow);
             Assert(slowNotes.Count(n => n.StartsChord) == 4, "Every chord was placed: " + string.Join(" ", slowNotes.Select(n => n.Tile)));
 
             // The 4-lane rule is unchanged: pairs 1-2 and 3-4 only, which is also what the default preference names there.

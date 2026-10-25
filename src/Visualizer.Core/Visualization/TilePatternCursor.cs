@@ -29,6 +29,8 @@ public sealed class TilePatternCursor
     private Func<int, bool>? _tooSoon;
     /// <summary>Asked whether a tile, played that many notes on, would come back within the quick window.</summary>
     private Func<int, int, bool>? _recent;
+    /// <summary>The hand the patterns of four keys or fewer play in on eight lanes (0 left, 1 right), -1 when not by hand.</summary>
+    private int _hand;
 
     public int CurrentMode { get; private set; }
     public int? PendingMode { get; private set; }
@@ -39,11 +41,12 @@ public sealed class TilePatternCursor
         _settings = settings;
         ValidateMode(initialMode);
         CurrentMode = initialMode;
-        _pattern = settings.GetPattern(initialMode);
+        _hand = settings.PlaysByHand ? 0 : -1;
+        _pattern = settings.GetPattern(initialMode, _hand);
         _visible = settings.GetVisibleTiles();
         var widest = settings.GetPattern(settings.MaximumTileCount);
         _step = widest.Count >= 2 && widest[1] > widest[0] ? 1 : -1;
-        var initialIndex = _pattern.ToList().IndexOf(settings.InitialTile);
+        var initialIndex = _pattern.ToList().IndexOf(settings.GetPattern(1, _hand)[0]);
         _offset = Math.Max(0, initialIndex);
     }
 
@@ -111,9 +114,9 @@ public sealed class TilePatternCursor
     /// </summary>
     private int[]? OpenRoll(int tile, int length)
     {
-        // A roll over every lane is the pattern's own walk (user report: a fast run reads 4 3 2 1 4 3 2 1). Laid side by
+        // A roll the pattern walks is the pattern's own walk (user report: a fast run reads 4 3 2 1 4 3 2 1). Laid side by
         // side it could only start on the far lane and turned back whenever that lane had just been played.
-        if (length >= _visible.Count) return null;
+        if (SimultaneousNotePlanner.WalksPattern(length, _pattern.Count)) return null;
         var next = _pattern[(_offset + _emittedInCycle + 1) % _pattern.Count];
         int[]? Run(int start, int step)
         {
@@ -250,6 +253,8 @@ public sealed class TilePatternCursor
     {
         var at = IndexOf(tile);
         var to = at + step;
+        // Played by hand, four keys or fewer never step over to the other hand (user rule).
+        if (_hand >= 0 && CurrentMode <= 4 && at >= 0 && to >= 0 && to / 4 != at / 4) return null;
         return at >= 0 && to >= 0 && to < _visible.Count ? _visible[to] : null;
     }
 
@@ -293,7 +298,7 @@ public sealed class TilePatternCursor
         if (anticipated && requestedMode > CurrentMode)
         {
             CurrentMode = requestedMode;
-            _pattern = _settings.GetPattern(requestedMode);
+            _pattern = _settings.GetPattern(requestedMode, _hand);
             _emittedInCycle = 0;
             _offset = FreshStart(tooSoon);
             PendingMode = null;
@@ -304,7 +309,7 @@ public sealed class TilePatternCursor
         if (_settings.ImmediateDownshift && requestedMode < CurrentMode)
         {
             CurrentMode = requestedMode;
-            _pattern = _settings.GetPattern(requestedMode);
+            _pattern = _settings.GetPattern(requestedMode, _hand);
             _emittedInCycle = 0;
             PendingMode = null;
             _offset = FreshStart(tooSoon);
@@ -317,7 +322,7 @@ public sealed class TilePatternCursor
             if (PendingMode is int nextMode)
             {
                 CurrentMode = nextMode;
-                _pattern = _settings.GetPattern(nextMode);
+                _pattern = _settings.GetPattern(nextMode, _hand);
                 // Initial Tile applies to a new play only, not mode switches.
                 _offset = FreshStart(tooSoon);
             }
@@ -348,6 +353,17 @@ public sealed class TilePatternCursor
     /// <summary>Two tiles a trill may share: neighbours on screen, and on four lanes not the pair across the center while that is refused.</summary>
     private bool TrillPair(int first, int second) =>
         SimultaneousNotePlanner.IsTrillPair(_visible.Count, IndexOf(first), IndexOf(second), _settings.NoTrillCenterPair);
+
+    /// <summary>
+    /// A new run takes the other hand on eight lanes played by hand (experimental, user rule: a s d f, then j k l ;). The
+    /// pattern keeps its place, so the run reads the same in the other hand.
+    /// </summary>
+    public void SwitchHand()
+    {
+        if (_hand < 0) return;
+        _hand = 1 - _hand;
+        _pattern = _settings.GetPattern(CurrentMode, _hand);
+    }
 
     private int IndexOf(int tile)
     {

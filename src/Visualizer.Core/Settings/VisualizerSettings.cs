@@ -197,8 +197,9 @@ public sealed record VisualizerSettings
     [JsonIgnore]
     public bool UseEnhancedChordRules => ExperimentalFeatures && EnhancedChordRules;
     /// <summary>
-    /// Experimental (user rule, from S3RL - play it loud): on eight lanes a four-note chord sits on one hand, lanes 1-4 or
-    /// 5-8, rather than across the middle (3-6), and four-note chords in a row take the hands in turn.
+    /// Experimental (user rule, from S3RL - play it loud): eight lanes are two hands, 1-4 and 5-8. Four keys or fewer stay in
+    /// one hand (see <see cref="GetPattern(int, int)"/>) and each new run takes the other one; four-note chords take the hands
+    /// in turn. Six and eight keys use every lane.
     /// </summary>
     public bool OneHandFourChords { get; init; } = Flag(nameof(OneHandFourChords));
     [JsonIgnore]
@@ -425,6 +426,31 @@ public sealed record VisualizerSettings
 
     /// <summary>The tiles of the maximum-mode pattern, ascending. Patterns and chords use only these lanes.</summary>
     public IReadOnlyList<int> GetVisibleTiles() => GetPattern(MaximumTileCount).Order().ToArray();
+
+    /// <summary>Whether eight lanes are played as two hands of four (experimental, user rule): four keys or fewer stay in one hand.</summary>
+    [JsonIgnore]
+    public bool PlaysByHand => UseOneHandFourChords && MaximumTileCount == 8;
+
+    /// <summary>
+    /// The pattern of <paramref name="mode"/> inside one hand of eight lanes (0 the left lanes 1-4, 1 the right lanes 5-8): the
+    /// four-key pattern's tiles stand for the hand's four lanes, so every pattern of four keys or fewer sits in the hand where
+    /// it sits on a four-lane screen (user rule: a s d f / j k l ;, never d f j k). Otherwise the pattern itself.
+    /// </summary>
+    public IReadOnlyList<int> GetPattern(int mode, int hand)
+    {
+        var pattern = GetPattern(mode);
+        if (!PlaysByHand || mode > 4 || hand is not (0 or 1)) return pattern;
+        var four = GetPattern(4).Order().ToArray();
+        var lanes = GetVisibleTiles().Skip(hand * 4).Take(4).ToArray();
+        var mapped = pattern.Select(tile => lanes[Array.IndexOf(four, tile) is var at && at >= 0 ? at : Math.Clamp(tile - four[0], 0, 3)]).ToArray();
+        return mapped.Distinct().Count() == mapped.Length ? mapped : pattern;
+    }
+
+    /// <summary>The hand of eight lanes a tile sits in (0 left, 1 right), or -1 when the lanes are not played by hand.</summary>
+    public int HandOf(int tile) => PlaysByHand && GetVisibleTiles().ToList().IndexOf(tile) is var at && at >= 0 ? at / 4 : -1;
+
+    /// <summary>The pattern of <paramref name="mode"/> in the hand <paramref name="tile"/> sits in (see <see cref="GetPattern(int, int)"/>).</summary>
+    public IReadOnlyList<int> GetPatternFor(int mode, int tile) => GetPattern(mode, HandOf(tile));
 
     /// <summary>
     /// Spare lanes when extra lane placement applies: the tile just left and just right of the visible tiles, or the two nearest

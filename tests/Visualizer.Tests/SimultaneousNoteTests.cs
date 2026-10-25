@@ -47,10 +47,13 @@ internal static class SimultaneousNoteTests
             var generator = new NoteGenerator();
             var times = new[] { 0d, 10, 20, 30 };
             var original = times.ToArray();
-            // The window is pinned here so editing the initial settings does not change this rule check.
-            var window = Settings with { SimultaneousWindowMs = 10 };
+            // The window is pinned here so editing the initial settings does not change this rule check. Trills are off: with
+            // them on, notes linked one to the next by the trill window beyond the chord window are a trill (checked below).
+            var window = Settings with { SimultaneousWindowMs = 10, TrillWindowMs = 0 };
             var notes = generator.Generate(times, window);
             Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(new[] { 0d, 0, 20, 20 }), "Groups must use first hit, without chaining");
+            var trill = generator.Generate(times, window with { TrillWindowMs = 40 });
+            Assert(trill.Select(n => n.HitTimeMs).SequenceEqual(times) && !trill.Any(n => n.StartsChord), "With trills on the run is a trill");
             Assert(times.SequenceEqual(original), "Original hit times must remain intact");
             Equal(generator.Generate(new[] { 0d, 10.001 }, window)[1].HitTimeMs, 10.001);
             Equal(generator.Generate(new[] { 0d, 0 }, Settings with { SimultaneousWindowMs = 0 })[1].HitTimeMs, 0d);
@@ -68,10 +71,11 @@ internal static class SimultaneousNoteTests
         });
         yield return ("4K plans outer adjacent chords before placing singles", () =>
         {
-            var times = new[] { 0d, 30, 35, 60, 90, 120, 125, 150, 180 };
+            // The chords stand clear of the notes around them (more than the trill window away), so they stay chords.
+            var times = new[] { 0d, 45, 50, 95, 125, 170, 175, 220, 250 };
             var generator = new NoteGenerator();
             var notes = generator.Generate(times, Settings with { InitialTile = 3 });
-            // 60/90 and 150/180 are trills: they roll up the ascending pattern (3-4) away from the chord before them, and the
+            // 95/125 and 220/250 are trills: they roll up the ascending pattern (3-4) away from the chord before them, and the
             // chord between them keeps off the key just played.
             Sequence(notes.Select(n => n.Tile), 3, 1, 2, 3, 4, 1, 2, 3, 4);
             Assert(notes.All(n => n.Mode == 4), "Expected grouped 4K mode");
@@ -532,13 +536,21 @@ internal static class SimultaneousNoteTests
             Assert(three[0].StartsChord && three[1].StartsChord && !three[2].StartsChord, "Three notes are one chord");
             var four = generator.Generate(new[] { 0d, 1, 2, 3 }, Settings with { FourKeyPattern = "1 2 3 4" });
             Assert(four.Select(n => n.Tile).Order().SequenceEqual(new[] { 1, 2, 3, 4 }) && four.SkipLast(1).All(n => n.StartsChord), "Four on four lanes");
-            // Start and end both in the window (user rule): a b c with a-b and b-c close but a-c not is no three-note chord;
-            // a-b is one, and c, close after it, rolls on beside it (1-2 3 or 3-4 2).
-            var chain = generator.Generate(new[] { 0d, 15, 30 }, Settings with { SimultaneousWindowMs = 20 });
-            Assert(chain[0].StartsChord && !chain[1].StartsChord && chain[2].HitTimeMs == 30, "a-b chord, c apart");
-            var chordLanes = chain.Take(2).Select(n => n.Tile).ToArray();
-            Assert(chordLanes.Any(tile => Math.Abs(tile - chain[2].Tile) == 1) && !chordLanes.Contains(chain[2].Tile),
-                "c sits beside the chord: " + string.Join(" ", chain.Select(n => n.Tile)));
+            // A chord needs start and end in the chord window, a trill only each note in the trill window of the one before
+            // (user rule): a b c with a-b and b-c close but a-c not is a three-note trill, whatever the gaps, rolled on three
+            // lanes side by side, never a-b chord and c.
+            foreach (var abc in new[] { new[] { 0d, 15, 30 }, [0, 5, 30], [0, 18, 39] })
+            {
+                var chain = generator.Generate(abc, Settings with { SimultaneousWindowMs = 20 });
+                Assert(!chain.Any(n => n.StartsChord) && chain.Select(n => n.HitTimeMs).SequenceEqual(abc), "a b c is a trill: " + string.Join(" ", abc));
+                var steps = chain.Zip(chain.Skip(1), (a, b) => b.Tile - a.Tile).ToArray();
+                Assert(steps.All(step => step == steps[0]) && Math.Abs(steps[0]) == 1, "Rolled side by side: " + string.Join(" ", chain.Select(n => n.Tile)));
+            }
+            // Notes of one instant still sound together inside such a run, and with trills off a-b is the chord it was.
+            var instant = generator.Generate(new[] { 0d, 0, 30 }, Settings with { SimultaneousWindowMs = 20 });
+            Assert(instant[0].StartsChord && !instant[1].StartsChord && instant[2].HitTimeMs == 30, "One instant stays a chord");
+            var off = generator.Generate(new[] { 0d, 15, 30 }, Settings with { SimultaneousWindowMs = 20, TrillWindowMs = 0 });
+            Assert(off[0].StartsChord && !off[1].StartsChord && off[2].HitTimeMs == 30, "Without trills a-b is a chord, c apart");
         });
         yield return ("With four lanes, two-note chords never use the middle lanes 2-3 in any mode", () =>
         {
@@ -653,6 +665,155 @@ internal static class SimultaneousNoteTests
             Sequence(generator.Generate(times, eight with { ExperimentalFeatures = false }).Take(4).Select(n => n.Tile).Order(), 3, 4, 5, 6);
             Assert(!new VisualizerSettings().UseOneHandFourChords, "Off by default");
             Assert(!eight.HasSameNoteRulesAs(eight with { OneHandFourChords = false }), "It is a note rule");
+        });
+        yield return ("Eight lanes by hand (experimental): four keys or fewer stay in one hand, a new run takes the other", () =>
+        {
+            // User rule, from S3RL - play it loud: a four-note run reads a s d f / j k l ;, never d f j k across the hands, a long
+            // stream goes round inside the hand (4 3 2 1 4 3 2 1), and each new run takes the other hand.
+            var generator = new NoteGenerator();
+            var hands = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 25, SixKeyBoundaryMs = 25,
+                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40,
+                ExperimentalFeatures = true, OneHandFourChords = true };
+            Assert(hands.PlaysByHand && !(hands with { OneHandFourChords = false }).PlaysByHand && !(hands with { MaximumTileCount = 6 }).PlaysByHand,
+                "Only eight lanes with the switch play by hand");
+            var visible = hands.GetVisibleTiles().ToList();
+            int Hand(VisualizerNote note) => visible.IndexOf(note.Tile) / 4;
+            var runs = new List<double>();
+            for (var run = 0; run < 4; run++)
+                runs.AddRange(Enumerable.Range(0, 8).Select(i => run * 1200 + i * 79d));
+            var notes = generator.Generate(runs, hands);
+            for (var run = 0; run < 4; run++)
+            {
+                var part = notes.Skip(run * 8).Take(8).ToArray();
+                Assert(part.All(n => Hand(n) == Hand(part[0])), $"Run {run + 1} in one hand: " + string.Join(" ", part.Select(n => visible.IndexOf(n.Tile) + 1)));
+                if (run > 0) Assert(Hand(part[0]) != Hand(notes[(run - 1) * 8]), "Each new run takes the other hand");
+            }
+            // A 39ms stream: rolls of the hand's four lanes, the pattern's own walk.
+            var stream = generator.Generate(Enumerable.Range(0, 24).Select(i => i * 39d).ToArray(), hands).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
+            Assert(stream.All(lane => lane <= 4) || stream.All(lane => lane >= 5), "The stream stays in one hand: " + string.Join(" ", stream));
+            Assert(stream.Zip(stream.Skip(1)).All(p => p.Second == p.First - 1 || p.Second == p.First + 3), "It walks 4 3 2 1: " + string.Join(" ", stream));
+            // Off, the four-key pattern is the middle lanes 3-6 as before.
+            Assert(generator.Generate(runs, hands with { OneHandFourChords = false }).Take(8).All(n => n.Tile is >= 3 and <= 6), "Off: lanes 3-6");
+        });
+        yield return ("On six and eight lanes too, a trill takes the pair between the hands only as a last resort", () =>
+        {
+            // User rule: the center pair is last for a trill on every lane count, so a 2K trill on eight lanes (pattern 4 5,
+            // the center pair itself) rolls on one hand's pair.
+            var generator = new NoteGenerator();
+            var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20,
+                TrillWindowMs = 40, NoTrillCenterPair = true };
+            var times = new[] { 0d, 300, 326, 600, 900, 926, 1200, 1500, 1526, 1800 };
+            var visible = eight.GetVisibleTiles().ToList();
+            var notes = generator.Generate(times, eight);
+            foreach (var at in new[] { 1, 4, 7 })
+            {
+                var pair = new[] { visible.IndexOf(notes[at].Tile) + 1, visible.IndexOf(notes[at + 1].Tile) + 1 }.Order().ToArray();
+                Assert(!pair.SequenceEqual(new[] { 4, 5 }), "A trill off the center pair: " + string.Join(" ", notes.Select(n => visible.IndexOf(n.Tile) + 1)));
+            }
+        });
+        yield return ("A long roll in a pattern of one or two lanes goes side by side, never 2 2 2 2 or 2 3 2 3", () =>
+        {
+            // A roll is the pattern's own walk only where the pattern has the lanes for it: walked in 1K or 2K a four-note roll
+            // read one lane four times or 2 3 2 3 (user report, RUSH E).
+            var generator = new NoteGenerator();
+            foreach (var one in new[] { true, false })
+            {
+                var settings = Settings with { TrillWindowMs = 40, TrillAsOneNote = one };
+                var notes = generator.Generate(new[] { 0d, 600, 630, 660, 690, 1300 }, settings);
+                var roll = notes.Skip(1).Take(4).Select(n => n.Tile).ToArray();
+                Equal(roll.Distinct().Count(), 4);
+                var steps = roll.Zip(roll.Skip(1), (a, b) => b - a).ToArray();
+                Assert(steps.All(step => step == steps[0]), "Side by side: " + string.Join(" ", roll));
+            }
+        });
+        yield return ("A run of singles in a chord section walks on from the lane really played, 4 3 2 1 and never 1 4 2 3", () =>
+        {
+            // User report (We Could Get More Machinegun Psystyle, 65.5s): a 47ms run in a 4K section that also holds a chord read
+            // 1 4 2 3 over and over. Its first note had to move off the lane just played, and every note after it then took the
+            // cursor's tile, a step behind, which the note before had just taken.
+            var settings = Settings with { TrillWindowMs = 40, SimultaneousWindowMs = 20, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500 };
+            var times = new List<double> { 0, 0.5, 94, 188, 281 };
+            times.AddRange(Enumerable.Range(0, 16).Select(i => 375 + i * 47d));
+            times.AddRange([375 + 16 * 47, 375 + 16 * 47 + 0.5]);
+            var notes = new NoteGenerator().Generate(times, settings);
+            var visible = settings.GetVisibleTiles().ToList();
+            var run = notes.Where(n => n.HitTimeMs >= 375 && n.HitTimeMs < 375 + 16 * 47).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
+            Assert(run.Zip(run.Skip(1)).All(p => p.Second == p.First + 1 || p.Second == p.First - 3)
+                || run.Zip(run.Skip(1)).All(p => p.Second == p.First - 1 || p.Second == p.First + 3), "The run walks the pattern: " + string.Join(" ", run));
+
+            // Mixes the same every time: 2K stretches with chords, 4K runs at 47-66ms and chords right after them, on the
+            // user's layout (tiles 3 4 5 6 played 6 to 3). Every run of six singles or more walks the pattern: a lane taken
+            // by a chord earlier in the block is free again once rested, a run walks on from the lane really played, and a
+            // single after a chord at the edge goes round as after a trill rolled into it (2-1 4, not 2-1 3 4 2 1).
+            var user = new VisualizerSettings { MinimumTileCount = 2, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25,
+                TrillWindowMs = 40, NextIntervalTiles = true, MagicCircleFixedTiles = false };
+            var userVisible = user.GetVisibleTiles().ToList();
+            var random = new Random(11);
+            for (var variant = 0; variant < 120; variant++)
+            {
+                var mix = new List<double>();
+                var runs = new List<(int From, int To)>();
+                var t = 0d;
+                for (var part = random.Next(2, 5); part > 0; part--)
+                {
+                    for (var k = random.Next(0, 5); k > 0; k--)
+                    {
+                        mix.AddRange(random.Next(3) == 0 ? [t, t + 0.5] : [t]);
+                        t += new[] { 94d, 110, 130, 160 }[random.Next(4)];
+                    }
+                    var gap = new[] { 47d, 52, 59, 66 }[random.Next(4)];
+                    var count = random.Next(6, 15);
+                    runs.Add((mix.Count, mix.Count + count));
+                    for (var k = 0; k < count; k++, t += gap) mix.Add(t);
+                    if (random.Next(10) < 7) { mix.AddRange([t, t + 0.5]); t += gap; }
+                    t += new[] { 0d, 94, 200 }[random.Next(3)];
+                }
+                var placed = new NoteGenerator().Generate(mix, user);
+                CheckRuns(placed, runs, $"Variant {variant}");
+            }
+            // A trill inside a run (Plum - Life Archive, 58s: 54ms with a 27ms roll, 4K boundary 100): after it every lane
+            // comes back a step too soon for the quick window, and resting the oldest lane first kept the run on 1 4 2 3 for good.
+            var paced = user with { FourKeyBoundaryMs = 100 };
+            for (var variant = 0; variant < 60; variant++)
+            {
+                var mix = new List<double>();
+                var t = 0d;
+                var gap = new[] { 52d, 54, 57, 62 }[random.Next(4)];
+                for (var k = random.Next(4, 9); k > 0; k--, t += gap) mix.Add(t);
+                mix.AddRange([t, t + 27, t + 54]);
+                t += 54 + gap;
+                var from = mix.Count;
+                for (var k = 0; k < 12; k++, t += gap) mix.Add(t);
+                var end = mix.Count;
+                // A chord after the run makes its section a chord section, where singles are placed one by one.
+                mix.AddRange([t, t + 0.5]);
+                var placed = new NoteGenerator().Generate(mix, paced);
+                CheckRuns(placed, [(from + 2, end)], $"Trill variant {variant}");
+            }
+            void CheckRuns(IReadOnlyList<VisualizerNote> placed, IEnumerable<(int From, int To)> runs, string label)
+            {
+                foreach (var (from, to) in runs)
+                {
+                    // The last single may sit beside the pair of a chord right after it (user rule: 2 3-4), so it is left out.
+                    var lanes = placed.Skip(from).Take(to - from - 1).Where(n => n.Mode == 4).Select(n => userVisible.IndexOf(n.Tile) + 1).ToArray();
+                    if (lanes.Length < 6) continue;
+                    Assert(lanes.Zip(lanes.Skip(1)).All(p => p.Second == p.First - 1 || p.Second == p.First + 3)
+                        || lanes.Zip(lanes.Skip(1)).All(p => p.Second == p.First + 1 || p.Second == p.First - 3),
+                        $"{label}: a run walks the pattern: " + string.Join(" ", lanes));
+                }
+            }
+        });
+        yield return ("A chord with more notes than its section's pattern takes the screen's lanes", () =>
+        {
+            // Six notes at once in a 4K section of eight lanes: the 4K pattern has four lanes, the chord needs six, so it takes
+            // the screen's (two songs could not load with a maximum of eight).
+            var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, FourKeyBoundaryMs = 120, SixKeyBoundaryMs = 50,
+                EightKeyBoundaryMs = 30, SimultaneousWindowMs = 20, TrillWindowMs = 40 };
+            var times = new[] { 0d, 90, 180, 270, 271, 272, 273, 274, 275, 360, 450 };
+            var notes = new NoteGenerator().Generate(times, eight);
+            Equal(notes.Count, times.Length);
+            var chord = notes.Where(n => n.HitTimeMs == 270).ToArray();
+            Equal(chord.Length, 6); Equal(chord.Select(n => n.Tile).Distinct().Count(), 6);
         });
         yield return ("A chord wider than its lanes is cut at them, and the rest is the next chord at its own time", () =>
         {

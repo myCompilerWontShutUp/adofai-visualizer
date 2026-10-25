@@ -351,7 +351,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `experimental.chord-before` | ChordAvoidBeforeLanes | 토글 |
 | `experimental.run-restart` | RestartPatternOnRun | 토글 |
 | `experimental.enhanced-chords` | EnhancedChordRules | 토글 |
-| `experimental.one-hand-chords` | OneHandFourChords | 토글 (8레인 4동타를 한 손씩 번갈아) |
+| `experimental.one-hand-chords` | OneHandFourChords | 토글 (8레인은 한 손씩: 4키 이하는 한 손 안, 새 연타마다 손 바꿈, 4동타는 손 번갈아) |
 
 새 설정을 추가하면 `SettingPaths`에 이름을 넣어야 `CmdConsoleTests`의 "every setting has a name" 검사를 통과합니다.
 

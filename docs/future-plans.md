@@ -30,6 +30,3 @@
 - `hide`·`show`·`remove <id>, …`, `info <id>, …`, `get <setting>, …`, `help`·`option`·`keyword <cmd>, …`
 - `playlist`·`id`·`title <string>, …`(합집합), `report done`·`undone`·`erase <title>, …`
 
-## 4. 요청받았고 사용자 지시를 기다리는 것 (2026-10-25)
-
-- 빠른 단타가 `4 3 2 1` 대신 `4 2 3 1`처럼 엇갈림, RUSH E류의 너무 빠른 `2 3 2 3` — 하드코딩이 아니라 설정 구조로 막기. 조사 결과는 `docs/handoff-history.md` (25).

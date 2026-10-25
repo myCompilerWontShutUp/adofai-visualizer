@@ -82,7 +82,7 @@ public sealed class NoteGenerator
             || Enumerable.Range(0, times.Length).Any(i => holdEndsMs[i] is double end && (!double.IsFinite(end) || end <= times[i]))))
             throw new ArgumentException("Long note ends must match the hits and come after them.", nameof(holdEndsMs));
         if (times.Length == 0) return Array.Empty<VisualizerNote>();
-        var groups = SimultaneousNotePlanner.Group(times, settings);
+        var groups = SimultaneousNotePlanner.Group(times, settings, holdEndsMs);
         times = groups.Select(g => g.TimeMs).ToArray();
         // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction
         // (user rule), as many lanes as the roll has notes.
@@ -170,6 +170,10 @@ public sealed class NoteGenerator
                 requested = settings.MagicCircleTiles;
                 lowerRun = 0;
             }
+            // Eight lanes played by hand (experimental, user rule): a note whose gap before it is clearly longer than the gap
+            // after it opens a new run, and a new run takes the other hand.
+            if (settings.PlaysByHand && i > 0 && i + 1 < times.Length && times[i] - times[i - 1] > (times[i + 1] - times[i]) * RunGapFactor)
+                cursor.SwitchHand();
             // A note whose gap before it is longer than the gap after it opens a run (experimental): the pattern starts
             // again there, so a burst of three reads 4-3-2 / 4-3-2 rather than carrying the last cycle's phase. Not when the
             // tile just played would then come back too soon: 3 2 | 4 3 2 brought 2 back in 188 ms and left 1 out (user

@@ -16,18 +16,46 @@ internal static class SimultaneousNotePlanner
     /// </summary>
     internal sealed record GroupedHit(double TimeMs, int Count, int SourceIndex);
 
-    internal static IReadOnlyList<GroupedHit> Group(double[] times, VisualizerSettings settings)
+    /// <summary>How close two hits are to be one instant: tiles the game puts at the same time, give or take rounding.</summary>
+    internal const double SameInstantMs = 0.001;
+
+    /// <summary>
+    /// Whether a roll of <paramref name="length"/> notes is the pattern's own walk (user report: a fast run reads 4 3 2 1 4 3 2 1):
+    /// it is when the pattern has three lanes or more and no more than the roll has notes. A pattern of one or two lanes
+    /// walked over a long roll is one lane or 2 3 2 3 again and again, so such a roll goes side by side instead.
+    /// </summary>
+    internal static bool WalksPattern(int length, int patternLanes) => patternLanes >= 3 && length >= patternLanes;
+
+    /// <summary>How many lanes a roll may run over: the screen's, or one hand's four when eight lanes are played by hand.</summary>
+    internal static int RollLanes(VisualizerSettings settings) => settings.PlaysByHand ? 4 : Math.Max(2, settings.GetVisibleTiles().Count);
+
+    internal static IReadOnlyList<GroupedHit> Group(double[] times, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds = null)
     {
         var result = new List<GroupedHit>();
         // A group never holds more notes than it has lanes for, the screen's and any spare ones: its notes never share a lane,
         // so a wider one could never be placed. What is left starts the next group at its own time, as a roll too long for
         // the lanes does (user rule, from Camellia - Hello (BPM) 2026: 28 notes in 25ms).
         var cap = settings.GetVisibleTiles().Count + settings.GetExtraTiles().Count;
+        // Notes linked one to the next by the trill window are a trill unless the whole run fits the chord window (user rule:
+        // a chord needs a and c in the chord window, a trill only a-b and b-c in the trill window, whatever the gaps are).
+        // So in such a run only notes of one instant sound together. A run with a long note in it is grouped as chords
+        // (long notes are never trills).
+        var loose = new bool[times.Length];
+        for (var first = 0; settings.TrillWindowMs > 0 && first < times.Length;)
+        {
+            var last = first;
+            while (last + 1 < times.Length && times[last + 1] - times[last] <= settings.TrillWindowMs) last++;
+            var trill = times[last] - times[first] > settings.SimultaneousWindowMs
+                && Enumerable.Range(first, last - first + 1).All(i => holdEnds?[i] is null);
+            for (var i = first; i <= last; i++) loose[i] = trill;
+            first = last + 1;
+        }
         for (var start = 0; start < times.Length;)
         {
             var end = start + 1;
+            var window = loose[start] ? SameInstantMs : settings.SimultaneousWindowMs;
             // Anchor to the first hit, not the preceding hit: no transitive drift.
-            while (end < times.Length && end - start < cap && times[end] - times[start] <= settings.SimultaneousWindowMs) end++;
+            while (end < times.Length && end - start < cap && times[end] - times[start] <= window) end++;
             result.Add(new(times[start], end - start, start));
             start = end;
         }
@@ -48,7 +76,7 @@ internal static class SimultaneousNotePlanner
         var positions = new int[groups.Count];
         lengths = new int[groups.Count];
         if (settings.TrillWindowMs <= 0) return positions;
-        var cap = Math.Max(2, settings.GetVisibleTiles().Count);
+        var cap = RollLanes(settings);
         bool Tap(int i) => groups[i].Count == 1 && holdEnds?[groups[i].SourceIndex] is null;
         bool Close(int i) => groups[i + 1].TimeMs - groups[i].TimeMs is var gap && gap > 0 && gap <= settings.TrillWindowMs;
         for (var i = 0; i + 1 < groups.Count;)
@@ -69,7 +97,7 @@ internal static class SimultaneousNotePlanner
     /// </summary>
     internal static bool IsTrillPair(int laneCount, int a, int b, bool noCenter) =>
         a >= 0 && b >= 0 && a < laneCount && b < laneCount && Math.Abs(a - b) == 1
-        && !(laneCount == 4 && Math.Min(a, b) == laneCount / 2 - 1 && noCenter);
+        && !(laneCount >= 4 && laneCount % 2 == 0 && Math.Min(a, b) == laneCount / 2 - 1 && noCenter);
 
     /// <summary>Per logical tile (1..8), the end of the long note occupying it; negative infinity when free.</summary>
     /// <summary>
@@ -122,7 +150,7 @@ internal static class SimultaneousNotePlanner
         // center. On four lanes the center is the last resort while the setting holds rather than refused (user rule): the
         // cursor puts a trill there only where every other pair breaks the run, and such a trill is kept as it is.
         var pairs = Enumerable.Range(0, Math.Max(0, visible.Count - 1))
-            .OrderBy(low => low == half - 1 && visible.Count == 4 && settings.NoTrillCenterPair ? 3
+            .OrderBy(low => low == half - 1 && visible.Count >= 4 && visible.Count % 2 == 0 && settings.NoTrillCenterPair ? 3
                 : preferred.Contains(low) ? 0 : low == half - 1 ? 2 : 1)
             .ToArray();
         bool Single(int index) => index >= 0 && index < result.Count && !result[index].StartsChord
@@ -139,7 +167,7 @@ internal static class SimultaneousNotePlanner
         int RunLength(int index)
         {
             var end = index + 1;
-            while (end + 1 < result.Count && end + 1 - index < visible.Count && Tap(index) && Tap(end) && Tap(end + 1) && Trill(end)) end++;
+            while (end + 1 < result.Count && end + 1 - index < RollLanes(settings) && Tap(index) && Tap(end) && Tap(end + 1) && Trill(end)) end++;
             return end - index + 1;
         }
         for (var i = 0; i + 1 < result.Count; i++)
@@ -210,16 +238,19 @@ internal static class SimultaneousNotePlanner
         {
             var step = Direction(settings, Enumerable.Range(at, length).Max(k => result[k].Mode));
             var lanes = Enumerable.Range(at, length).Select(k => visible.IndexOf(result[k].Tile)).ToArray();
-            // A roll over every lane is the pattern's walk as laid (see TilePatternCursor.OpenRoll).
-            if (length >= visible.Count)
+            // A roll the pattern walks is kept as the cursor laid it (see WalksPattern).
+            if (WalksPattern(length, Enumerable.Range(at, length).Min(k => Math.Min(result[k].Mode, visible.Count))))
             {
                 (lastEnd, lastRoll, lastLow) = (at + length - 1, lanes, Math.Min(lanes[^2], lanes[^1]));
                 return;
             }
             var before = LanesAround(result, at - 1, backward: true);
             var ahead = LanesAround(result, at + length, backward: false);
+            // Played by hand, a roll of four keys or fewer stays in one hand (user rule).
+            var byHand = settings.PlaysByHand && Enumerable.Range(at, length).Max(k => result[k].Mode) <= 4;
             bool Fits(int first, int way) => first >= 0 && first < visible.Count
-                && first + (length - 1) * way >= 0 && first + (length - 1) * way < visible.Count;
+                && first + (length - 1) * way >= 0 && first + (length - 1) * way < visible.Count
+                && (!byHand || first / 4 == (first + (length - 1) * way) / 4);
             bool Allowed(int first, int way) => Fits(first, way) && (way == step || !Fits(first, step));
             int LaneAt(int first, int way, int k) => first + k * way;
             // Rolls in a row are the ones that follow each other closely; one after a pause may well read the same.
@@ -268,7 +299,7 @@ internal static class SimultaneousNotePlanner
         bool Beside(int tile) => visible.IndexOf(tile) is var at && at >= 0
             && previous.Any(lane => visible.IndexOf(lane) is var other && other >= 0 && Math.Abs(other - at) == 1);
         var first = baseline[start].Tile;
-        var pattern = settings.GetPattern(baseline[start].Mode).ToArray();
+        var pattern = settings.GetPatternFor(baseline[start].Mode, baseline[start].Tile).ToArray();
         var quick = NoteGenerator.QuickReturnMs(settings, baseline[start].Mode);
         // How many of the segment's first cycle would bring a lane back too soon, counting the lanes the re-placed notes
         // before it played (the cursor never saw where those went).
@@ -357,7 +388,7 @@ internal static class SimultaneousNotePlanner
         // note after a long note on its lane (HeldUntil).
         var groupTimes = groups.Select(group => group.TimeMs).ToArray();
         // Experimental (user rule): on eight lanes a four-note chord takes one hand, the other one than the last such chord.
-        var oneHand = settings.UseOneHandFourChords && visible.Length == 8;
+        var oneHand = settings.PlaysByHand;
         var lastHand = 1;
         void Add(VisualizerNote note, int sourceIndex)
         {
@@ -418,9 +449,15 @@ internal static class SimultaneousNotePlanner
                     blockEnd++;
                 }
                 var block = groups.Skip(blockStart).Take(blockEnd - blockStart).ToArray();
+                // Played by hand, each block keeps to the hand its first note's run is in.
+                var blockPreferred = preferred;
+                if (oneHand && settings.GetPatternFor(mode, baseline[blockStart].Tile).ToArray() is var own && Array.IndexOf(own, baseline[blockStart].Tile) is var turn and >= 0)
+                    blockPreferred = own.Skip(turn).Concat(own.Take(turn)).ToArray();
                 // A four-note chord on one hand may need lanes outside the section's pattern (4K is 3-6 on eight lanes).
                 var hand = oneHand && block.Any(group => group.Count == 4) ? 1 - lastHand : -1;
-                var candidates = mode >= 4 && hand < 0 ? preferred : preferred.Concat(visible).Distinct().ToArray();
+                var candidates = mode >= 4 && hand < 0 ? blockPreferred : blockPreferred.Concat(visible).Distinct().ToArray();
+                // A chord with more notes than the section's pattern has lanes takes the screen's lanes too: it needs that many.
+                if (block.Any(group => group.Count > candidates.Length)) candidates = candidates.Concat(visible).Distinct().ToArray();
                 // Chord pairs are tried from the most centered (tiles 3-4 and 5-6 first) outward. Spare lanes are used only when
                 // no pairing places the block on the pattern lanes, with as few spare notes as possible; with spare notes, placements
                 // that send only leftover singles to spare lanes (every chord kept) come before breaking a chord.
@@ -439,7 +476,7 @@ internal static class SimultaneousNotePlanner
                     Direction(settings, mode), settings.NoTrillCenterPair,
                     [result.Count >= 2 ? result[^2].Tile : 0, result.Count >= 1 ? result[^1].Tile : 0],
                     result.Count >= 1 ? result[^1].HitTimeMs : double.NegativeInfinity, settings.TrillWindowMs * NoteGenerator.RollLeadWindows,
-                    lastPlayed, NoteGenerator.QuickReturnMs(settings, mode));
+                    lastPlayed, NoteGenerator.QuickReturnMs(settings, mode), oneHand && mode <= 4, blockPreferred);
                 var previous = LanesAround(result, result.Count - 1, backward: true);
                 (int Tile, bool StartsChord)[]? Find(int budget) => styles
                     .SelectMany(style => (budget == 0 ? [true] : new[] { true, false })
@@ -777,15 +814,16 @@ internal static class SimultaneousNotePlanner
                 // reach past this block, so its first note looks at the lanes the rest will need: one a chord of this block
                 // already holds cannot be had. Each note after the first goes on the way the roll started.
                 var length = flow.LengthOf(groupIndex);
+                // Played by hand, a roll of four keys or fewer stays in one hand (user rule).
+                bool SameHand(int a, int b) => !flow.ByHand || a / 4 == b / 4;
                 int RollWay(int at) => at < 0 ? 0
-                    : at + (length - 1) * flow.Step is var end && end >= 0 && end < visible.Length ? flow.Step
-                    : at - (length - 1) * flow.Step is var back && back >= 0 && back < visible.Length ? -flow.Step : 0;
+                    : at + (length - 1) * flow.Step is var end && end >= 0 && end < visible.Length && SameHand(at, end) ? flow.Step
+                    : at - (length - 1) * flow.Step is var back && back >= 0 && back < visible.Length && SameHand(at, back) ? -flow.Step : 0;
                 int Long(int tile)
                 {
                     var at = Array.IndexOf(visible, tile);
-                    // A roll over every lane is the pattern's walk (see TilePatternCursor.OpenRoll): it starts on any lane and
-                    // goes round from the far edge.
-                    if (length >= visible.Length)
+                    // A roll the pattern walks (see WalksPattern) starts on any lane and goes round from the far edge.
+                    if (WalksPattern(length, Math.Min(mode, visible.Length)))
                     {
                         if (flow.PlaceOf(groupIndex) == 1) return 0;
                         var walked = Array.IndexOf(visible, LaneOf(groupIndex - 1));
@@ -845,15 +883,38 @@ internal static class SimultaneousNotePlanner
                 double PlayedAt(int tile) => Math.Max(flow.LastPlayed[tile], tiles.Select((placed, index) => (placed, index))
                     .Where(entry => entry.placed == tile).Select(entry => groups[owners[entry.index]].TimeMs).DefaultIfEmpty(double.NegativeInfinity).Max());
                 bool Rested(int tile) => groups[groupIndex].TimeMs - PlayedAt(tile) >= flow.QuickMs;
+                // A run of singles walks on from the lane really played before it (user report: 4 3 2 1 read 1 4 2 3). The
+                // cursor's tile is a step behind wherever the note before it was moved, so following it put every later note
+                // off the walk.
+                bool WalksOn(int tile) => before.Length == 1 && flow.Walk is { Length: >= 3 } walk
+                    && Array.IndexOf(walk, before[0]) is var from && from >= 0 && walk[(from + 1) % walk.Length] == tile;
+                // Inside a run the walk wins over the quick window once its lane is a full turn old at the run's own pace (a
+                // lane back after three notes of four): at one pace every order brings each lane back every turn, so resting
+                // the oldest lane first only kept a run off its walk for good after a trill or chord (1 4 2 3 at 54ms). A lane
+                // back sooner than that (2 | 4 3 2) still waits.
+                bool WalksAround(int tile) => WalksOn(tile) && flow.Walk is { } turn
+                    && groups[groupIndex].TimeMs - PlayedAt(tile) >= (turn.Length - 1) * (groups[groupIndex].TimeMs - lastTime) - 1;
+                // After a chord a run of singles goes the way the pattern walks: beside the chord on that side, and round to
+                // the far lane where the chord sits at the edge (user rule: 3-4 2, and 2-1 4 as after a trill rolled into the
+                // edge). Before another chord the single stays beside it, so singles and chords take turns (3 1-2 3 1-2).
+                int ChordWalk(int tile)
+                {
+                    if (!afterChord || beforeChord || flow.Walk is not { Length: >= 3 } walk) return 1;
+                    var lead = before.FirstOrDefault(lane => Array.IndexOf(walk, lane) is var at && at >= 0 && !before.Contains(walk[(at + 1) % walk.Length]));
+                    return lead != 0 && walk[(Array.IndexOf(walk, lead) + 1) % walk.Length] == tile ? 0 : 1;
+                }
                 ordered = ordered.OrderBy(tile => role != 0 && length >= 3 ? Long(tile) : role == 1 ? Opens(tile)
                         : role == 2 && before.Length == 1 ? RollsBack(before[0], tile) ? 1 : !Rolls(before[0], tile) ? 2 : Centered(before[0], tile) ? 1 : 0 : 0)
                     // Two trills in a row take two pairs (user rule: not 1-2 1-2).
                     .ThenBy(tile => role == 1 && length < 3 && SamePair(tile) ? 1 : 0)
                     .ThenBy(tile => role == 0 && trill is { } last ? BesideTrill(last, tile) : 0)
+                    .ThenBy(ChordWalk)
                     .ThenBy(tile => afterChord && before.Any(lane => Beside(lane, tile)) ? 0 : 1)
                     .ThenBy(tile => leadsTrill ? Heads(tile) : 0)
                     .ThenBy(tile => beforeChord && BesidePair(tile) ? 0 : 1)
+                    .ThenBy(tile => WalksAround(tile) ? 0 : 1)
                     .ThenBy(tile => Rested(tile) ? 0 : 1)
+                    .ThenBy(tile => WalksOn(tile) ? 0 : 1)
                     .ThenBy(tile => tile == flow.Hints[groupIndex] ? 0 : 1)
                     .ThenBy(tile => tiles.Contains(tile) ? 1 : 0).ToArray();
             }
@@ -863,7 +924,11 @@ internal static class SimultaneousNotePlanner
                 // Two notes of one block never share a lane, except singles when the kept chord lanes leave too few of them.
                 // Notes of one group sound together, so they never share a lane at all.
                 // Fresh singles may come back to a single's lane too (2 3-4 2): the lane order above keeps that for when it helps.
-                var reuse = (repeatSingles || fresh) && single && !chordTiles.Contains(tile)
+                // A chord's lane is free again for a later single of the block once it has rested (the quick window is what
+                // keeps a lane from coming back): kept off it, a run right after a chord fell out of the pattern's walk for good.
+                bool RestedChordLane() => fresh && flow is not null && tiles.Select((placed, index) => (placed, index)).Where(entry => entry.placed == tile)
+                    .All(entry => groups[groupIndex].TimeMs - groups[owners[entry.index]].TimeMs >= flow.QuickMs);
+                var reuse = (repeatSingles || fresh) && single && (!chordTiles.Contains(tile) || RestedChordLane())
                     && !tiles.Where((t, index) => t == tile && owners[index] == groupIndex).Any();
                 if (tiles.Contains(tile) && !reuse) continue;
                 if (single && sectionLanes is not null && Array.IndexOf(sectionLanes, tile) >= 0) continue;
@@ -901,7 +966,7 @@ internal static class SimultaneousNotePlanner
     /// each lane was last played, and how soon a lane coming back is too soon.
     /// </summary>
     private sealed record Flow(int[] Hints, int[] Roles, int[] Places, int[] Lengths, int Step, bool NoTrillCenter, int[] Trailing,
-        double LastTimeMs, double CloseMs, double[] LastPlayed, double QuickMs)
+        double LastTimeMs, double CloseMs, double[] LastPlayed, double QuickMs, bool ByHand = false, int[]? Walk = null)
     {
         /// <summary>A group's part in a trill; the two groups before the block are -2 and -1.</summary>
         public int RoleOf(int group) => Roles[group + 2];
