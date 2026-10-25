@@ -9,7 +9,7 @@ namespace Visualizer.Infrastructure.Parsing;
 public sealed class AdofaiTimelineParser : IMapTimelineParser
 {
     // Raise this whenever what is cached changes (the app then asks for a map sync); docs/adofai-parser.md has the evidence.
-    public const string CurrentVersion = "adofai-v26-format-10";
+    public const string CurrentVersion = "adofai-v27-any-first-direction";
     /// <summary>
     /// Level formats checked against the game and a real map each. The game reads the level version only for 7 (LoadLevel),
     /// 9 (editor MakeLevel), decoration components up to 12 and the level list (above 19), so none of these has a timing branch
@@ -154,8 +154,11 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                 throw new Unsupported("각도는 게임의 숫자 범위 안에 있는 유한한 값이어야 합니다.");
             // Ordinary negative/multi-turn angles are directions; 999 alone is the midspin sentinel.
             angles = angles.Select(a => a == 999 ? a : Mod(a)).ToArray();
-            if (angles.Length == 0 || angles[0] != 0)
-                throw new Unsupported("첫 방향이 0도인 두 행성 맵부터 지원합니다.");
+            // Any first direction: scrLevelMaker.InstantiateFloatFloors gives floor 0 the entry angle 3π/2, exactly what a floor
+            // after a 0° direction gets (each exit is (90° − direction), the next entry that plus π), so the first turn is measured
+            // like every other (S3RL - play it loud starts at 345°). A midspin there is not verified.
+            if (angles.Length == 0 || angles[0] == 999)
+                throw new Unsupported("첫 타일이 없거나 중간 회전인 맵은 지원하지 않습니다.");
             var allActions = root.GetProperty("actions").EnumerateArray().ToArray();
             // scnGame.ApplyEventsToFloors files an event under its floor only while LevelEvent.active is set, and LevelEvent.Decode
             // clears it only for a JSON false. So an event switched off in the editor never reaches the timing code: the
@@ -322,7 +325,7 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                     var shift = PlanetShift(planets, floor > 0 && angles[floor - 1] == 999);
                     if (floor == 0 && shift != 0)
                         throw new Unsupported("첫 타일부터 3행성인 맵은 검증하지 않았습니다.");
-                    degrees = floor == 0 ? 180 : Mod((180 + previousDirection - angles[floor]) * (clockwise ? 1 : -1) + shift);
+                    degrees = Mod((180 + previousDirection - angles[floor]) * (clockwise ? 1 : -1) + shift);
                     // scrLevelMaker.CalculateSingleFloorAngleLength measures the turn in radians and makes any turn within 1e-6 rad
                     // of none or of a whole circle a whole circle (2π). A 3.2e-6° tile after a midspin is such a turn
                     // (Tanchiky - ENERGY SYNERGY MATRIX); a threshold in degrees played it as no time at all.

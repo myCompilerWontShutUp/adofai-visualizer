@@ -1,10 +1,10 @@
 # ADOFAI 파서와 실제 맵 호환 범위
 
-`AdofaiTimelineParser`(`adofai-v26-format-10`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
+`AdofaiTimelineParser`(`adofai-v27-any-first-direction`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
 
 ## 지원 범위
 
-- 형식 version 2/3/4/6/8/9/10/11/13/15/18/19, 첫 방향 0도, 두·세 행성, 기본 planetEase=Linear.
+- 형식 version 2/3/4/6/8/9/10/11/13/15/18/19, 첫 방향은 아무 각도(첫 타일 중간 회전 제외), 두·세 행성, 기본 planetEase=Linear.
 - `angleData`의 일반 각도는 음수·다회전을 360도 기준으로 정규화하고 정확히 999만 중간 회전입니다. 구형 `pathData`의 절대 각도 문자와 `!`(중간 회전)를 지원하고 상대 각도·알 수 없는 문자는 거부합니다.
 - 구형 JSON 문자열 안의 줄바꿈·제어 문자, 생략된 쉼표는 메모리에서만 보정합니다(`AdofaiJson`). 문자열 밖 구문 오류는 복구하지 않습니다.
 - `SetSpeed`(Bpm/Multiplier), `Twirl`, `Pause`(유한한 0 이상 duration, angleCorrectionDir는 Backward·None·Forward(이름이나 -1·0·1) 또는 생략).
@@ -32,6 +32,7 @@
 ### 게임 파일 근거
 
 - **형식 version**: 레벨 `version`을 읽는 곳은 `LevelData.LoadLevel`(7일 때만 `"enabled"`→`"active"`), `scrLevelMaker.MakeLevel`(에디터에서 9일 때만 조건에 맞는 Pause duration +1 — 플레이에는 영향 없음), `LevelData.Copy`, `LevelEvent.Decode`의 장식 이전(12 이하, `scrLockToCamera`만), 곡 선택 목록(`LevelDataCLS.Decode`, 19 초과)뿐입니다. 그래서 지원 형식 사이에 타이밍 변환이 없습니다. version 19 설정(`legacyTween`·`legacyFlash`·`legacyCamRelativeTo`·`disableV15Features`)은 연출·저장에만 쓰입니다.
+- **첫 방향**: `scrLevelMaker.InstantiateFloatFloors`가 floor 0의 entryangle을 3π/2로, 각 floor의 exitangle을 (90° − 방향)×π/180으로, 다음 floor의 entryangle을 (exitangle + π) mod 2π로 둡니다(중간 회전은 exitangle = entryangle). 3π/2는 0° 방향 뒤 타일의 진입각과 같으므로 첫 회전도 "이전 방향 0°"로 다른 타일과 같은 식이고, 첫 방향은 첫 hit의 시각만 바꿉니다. 첫 타일이 중간 회전인 맵은 검증하지 않았습니다. 사례: S3RL - play it loud(345°).
 - **타이밍 필드를 쓰는 곳**: `scrFloor`의 entryangle/exitangle/isCCW/midSpin/speed/extraBeats/holdLength/numPlanets/entryTime에 쓰는 메서드는 `scnGame.ApplyEventsToFloors`(내부 `ApplyCoreEventsToFloors`), `scrLevelMaker`의 생성·시간 계산, `scrFloor` 초기화, 프리롬·메뉴·특정 공식 레벨 코드뿐입니다. `ApplyCoreEventsToFloors`가 비교하는 `LevelEventType`은 1~3(SetSpeed/Twirl/Checkpoint), 33(Hold), 43(MultiPlanet), 44(FreeRoam), 48~54(Pause 등)이고, `CalculateFloorEntryTimes`는 위치를 읽지 않습니다. 시청각 이벤트 번호(SetText 21, AddText 20, HallOfMirrors 27, SetHoldSound 34, SetConditionalEvents 35, ScreenTile 36, ScreenScroll 37, AddObject 58, SetObject 59, SetDefaultText 60, SetFrameRate 61, SetParticle 63, EmitParticle 64, ScaleMargin 51 등)는 이 비교에 없습니다. Hide 50은 `hideJudgment`·`hideIcon`만, ScaleRadius 52는 `radiusScale`만 씁니다.
 - **enum 값**: `LevelEvent.Decode`는 enum 속성이 숫자면 `Enum.ToObject`, 문자열이면 `Enum.Parse`. `AngleCorrectionDirection`은 Backward=-1, None=0, Forward=1입니다. Pause는 셋 다, FreeRoam은 격자에 쓰이므로 -1만 허용합니다. PropertyType 1(Toggle)은 `"Enabled"`만 true로 바꿔 넣고 `GetBool`이 읽습니다.
 - **pathData**: `ADOFAI.FloorHelper.TryGetPathInDegrees`/`MigratePathData`. 15도 간격 절대 문자 순서 `RpJEToUqGQHWLxNZFVDYBCMA`, `!`는 999, 문자 하나당 floor 하나.

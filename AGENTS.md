@@ -1,4 +1,4 @@
-최종 갱신: 2026-10-21 · 앱 1.0.13
+최종 갱신: 2026-10-25 · 앱 1.0.14
 
 # 프로젝트 목적
 
@@ -64,7 +64,7 @@ ADOFAI(얼불춤) 커스텀 맵을 읽어 Falling Note로 보여주는 개인용
 
 ### 파서·맵
 
-- 파서 `adofai-v26-format-10`, 형식 2/3/4/6/8/9/10/11/13/15/18/19(바뀌면 Map Sync 필요). MultiPlanet 3행성, Hold·연속 Hold, Pause(모든 방향), FreeRoam(노트 없이 "미니게임"), pitch, 쉼표가 빠지거나 남는 JSON, Toggle 문자열, 끈 이벤트 제외. 근거·제한은 `docs/adofai-parser.md`.
+- 파서 `adofai-v27-any-first-direction`, 형식 2/3/4/6/8/9/10/11/13/15/18/19(바뀌면 Map Sync 필요). MultiPlanet 3행성, Hold·연속 Hold, Pause(모든 방향), FreeRoam(노트 없이 "미니게임"), pitch, 쉼표가 빠지거나 남는 JSON, Toggle 문자열, 끈 이벤트 제외. 근거·제한은 `docs/adofai-parser.md`.
 - 맵 폴더 `maps/base`·`maps/custom`(스팀 사본)·`maps/edited`. 동기화는 스팀 → custom으로 `.adofai`만 복사한 뒤 파싱, `sync rebuild`는 `.new`에 새로 만들어 교체. `backup.adofai` 제외, `main.adofai`가 있는 폴더의 다른 파일은 기본 숨김.
 
 ### 설정·화면
@@ -100,4 +100,4 @@ ADOFAI(얼불춤) 커스텀 맵을 읽어 Falling Note로 보여주는 개인용
 - 다른 PC의 `Install.cmd`·원격 `update`, report 편집기 한글 입력, 관리자 권한 게임에서의 inspect(UIPI).
 - 과거 곡 중간 놓침(Miku 메모, `docs/debug-logs/timing-mismatch.md`)은 새 inspect 측정 대기.
 - 1.0.13 레인보다 넓은 동타를 잘라 놓은 곳의 실제 플레이 체감(Hello (BPM) 2026).
-- 마지막 자동 검증: 2026-10-21 앱 1.0.13 Debug `build.ps1 -Test` 292/292, 경고·오류 0(자르기 시험은 고치기 전 코드에서 실패 확인); 링커 1.0.13 Release 경고·오류 0; 사용자 설정으로 앱 저장소의 모든 곡을 사본에서 불러 봄(전부 준비됨). 실행 중인 Release 앱은 종료하지 않았고 적용은 사용자 update로.
+- 마지막 자동 검증: 2026-10-25 앱 1.0.14 Debug `build.ps1 -Test` 292/292, 경고·오류 0; 링커 1.0.14 Release 경고·오류 0; play it loud 사본의 게임 규칙 대조 최대 0.0004ms, 사용자 설정으로 앱 저장소의 모든 곡이 준비됨. 실행 중인 Release 앱은 종료하지 않았고 적용은 사용자 update로.

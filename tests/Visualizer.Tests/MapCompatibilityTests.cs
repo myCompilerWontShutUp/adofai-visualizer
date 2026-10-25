@@ -182,6 +182,12 @@ internal static class MapCompatibilityTests
             Times(Parse(13, "\"angleData\":[0,315,180,0]"), 500, 1125, 2000, 3000);
             Times(Parse(13, "\"angleData\":[0,-720,999,-900]"), 500, 1000, 1500);
             Times(Parse(13, "\"angleData\":[360,720,1080]"), 500, 1000, 1500);
+            // Any first direction (S3RL - play it loud starts at 345°): floor 0 enters as if after a 0° direction
+            // (scrLevelMaker.InstantiateFloatFloors sets its entry angle to 3π/2), so 345° is a 195° first turn and the rest
+            // is the same route turned round.
+            Times(Parse(19, "\"angleData\":[345,345,345]"), 541.666667, 1041.666667, 1541.666667);
+            Times(Parse(19, "\"angleData\":[90,180,180]"), 250, 500, 1000);
+            Equal(Parse(19, "\"angleData\":[999,0,0]").Status, MapParseStatus.Unsupported);
             Equal(Parse(13, "\"angleData\":[0,1e100]").Status, MapParseStatus.Unsupported);
         });
         yield return ("A turn within 1e-6 rad of none or of a whole circle is a whole circle, as the game counts it", () =>
