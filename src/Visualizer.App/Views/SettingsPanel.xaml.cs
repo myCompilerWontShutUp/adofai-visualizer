@@ -76,7 +76,7 @@ public partial class SettingsPanel : UserControl
     private readonly ComboBox _pauseAlign = new();
     private readonly CheckBox _keepSpeed = new();
     private readonly ComboBox _chordLane = new();
-    private readonly CheckBox _trillCenter = new();
+    private readonly ComboBox _trillCenter = new();
     private readonly CheckBox _trillOne = new();
     private readonly CheckBox _chordsAboveFour = new();
     private readonly ComboBox _trillLane = new();
@@ -271,7 +271,7 @@ public partial class SettingsPanel : UserControl
         // Trills are worked out after the chords and have the same two rules of their own (user request).
         AddText("Trill window (ms)", nameof(settings.TrillWindowMs), "TrillHelp");
         AddField("Trill as one note", _trillOne, nameof(settings.TrillAsOneNote), "TrillAsOneHelp");
-        AddField("Trill center pair last", _trillCenter, nameof(settings.NoTrillCenterPair), "NoTrillCenterHelp");
+        AddField("Trill center pair", _trillCenter, nameof(settings.TrillCenterPair), "TrillCenterHelp");
         AddField("Trill lane preference", _trillLane, nameof(settings.TrillLanePreference), "TrillLaneHelp");
         AddText("Start delay (ms)", nameof(settings.StartDelayMs));
         AddText("Calibration notes", nameof(settings.CalibrationNoteCount), "CalibrationHelp");
@@ -315,6 +315,7 @@ public partial class SettingsPanel : UserControl
         AddColor("Lane effect color", nameof(settings.LaneEffectColor));
         AddColor("Note color", nameof(settings.NoteColor));
         AddColor("Chord color", nameof(settings.ChordColor));
+        AddColor("Trill color", nameof(settings.TrillColor));
         AddColor("Start note color", nameof(settings.StartNoteColor));
         AddColor("End note color", nameof(settings.EndNoteColor));
         AddColor("Checkpoint color", nameof(settings.CheckpointColor));
@@ -352,6 +353,7 @@ public partial class SettingsPanel : UserControl
         _magicTiles.SelectionChanged += (_, _) => FormChanged();
         _chordLane.SelectionChanged += (_, _) => FormChanged();
         _trillLane.SelectionChanged += (_, _) => FormChanged();
+        _trillCenter.SelectionChanged += (_, _) => FormChanged();
         _judgmentMode.SelectionChanged += (_, _) => FormChanged();
         _judgmentDifficulty.SelectionChanged += (_, _) => FormChanged();
         _songSortField.SelectionChanged += (_, _) => { UpdateSongSort(); FormChanged(); };
@@ -375,7 +377,7 @@ public partial class SettingsPanel : UserControl
         _immediateDownshift.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Checked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
-        foreach (var box in new[] { _chordLanes, _chordCenter, _trillCenter, _trillOne, _chordsAboveFour, _oneHandChords })
+        foreach (var box in new[] { _chordLanes, _chordCenter, _trillOne, _chordsAboveFour, _oneHandChords })
         {
             box.Checked += (_, _) => FormChanged();
             box.Unchecked += (_, _) => FormChanged();
@@ -447,6 +449,8 @@ public partial class SettingsPanel : UserControl
 
     /// <summary>The stored values of the chord lane preference; only "none" is translated.</summary>
     private static readonly string[] ChordLanes = ["None", "1-2", "3-4", "1-2,3-4"];
+
+    private static int TrillCenterIndex(string value) => VisualizerSettings.TrillCenterChoices.ToList().IndexOf(value.Trim());
     private static readonly string[] JudgmentModes = ["Off", "MagicCircle", "Always"];
     // Named after the game's own difficulties; the window each one means is in VisualizerSettings.JudgmentWindowMs.
     private static readonly string[] JudgmentDifficulties = ["Lenient", "Normal", "Strict"];
@@ -486,6 +490,9 @@ public partial class SettingsPanel : UserControl
         var trill = _trillLane.SelectedIndex >= 0 ? _trillLane.SelectedIndex : Array.IndexOf(ChordLanes, _current.TrillLanePreference.Trim());
         _trillLane.ItemsSource = ChordLanes.Select(value => value == "None" ? T("ChordLaneNone") : value).ToArray();
         _trillLane.SelectedIndex = Math.Max(0, trill);
+        var center = _trillCenter.SelectedIndex >= 0 ? _trillCenter.SelectedIndex : TrillCenterIndex(_current.TrillCenterPair);
+        _trillCenter.ItemsSource = VisualizerSettings.TrillCenterChoices.Select(value => T("TrillCenter." + value)).ToArray();
+        _trillCenter.SelectedIndex = Math.Max(0, center);
         // The items are filled when the language is applied, so the picked one is kept by value, not by index.
         var mode = _judgmentMode.SelectedIndex >= 0 ? _judgmentMode.SelectedIndex : Array.IndexOf(JudgmentModes, _current.JudgmentBarMode.Trim());
         _judgmentMode.ItemsSource = JudgmentModes.Select(value => T("JudgmentMode." + value)).ToArray();

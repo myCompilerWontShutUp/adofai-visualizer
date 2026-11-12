@@ -219,10 +219,12 @@ internal static class DesignAndTimingTests
             // These are the rules for trills counted note by note; counted as one note, a trill is laid out like a chord.
             var settings = new VisualizerSettings { DynamicTiming = false, SimultaneousWindowMs = 20, MagicCircleFixedTiles = false, TrillAsOneNote = false };
             Equal(settings.TrillWindowMs, 40d);
-            Equal(settings.NoTrillCenterPair, true);
+            Equal(settings.TrillCenterPair, "LastResort");
             Equal(settings.TrillLanePreference, "1-2,3-4");
             Assert(!settings.HasSameNoteRulesAs(settings with { TrillWindowMs = 0 }), "The trill window is a note rule");
-            Assert(!settings.HasSameNoteRulesAs(settings with { NoTrillCenterPair = false }), "The center pair is a note rule");
+            Assert(!settings.HasSameNoteRulesAs(settings with { TrillCenterPair = "Allowed" }), "The center pair is a note rule");
+            Assert(!settings.HasSameNoteRulesAs(settings with { TrillCenterPair = "Never" }), "Each choice is a note rule");
+            Throws<ArgumentException>(() => (settings with { TrillCenterPair = "Sometimes" }).EnsureValid());
             Assert(!settings.HasSameNoteRulesAs(settings with { TrillLanePreference = "None" }), "The preference is a note rule");
             Throws<ArgumentException>(() => (settings with { TrillWindowMs = -1 }).EnsureValid());
             Throws<ArgumentException>(() => (settings with { TrillWindowMs = 201 }).EnsureValid());
@@ -245,7 +247,7 @@ internal static class DesignAndTimingTests
             var chord = generator.Generate(new[] { 0d, 10, 1000 }, settings);
             Assert(chord[0].StartsChord && chord[0].HitTimeMs == chord[1].HitTimeMs, "A chord, not a trill");
             // With the center pair allowed the cursor's own pair is already fine, so nothing moves.
-            Sequence(Tiles(generator.Generate(new[] { 0d, 30 }, settings with { NoTrillCenterPair = false })), 5, 4);
+            Sequence(Tiles(generator.Generate(new[] { 0d, 30 }, settings with { TrillCenterPair = "Allowed" })), 5, 4);
             // Three in a row are taken in twos, as chord members are: the third opens the next pair.
             var three = generator.Generate(new[] { 0d, 30, 60 }, settings);
             Assert(three.Count == 3 && three[0].Tile != three[1].Tile, "The first two share a pair: " + string.Join(" ", Tiles(three)));

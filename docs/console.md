@@ -314,8 +314,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
 | `timing.chords-above-four` | ChordsOnlyAboveFourKeys | 토글 (5키 이상은 5노트 이상 동타에만, 기본 꺼짐) |
 | `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
-| `timing.no-trill-center-pair` | NoTrillCenterPair | 토글 |
-| `timing.trill-as-one` | TrillAsOneNote | 토글 (키 수를 정할 때 트릴을 노트 한 개로, 기본 켜짐) |
+| `timing.trill-center` | TrillCenterPair | 선택 (`allowed` · `last-resort` · `never`, 기본 `last-resort`; 1.1.0 전 토글 `timing.no-trill-center-pair`) |
+| `timing.trill-as-one` | TrillAsOneNote | 토글 (키 수를 정할 때 트릴을 단일 노트로, 기본 켜짐) |
 | `timing.trill-side` | TrillLanePreference | 선택 (chord-side와 같은 값) |
 | `timing.start-delay` | StartDelayMs | ms |
 | `timing.calibration` | CalibrationNoteCount | 노트 수 |
@@ -335,7 +335,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `display.thickness` · `display.width` · `display.hold-width` | NoteThickness · NoteWidth · HoldNoteWidth | 배 |
 | `display.offset` | GlobalDisplayOffsetMs | ms |
 | `display.input-effect` · `display.miss-effect` | ShowInputEffect · ShowMissEffect | 토글 |
-| `colors.lane-effect` · `colors.note` · `colors.chord` · `colors.start-note` · `colors.end-note` · `colors.checkpoint` · `colors.judgment-line` · `colors.miss` | LaneEffectColor · NoteColor · ChordColor · StartNoteColor · EndNoteColor · CheckpointColor · JudgmentLineColor · MissEffectColor | 색 |
+| `colors.lane-effect` · `colors.note` · `colors.chord` · `colors.trill` · `colors.start-note` · `colors.end-note` · `colors.checkpoint` · `colors.judgment-line` · `colors.miss` | LaneEffectColor · NoteColor · ChordColor · TrillColor · StartNoteColor · EndNoteColor · CheckpointColor · JudgmentLineColor · MissEffectColor | 색 |
 | `colors.pressed-transparency` | PressedNoteTransparencyPercent | % |
 | `advanced.experimental` | ExperimentalFeatures | 토글 |
 | `advanced.extra-lanes` | ExtraLanes | 토글 |

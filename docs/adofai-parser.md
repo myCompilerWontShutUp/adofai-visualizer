@@ -1,6 +1,6 @@
 # ADOFAI 파서와 실제 맵 호환 범위
 
-`AdofaiTimelineParser`(`adofai-v27-any-first-direction`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
+`AdofaiTimelineParser`(`adofai-v28-input-events`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
 
 ## 지원 범위
 
@@ -15,6 +15,7 @@
 - **MultiPlanet**: 행성 수는 `speed`처럼 뒤 타일로 이어지고, 진입각을 `π(n−2)/n`만큼 옮겨 다음 행성이 그만큼 가까워지므로 그 구간 모든 회전이 **짧아집니다**(3행성 = 60°, 180° 타일은 120°, 방향과 무관). 미드스핀 다음 타일은 한 바퀴 뒤로 옮겨 60°가 상쇄됩니다. 게임 자체 타일 시각(THE END OF HATSUNE MIKU, 링커 파이프)과 1450개 hit가 1ms 안에서 같습니다. 첫 타일부터 3행성·4행성 이상은 거절.
 - **pitch**: 0보다 큰 정수, 모든 실제 시각을 pitch로 나눕니다. pitch≠100이면 게임 링크의 타일 대조가 맞지 않습니다(모드가 보내는 `entryTime`은 나누기 전).
 - `SetConditionalEvents`: 판정 결과별 태그(`…Tag`)가 가리키는 이벤트가 모두 시청각일 때만. "태그 없음"은 `NONE`·`无`·`無`·`AUCUN`·`ŽÁDNÝ`·`NICHTS`뿐(한국어 `없음`은 실제 태그).
+- `SetInputEvent`: `ignoreInput`이 꺼진 것(`false`·`"Disabled"`)만, `targetEventTag`가 고르는 이벤트(`eventTag`를 공백으로 나눈 항목)가 모두 시청각일 때만. 키를 누르거나 떼면 그 이벤트를 실행할 뿐 hit는 그대로입니다(句るり - 忘れもの注意: 화살표 키로 가사 언어 전환). `ignoreInput`이 켜졌거나 없으면 그 키가 타일을 치지 않으므로 Unsupported.
 - `RepeatEvents`: `eventTag`가 있는 대상 중 태그가 맞는 이벤트가 모두 비타이밍일 때만. 공백으로 나누되 빈 항목을 버리지 않습니다(빈 태그 = 빈 `eventTag`).
 - 에디터에서 끈 이벤트(`"active": false`, bool일 때만)는 타이밍·체크포인트·자동 타일 계산에서 뺍니다. 태그 검사는 꺼진 이벤트도 봅니다.
 - 곡·아티스트 메타데이터를 읽고 `<color>` 등 표시 태그를 제거합니다.
@@ -44,6 +45,7 @@
 - **쉼표 생략**: 게임은 `LevelData.LoadLevel` → `RDFile.ReadAllText` → `GDMiniJSON Json.Deserialize`로 읽고, 그 파서는 `throw`가 없고 다음 멤버를 switch default로 읽습니다. 그래서 배열에서는 모든 값 앞에, 객체에서는 이름 앞에만 쉼표를 넣습니다. 거꾸로 값 없이 놓인 쉼표(연달아 두 개, 괄호 바로 뒤)도 `ParseObject`·`ParseArray`가 COMMA 토큰(6)을 읽고 그냥 루프를 돌기 때문에 건너뛰므로, 메모리에서 뺍니다(PLUM MEGAMIX 2의 `"requiredMods": [],,`, `.local/il-minijson-object.txt`·`il-minijson-array.txt`).
 - **에디터에서 끈 이벤트**: `ADOFAI.LevelEvent.active`를 타이밍 쪽에서 읽는 곳은 `ApplyEventsToFloors`뿐이고, 첫 루프에서 `active`가 거짓이면 건너뜁니다. `Decode`는 bool일 때만 그 값을 씁니다.
 - **SetConditionalEvents**: 35를 비교하는 곳은 `ApplyEventsToFloors`의 필터 람다와 `scnGame.PrepVfx`뿐이고, `hasConditionalChange`와 판정별 FX 목록만 채웁니다. `RDUtils.noneTags`가 위 여섯 단어입니다.
+- **SetInputEvent**: 65는 두 floor 함수와 `scrLevelMaker` 어디서도 비교되지 않습니다. `ffxSetInputEventPlus.Decode`가 `target`·`state`·`targetEventTag`·`ignoreInput`(`GetBool`)을 읽고, `StartEffect`는 자신을 `scrController.inputEventFfx[state][target]`에 넣을 뿐이며, `PrepVfx`는 같은 타일 효과 중 `eventTag`에 그 태그가 있는 것을 `runManually`로 빼 둡니다. `scrPlayer.HitInputEvent`는 키가 눌리거나 떼질 때 그 효과를 `StartEffectWithOffset`으로 실행하고, 눌림 슬롯의 `ignoreInput`이 켜졌을 때만 false를 돌려 `scrPlayer.Hit`이 그 누름을 버립니다(`.local/il-set-input-event*.txt`).
 - **RepeatEvents**: `ApplyEventsToFloors`는 이벤트에 `eventTag` 속성이 있을 때만 `Split(" ")`으로 맞춥니다(SetSpeed/Twirl은 대상 아님).
 - **backup.adofai**: `scnEditor.SaveBackup`이 에디터 자동 저장으로 씁니다. `scnGame.GetWorldPaths`는 `main.adofai`를, `AdoPackageInstaller.FindLevelFile`·`scnEditor.FindAdofaiLevelOnDirectory`는 backup과 `.` 파일을 건너뜁니다. 그래서 `MapFileRules`는 같은 폴더에 다른 레벨 파일이 있으면 `backup.adofai`·`backup2.adofai`를 곡으로 올리지 않습니다.
 - **헤어핀**(Search Party floor 752~768): 게임 IL은 출구 각도를 r4로 만들지만 런타임 정밀도는 IL로 정할 수 없어, 사용자가 게임에서 확인했습니다(모두 정박 2박). 파서의 degree 계산이 맞으며 기준 계산기도 double을 유지합니다(IL 근거가 아니라 실제 플레이 확인).

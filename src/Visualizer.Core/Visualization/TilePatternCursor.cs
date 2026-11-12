@@ -98,7 +98,7 @@ public sealed class TilePatternCursor
             _openRoll = roll;
             foreach (var lane in roll.Skip(1)) _rollAhead.Enqueue(lane);
         }
-        else if (trillLength == 0 && _lastTrill is { } last && BesideTrill(last) is { } beside) tile = beside;
+        else if (trillLength == 0 && _lastTrill is { } last && BesideTrill(last, tile) is { } beside) tile = beside;
         else if (leadsTrill && RollHead(tile, leadsLength) is { } head) tile = head;
         _lastTrill = closed;
         return Commit(tile);
@@ -160,8 +160,9 @@ public sealed class TilePatternCursor
     /// Pairs that keep the flow come first (user rule): a pair that does not start on this tile skips a lane of the run
     /// (4 2-1 instead of 4 3-2), and one that ends on the tile just played brings it straight back (3 4-3, 1 2-1). The pair
     /// across the center is the last resort while the setting says so: it is taken only when every other pair breaks the
-    /// flow, which is exactly where 4 3-2 1 would otherwise read 4 2-1 3. Right after a trill, a pair other than that
-    /// trill's comes first (user rule: not 1-2 1-2). Null when no pair is found, which leaves the notes to the pattern.
+    /// flow, which is exactly where 4 3-2 1 would otherwise read 4 2-1 3; set to never, it is not taken at all. Right after
+    /// a trill, a pair other than that trill's comes first (user rule: not 1-2 1-2). Null when no pair is found, which leaves
+    /// the notes to the pattern.
     /// </para>
     /// </summary>
     private (int First, int Second)? OpenTrill(int tile)
@@ -175,8 +176,10 @@ public sealed class TilePatternCursor
         (int, int)? Back(int start) => Neighbour(start, _step) is null && Neighbour(start, -_step) is { } partner && Adjacent(start, partner)
             ? (start, partner) : null;
         var reversed = new[] { Back(tile), _pattern.Count > 1 ? Back(next) : null }.OfType<(int First, int Second)>().ToHashSet();
+        // Set to never, the center pair is no trill pair at all (user rule: then a trill keeps off it as a chord does).
         var found = new[] { On(tile), _pattern.Count > 1 ? On(next) : null, Into(tile), _pattern.Count > 1 ? Into(next) : null, Back(tile), _pattern.Count > 1 ? Back(next) : null }
-            .OfType<(int First, int Second)>().Where(pair => pair.First != _lastTile).Distinct().ToArray();
+            .OfType<(int First, int Second)>().Where(pair => pair.First != _lastTile && (!_settings.TrillCenterNever || TrillPair(pair.First, pair.Second)))
+            .Distinct().ToArray();
         bool Repeats((int First, int Second) pair) => _lastTrill is { } last
             && Math.Min(pair.First, pair.Second) == Math.Min(last.First, last.Second)
             && Math.Max(pair.First, pair.Second) == Math.Max(last.First, last.Second);
@@ -235,7 +238,7 @@ public sealed class TilePatternCursor
             var back = Array.IndexOf(lanes, _lastTile);
             return back < 0 || !(_closeToLast || (!center && _tooSoon?.Invoke(back) == true));
         }
-        foreach (var center in new[] { false, true })
+        foreach (var center in _settings.TrillCenterNever ? new[] { false } : new[] { false, true })
         {
             if (Leads(tile, center) && Clear(tile, center)) return null;
             var heads = _visible.Where(head => head != _lastTile && Leads(head, center) && Clear(head, center))
@@ -270,17 +273,31 @@ public sealed class TilePatternCursor
     /// The single after a trill sits beside it on the side the roll ran to (user rule: after a roll on 1-2 comes 3, after
     /// 3-4 comes 2). A roll that ran into the edge has no lane there, and then the pattern simply goes on from the trill's
     /// last note: going back to the lane on the other side left a lane out of the cycle (4 3-2 1 3 2-1 instead of
-    /// 4 3-2 1 4 3-2 1, user report). The pattern then walks on from that tile. Null when the tile is not in the pattern or
-    /// would repeat the one just played.
+    /// 4 3-2 1 4 3-2 1, user report). The pattern then walks on from that tile.
+    /// <para>
+    /// Going on never lands back on the trill's own lanes (user report: 2K sits on 2-3, so a trill there reaches out to 2-1
+    /// and the cycle came straight back to 2, reading 1-2 2 1-2 2 instead of 1-2 3 1-2 3): then the pattern's next tile off
+    /// the trill comes first, and when the pattern has none (2K under a 3-2 trill), the lane beside the trill, on the side it
+    /// ran to and then the other. Null when <paramref name="next"/>, the tile the pattern goes on with, is fine as it is.
+    /// </para>
     /// </summary>
-    private int? BesideTrill((int First, int Second) trill)
+    private int? BesideTrill((int First, int Second) trill, int next)
     {
         var first = IndexOf(trill.First);
         var second = IndexOf(trill.Second);
         if (first < 0 || second < 0 || Math.Abs(first - second) != 1) return null;
         var lane = second + (second - first);
-        if (lane < 0 || lane >= _visible.Count || IndexInPattern(_visible[lane]) < 0 || _visible[lane] == _lastTile) return null;
-        return Place(_visible[lane]);
+        if (lane >= 0 && lane < _visible.Count && IndexInPattern(_visible[lane]) >= 0 && _visible[lane] != _lastTile) return Place(_visible[lane]);
+        bool OnTrill(int tile) => tile == trill.First || tile == trill.Second;
+        // One tile has nowhere else to go (1K stays on its lane).
+        if (!OnTrill(next) || _pattern.Count < 2) return null;
+        for (var k = 1; k < _pattern.Count; k++)
+            if (_pattern[(_offset + _emittedInCycle + k) % _pattern.Count] is var later && !OnTrill(later)) return Place(later);
+        // Played by hand, four keys or fewer never step over to the other hand (user rule).
+        foreach (var side in new[] { lane, first - (second - first) })
+            if (side >= 0 && side < _visible.Count && !OnTrill(_visible[side]) && (_hand < 0 || CurrentMode > 4 || side / 4 == first / 4))
+                return _visible[side];
+        return null;
     }
 
     private int IndexInPattern(int tile)
@@ -352,7 +369,7 @@ public sealed class TilePatternCursor
 
     /// <summary>Two tiles a trill may share: neighbours on screen, and on four lanes not the pair across the center while that is refused.</summary>
     private bool TrillPair(int first, int second) =>
-        SimultaneousNotePlanner.IsTrillPair(_visible.Count, IndexOf(first), IndexOf(second), _settings.NoTrillCenterPair);
+        SimultaneousNotePlanner.IsTrillPair(_visible.Count, IndexOf(first), IndexOf(second), _settings.TrillCenterLast);
 
     /// <summary>
     /// A new run takes the other hand on eight lanes played by hand (experimental, user rule: a s d f, then j k l ;). The

@@ -19,7 +19,8 @@ internal static class GameRuleTimingComparison
     private const double Tau = 6.2831854820251465;
     private const float DegreesToRadians = 0.01745329238474369f;
     private const double ToleranceMs = 1;
-    private const string ExpectedAssemblyHash = "0D1524DABF0F8C67AA58BA1992D6ED858522B9094490EBBB00E5E8AEFF7F40CD";
+    // The build whose floor, event, conductor and checkpoint IL this calculator mirrors (rechecked: docs/timing-comparison.md).
+    private const string ExpectedAssemblyHash = "EC0D7C3889696C5605D6DB4F443FD387F8668A90BA7B4DD2A1A2DA64B5ADA5BC";
     private const string AssemblyPath = @"C:\Program Files (x86)\Steam\steamapps\common\A Dance of Fire and Ice\A Dance of Fire and Ice_Data\Managed\Assembly-CSharp.dll";
 
     private sealed class Floor

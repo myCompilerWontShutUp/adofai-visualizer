@@ -28,6 +28,7 @@ public sealed class NoteEditField : FrameworkElement
     private Brush? _muted;
     private Brush? _pickedNote;
     private Brush? _pickedChord;
+    private Brush? _pickedTrill;
     private Pen? _chordBar;
     private VisualizerSettings _settings = new();
     private HashSet<int> _ruleTiles = [];
@@ -75,6 +76,7 @@ public sealed class NoteEditField : FrameworkElement
             _muted = null;
             _pickedNote = null;
             _pickedChord = null;
+            _pickedTrill = null;
             _chordBar = null;
             InvalidateVisual();
         }
@@ -177,6 +179,7 @@ public sealed class NoteEditField : FrameworkElement
         // Picked notes turn lighter and get a ring; the judgment line color (often yellow) was too faint on the notes.
         _pickedNote ??= Frozen(new SolidColorBrush(Lighter(_settings.NoteColor)));
         _pickedChord ??= Frozen(new SolidColorBrush(Lighter(_settings.ChordColor)));
+        _pickedTrill ??= Frozen(new SolidColorBrush(Lighter(_settings.TrillColor)));
         _chordBar ??= Frozen(new Pen(palette.Chord, 2));
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var lanes = _session.Tiles;
@@ -216,6 +219,8 @@ public sealed class NoteEditField : FrameworkElement
         var notes = _session.Notes;
         var first = LowerBound(notes, bottomMs - 2000);
         var numbers = Zoom > 0.08;
+        Func<int, bool> tap = k => notes[k].Chord == 0 && notes[k].HoldEndMs is null;
+        Func<int, double> time = k => notes[k].HitTimeMs;
         for (var index = first; index < notes.Count; index++)
         {
             var note = notes[index];
@@ -223,7 +228,10 @@ public sealed class NoteEditField : FrameworkElement
             if (BoxOf(note) is not { } box) continue;
             var picked = _session.Selection.Contains(index);
             if (picked) drawing.DrawRectangle(Gap, Ring, new Rect(box.X - 3, box.Y - 3, box.Width + 6, box.Height + 6));
-            drawing.DrawRectangle(note.Chord > 0 ? picked ? _pickedChord : palette.Chord : picked ? _pickedNote : palette.Note, null, box);
+            // Trills in their own color, as on the main screen, by the same rule over the notes as edited.
+            var trill = note.Chord == 0 && TrillNotes.IsTrill(notes.Count, index, _settings.TrillWindowMs, tap, time);
+            drawing.DrawRectangle(note.Chord > 0 ? picked ? _pickedChord : palette.Chord
+                : trill ? picked ? _pickedTrill : palette.Trill : picked ? _pickedNote : palette.Note, null, box);
             // A thin bar ties each of a chord's notes to the next one to its right, whichever lanes they are on.
             if (note.Chord > 0 && Members(notes, index).Select(BoxOf).OfType<Rect>().Where(other => other.X > box.X)
                     .OrderBy(other => other.X).Select(other => (Rect?)other).FirstOrDefault() is { } next)

@@ -95,7 +95,7 @@ public static class SettingPaths
             new("timing", "chord-side", nameof(VisualizerSettings.ChordLanePreference), Choice),
             new("timing", "chords-above-four", nameof(VisualizerSettings.ChordsOnlyAboveFourKeys), Toggle),
             new("timing", "trill-window", nameof(VisualizerSettings.TrillWindowMs), Number, "ms"),
-            new("timing", "no-trill-center-pair", nameof(VisualizerSettings.NoTrillCenterPair), Toggle),
+            new("timing", "trill-center", nameof(VisualizerSettings.TrillCenterPair), Choice),
             new("timing", "trill-as-one", nameof(VisualizerSettings.TrillAsOneNote), Toggle),
             new("timing", "trill-side", nameof(VisualizerSettings.TrillLanePreference), Choice),
             new("judgment", "bar", nameof(VisualizerSettings.JudgmentBarMode), Choice),
@@ -124,6 +124,7 @@ public static class SettingPaths
             new("colors", "lane-effect", nameof(VisualizerSettings.LaneEffectColor), Color),
             new("colors", "note", nameof(VisualizerSettings.NoteColor), Color),
             new("colors", "chord", nameof(VisualizerSettings.ChordColor), Color),
+            new("colors", "trill", nameof(VisualizerSettings.TrillColor), Color),
             new("colors", "start-note", nameof(VisualizerSettings.StartNoteColor), Color),
             new("colors", "end-note", nameof(VisualizerSettings.EndNoteColor), Color),
             new("colors", "checkpoint", nameof(VisualizerSettings.CheckpointColor), Color),
@@ -213,6 +214,7 @@ public static class SettingPaths
                 ["none", "1-2", "3-4", "1-2,3-4"],
             nameof(VisualizerSettings.JudgmentBarMode) => ["off", "magiccircle", "always"],
             nameof(VisualizerSettings.JudgmentBarDifficulty) => ["lenient", "normal", "strict"],
+            nameof(VisualizerSettings.TrillCenterPair) => VisualizerSettings.TrillCenterChoices.Select(Kebab).ToArray(),
             _ => []
         };
     }
@@ -350,6 +352,7 @@ public static class SettingPaths
             { "off" => "Off", "always" => "Always", _ => "MagicCircle" },
         nameof(VisualizerSettings.JudgmentBarDifficulty) => choice.ToLowerInvariant() switch
             { "lenient" => "Lenient", "strict" => "Strict", _ => "Normal" },
+        nameof(VisualizerSettings.TrillCenterPair) => VisualizerSettings.TrillCenterChoices.First(name => Kebab(name) == choice.ToLowerInvariant()),
         nameof(VisualizerSettings.MaximumTileCount) or nameof(VisualizerSettings.MinimumTileCount)
             or nameof(VisualizerSettings.MagicCircleTileCount) or nameof(VisualizerSettings.InitialTile) =>
             int.Parse(choice, CultureInfo.InvariantCulture),
@@ -360,7 +363,8 @@ public static class SettingPaths
 
     private static string Show(SettingPath path, object? value) => path.Property switch
     {
-        nameof(VisualizerSettings.SongSortKey) or nameof(VisualizerSettings.SongGroup) => Kebab(value as string ?? ""),
+        nameof(VisualizerSettings.SongSortKey) or nameof(VisualizerSettings.SongGroup) or nameof(VisualizerSettings.TrillCenterPair) =>
+            Kebab((value as string ?? "").Trim()),
         nameof(VisualizerSettings.ChordLanePreference) or nameof(VisualizerSettings.TrillLanePreference) =>
             (value as string ?? "None").Trim() is var side && side.Equals("None", StringComparison.OrdinalIgnoreCase) ? "none" : side,
         // 0 means the lanes follow the maximum tile count, which reads as the word rather than a number.

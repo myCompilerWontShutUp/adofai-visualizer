@@ -17,6 +17,33 @@ public sealed record VisualizerNote(double HitTimeMs, int Tile, int Mode, bool S
         this with { HitTimeMs = HitTimeMs - originMs + startMs, HoldEndMs = HoldEndMs - originMs + startMs };
 }
 
+/// <summary>
+/// Which notes belong to a trill, for drawing them in the trill color (user rule). It is read from the notes as they are
+/// laid out, an edited slot included, by the generator's own rule (SimultaneousNotePlanner.TrillRuns): a single that is no
+/// long note and comes within the trill window of the single right before or after it.
+/// </summary>
+public static class TrillNotes
+{
+    public static bool IsTrill(IReadOnlyList<VisualizerNote> notes, int index, double windowMs)
+    {
+        ArgumentNullException.ThrowIfNull(notes);
+        bool Tap(int k) => k >= 0 && k < notes.Count && !notes[k].StartsChord && (k == 0 || !notes[k - 1].StartsChord) && !notes[k].IsHold;
+        bool Close(int first) => Tap(first) && Tap(first + 1) && notes[first + 1].HitTimeMs - notes[first].HitTimeMs is var gap
+            && gap > 0 && gap <= windowMs;
+        return windowMs > 0 && Tap(index) && (Close(index - 1) || Close(index));
+    }
+
+    /// <summary>The same rule over notes of another kind: <paramref name="tap"/> says a note is a single and no long note.</summary>
+    public static bool IsTrill(int count, int index, double windowMs, Func<int, bool> tap, Func<int, double> timeMs)
+    {
+        ArgumentNullException.ThrowIfNull(tap);
+        ArgumentNullException.ThrowIfNull(timeMs);
+        bool Tap(int k) => k >= 0 && k < count && tap(k);
+        bool Close(int first) => Tap(first) && Tap(first + 1) && timeMs(first + 1) - timeMs(first) is var gap && gap > 0 && gap <= windowMs;
+        return windowMs > 0 && Tap(index) && (Close(index - 1) || Close(index));
+    }
+}
+
 /// <summary>Consumes verified hit times; does not infer ADOFAI timing.</summary>
 public sealed class NoteGenerator
 {

@@ -17,6 +17,9 @@ namespace Visualizer.App.Views;
 /// </summary>
 public partial class SettingsPanel
 {
+    /// <summary>The gap-after setting under "both gaps", which the list cannot show, as the form was last loaded with it.</summary>
+    private bool _keptNextInterval;
+
     private void LoadForm(VisualizerSettings settings)
     {
         var wasLoading = _loading;
@@ -54,7 +57,7 @@ public partial class SettingsPanel
             _pauseAlign.SelectedIndex = settings.AlignNextNoteOnPause ? 0 : 1;
             _keepSpeed.IsChecked = settings.KeepSpeedOnLoad;
             _chordLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.ChordLanePreference.Trim()));
-            _trillCenter.IsChecked = settings.NoTrillCenterPair;
+            _trillCenter.SelectedIndex = Math.Max(0, TrillCenterIndex(settings.TrillCenterPair));
             _trillOne.IsChecked = settings.TrillAsOneNote;
             _chordsAboveFour.IsChecked = settings.ChordsOnlyAboveFourKeys;
             _trillLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.TrillLanePreference.Trim()));
@@ -74,6 +77,7 @@ public partial class SettingsPanel
             _autoCheckpointLoad.IsChecked = settings.AutoCheckpointOnLoad;
             _autoSave.IsChecked = settings.AutoSaveSettings;
             _nextInterval.SelectedIndex = settings.BothIntervalTiles ? 2 : settings.NextIntervalTiles ? 1 : 0;
+            _keptNextInterval = settings.NextIntervalTiles;
             _chordBefore.IsChecked = settings.ChordAvoidBeforeLanes;
             _runRestart.IsChecked = settings.RestartPatternOnRun;
             _enhancedChords.IsChecked = settings.EnhancedChordRules;
@@ -292,6 +296,7 @@ public partial class SettingsPanel
             ShowMissEffect = _missEffect.IsChecked == true,
             NoteColor = Color(nameof(VisualizerSettings.NoteColor)),
             ChordColor = Color(nameof(VisualizerSettings.ChordColor)),
+            TrillColor = Color(nameof(VisualizerSettings.TrillColor)),
             JudgmentLineColor = Color(nameof(VisualizerSettings.JudgmentLineColor)),
             MissEffectColor = Color(nameof(VisualizerSettings.MissEffectColor)),
             CheckpointColor = Color(nameof(VisualizerSettings.CheckpointColor)),
@@ -429,8 +434,8 @@ public partial class SettingsPanel
             AutoCheckpointAdvance = _autoCheckpointBox.IsChecked == true,
             AutoCheckpointOnLoad = _autoCheckpointLoad.IsChecked == true,
             AutoSaveSettings = _autoSave.IsChecked == true,
-            // Both gaps sit over the other choice, which keeps its value for when the box goes back to it.
-            NextIntervalTiles = _nextInterval.SelectedIndex == 1 || (_nextInterval.SelectedIndex == 2 && _current.NextIntervalTiles),
+            // Both gaps sit over the other choice, which keeps the value last loaded (an import too) for when the box goes back to it.
+            NextIntervalTiles = _nextInterval.SelectedIndex == 1 || (_nextInterval.SelectedIndex == 2 && _keptNextInterval),
             BothIntervalTiles = _nextInterval.SelectedIndex == 2,
             ChordAvoidBeforeLanes = _chordBefore.IsChecked == true,
             RestartPatternOnRun = _runRestart.IsChecked == true,
@@ -441,6 +446,7 @@ public partial class SettingsPanel
             DisplayLaneCount = _displayLanes.SelectedIndex <= 0 ? 0 : VisualizerSettings.Modes[_displayLanes.SelectedIndex - 1],
             DynamicTiming = _dynamic.IsChecked == true,
             SimultaneousWindowMs = Number(nameof(VisualizerSettings.SimultaneousWindowMs)),
+            TrillWindowMs = Number(nameof(VisualizerSettings.TrillWindowMs)),
             ImmediateDownshift = _immediateDownshift.IsChecked == true,
             DownshiftNoteCount = Whole(nameof(VisualizerSettings.DownshiftNoteCount)),
             StartDelayMs = Number(nameof(VisualizerSettings.StartDelayMs)),
@@ -461,7 +467,7 @@ public partial class SettingsPanel
             KeepSpeedOnLoad = _keepSpeed.IsChecked == true,
             AlignNextNoteOnPause = _pauseAlign.SelectedIndex != 1,
             ChordLanePreference = ChordLanes[Math.Clamp(_chordLane.SelectedIndex, 0, ChordLanes.Length - 1)],
-            NoTrillCenterPair = _trillCenter.IsChecked == true,
+            TrillCenterPair = VisualizerSettings.TrillCenterChoices[Math.Clamp(_trillCenter.SelectedIndex, 0, VisualizerSettings.TrillCenterChoices.Count - 1)],
             TrillAsOneNote = _trillOne.IsChecked == true,
             ChordsOnlyAboveFourKeys = _chordsAboveFour.IsChecked == true,
             TrillLanePreference = ChordLanes[Math.Clamp(_trillLane.SelectedIndex, 0, ChordLanes.Length - 1)],
@@ -498,6 +504,7 @@ public partial class SettingsPanel
             ShowMissEffect = _missEffect.IsChecked == true,
             NoteColor = Color(nameof(VisualizerSettings.NoteColor)),
             ChordColor = Color(nameof(VisualizerSettings.ChordColor)),
+            TrillColor = Color(nameof(VisualizerSettings.TrillColor)),
             JudgmentLineColor = Color(nameof(VisualizerSettings.JudgmentLineColor)),
             MissEffectColor = Color(nameof(VisualizerSettings.MissEffectColor)),
             CheckpointColor = Color(nameof(VisualizerSettings.CheckpointColor)),

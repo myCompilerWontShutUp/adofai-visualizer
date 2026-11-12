@@ -265,7 +265,10 @@ public sealed class NoteField : FrameworkElement
             if (note.HitTimeMs == startMs) return palette.Start;
             if (note.HitTimeMs == endMs) return palette.End;
             if (note.Checkpoint) return pressed ? palette.PressedCheckpoint : palette.Checkpoint;
-            return chord ? (pressed ? palette.PressedChord : palette.Chord) : (pressed ? palette.PressedNote : palette.Note);
+            if (chord) return pressed ? palette.PressedChord : palette.Chord;
+            // Trills have a color of their own (user rule), under the chord's.
+            if (TrillNotes.IsTrill(notes, index, settings.TrillWindowMs)) return pressed ? palette.PressedTrill : palette.Trill;
+            return pressed ? palette.PressedNote : palette.Note;
         }
         double NoteY(VisualizerNote note)
         {

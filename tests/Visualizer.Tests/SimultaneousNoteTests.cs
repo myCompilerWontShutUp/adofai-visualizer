@@ -23,6 +23,35 @@ internal static class SimultaneousNoteTests
         EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500,
         FourKeyOrder = "1 2 3 4", TwoKeyOrder = "1 2" // Ascending cycles, as these cases were written.
     };
+    /// <summary>The user's note settings when the trill reports came in (four lanes, 2K on lanes 2-3).</summary>
+    private static VisualizerSettings UserSettings => new()
+    {
+        MaximumTileCount = 4, MinimumTileCount = 2, EightKeyBoundaryMs = 55, SixKeyBoundaryMs = 55, FourKeyBoundaryMs = 100,
+        TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, TrillCenterPair = "LastResort", TrillLanePreference = "1-2,3-4",
+        TrillAsOneNote = true, ChordsOnlyAboveFourKeys = true, ImmediateDownshift = true, DownshiftNoteCount = 3, NextIntervalTiles = true,
+        BothIntervalTiles = false, FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", EnableTilePreference = true, TwoKeyOrder = "2 1",
+        FourKeyOrder = "4 3 2 1", InitialTile = 5, ExperimentalFeatures = true, EnhancedChordRules = true, NoChordCenterPair = true,
+        ChordLanePreference = "None", MagicCircleFixedTiles = true, MagicCircleTileCount = 4, MagicCircleNoteCount = 40,
+        MagicCircleMaxIntervalMs = 150, MagicCircleChords = false
+    };
+
+    /// <summary>A seeded run of two-note trills, singles and two-note chords at gaps from 60 to 450 ms.</summary>
+    private static double[] TrillRhythm(int seed)
+    {
+        var random = new Random(seed);
+        var times = new List<double>();
+        var at = 0d;
+        for (var events = 0; events < 1200; events++)
+        {
+            var kind = random.Next(4);
+            if (kind == 0) { times.Add(at); times.Add(at + 26 + random.Next(14)); }
+            else if (kind == 3 && random.Next(3) == 0) { times.Add(at); times.Add(at + 5); }
+            else times.Add(at);
+            at = times[^1] + new[] { 60, 80, 100, 120, 150, 200, 300, 450 }[random.Next(8)];
+        }
+        return times.ToArray();
+    }
+
     private static IEnumerable<TextBlock> TextBlocks(DependencyObject root)
     {
         foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
@@ -125,7 +154,7 @@ internal static class SimultaneousNoteTests
             // You Go, a trill (29ms) and a single in turn, asked for 4K note by note; as one note the gaps are 172 and 171ms.
             // Its lanes are laid by the trill rules either way (user rule: laid like a chord, a machine-gun run lost 4 3 2 1).
             var settings = new VisualizerSettings { MaximumTileCount = 4, SimultaneousWindowMs = 20, TrillWindowMs = 40, FourKeyBoundaryMs = 120,
-                TwoKeyBoundaryMs = 500, MagicCircleFixedTiles = false, NoTrillCenterPair = true };
+                TwoKeyBoundaryMs = 500, MagicCircleFixedTiles = false, TrillCenterPair = "LastResort" };
             Assert(new VisualizerSettings().TrillAsOneNote, "On by default (user rule)");
             Assert(!settings.HasSameNoteRulesAs(settings with { TrillAsOneNote = false }), "It is a note rule");
             var visible = settings.GetVisibleTiles().ToList();
@@ -212,7 +241,7 @@ internal static class SimultaneousNoteTests
             foreach (var lanes in new[] { 1, 2, 4, 6, 8 })
             foreach (var enhanced in new[] { false, true })
             foreach (var extra in new[] { false, true })
-            foreach (var centerLast in new[] { false, true })
+            foreach (var center in VisualizerSettings.TrillCenterChoices)
             for (var seed = 1; seed <= 6; seed++)
             {
                 var random = new Random(seed * 31 + lanes);
@@ -225,14 +254,14 @@ internal static class SimultaneousNoteTests
                 var settings = new VisualizerSettings
                 {
                     MaximumTileCount = lanes, MinimumTileCount = 1, SimultaneousWindowMs = 20, TrillWindowMs = 40, ExperimentalFeatures = enhanced,
-                    EnhancedChordRules = enhanced, ExtraLanes = extra, NoTrillCenterPair = centerLast, MagicCircleFixedTiles = false
+                    EnhancedChordRules = enhanced, ExtraLanes = extra, TrillCenterPair = center, MagicCircleFixedTiles = false
                 };
                 if (lanes == 1) settings = settings with { InitialTile = settings.GetPattern(1)[0] };
                 IReadOnlyList<VisualizerNote> each;
                 try { each = generator.Generate(times.ToArray(), settings with { TrillAsOneNote = false }); }
                 catch (NotePlacementException) { continue; }
                 var notes = generator.Generate(times.ToArray(), settings);
-                var what = $"{lanes} lanes, enhanced {enhanced}, extra {extra}, center last {centerLast}, seed {seed}";
+                var what = $"{lanes} lanes, enhanced {enhanced}, extra {extra}, center {center}, seed {seed}";
                 Equal(notes.Count, times.Count);
                 // A trill's notes keep their own times, exactly as they do counted note by note.
                 Assert(notes.Select(note => note.HitTimeMs).SequenceEqual(each.Select(note => note.HitTimeMs)), "The same times: " + what);
@@ -253,7 +282,7 @@ internal static class SimultaneousNoteTests
             {
                 SimultaneousWindowMs = 20, TrillWindowMs = 40, MaximumTileCount = 4, InitialTile = 4, EnableTilePreference = false,
                 EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 70, FourKeyBoundaryMs = 120, TwoKeyBoundaryMs = 500,
-                ChordLanePreference = "1-2,3-4", NoChordCenterPair = true, NoTrillCenterPair = true, MagicCircleFixedTiles = false,
+                ChordLanePreference = "1-2,3-4", NoChordCenterPair = true, TrillCenterPair = "LastResort", MagicCircleFixedTiles = false,
                 // The trill rules below are the ones for trills counted note by note; the mixed run at the end checks both.
                 TrillAsOneNote = false
             };
@@ -364,7 +393,7 @@ internal static class SimultaneousNoteTests
             // lane sat free is hard to play; so is a single after a chord that is not beside it, and a trill that skips a lane.
             var generator = new NoteGenerator();
             var settings = new VisualizerSettings { FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", MaximumTileCount = 4, InitialTile = 5,
-                SimultaneousWindowMs = 20, TrillWindowMs = 40, NoTrillCenterPair = true, MagicCircleFixedTiles = false, NextIntervalTiles = true,
+                SimultaneousWindowMs = 20, TrillWindowMs = 40, TrillCenterPair = "LastResort", MagicCircleFixedTiles = false, NextIntervalTiles = true,
                 FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, EightKeyBoundaryMs = 29, SixKeyBoundaryMs = 30, DownshiftNoteCount = 3 };
             var quick = 2 * settings.FourKeyBoundaryMs;
             (double Time, int[] Lanes)[] Events(IReadOnlyList<VisualizerNote> notes) => notes
@@ -476,7 +505,7 @@ internal static class SimultaneousNoteTests
             // no lane drops out of the cycle; and a single that a trill follows closely leads the roll (4 3-2, not 2 4-3).
             var generator = new NoteGenerator();
             var settings = new VisualizerSettings { FourKeyPattern = "3 4 5 6", MaximumTileCount = 4, DynamicTiming = false,
-                SimultaneousWindowMs = 0, TrillWindowMs = 40, NoTrillCenterPair = true, MagicCircleFixedTiles = false, InitialTile = 6,
+                SimultaneousWindowMs = 0, TrillWindowMs = 40, TrillCenterPair = "LastResort", MagicCircleFixedTiles = false, InitialTile = 6,
                 TrillAsOneNote = false };
             int[] Lanes(double[] times, VisualizerSettings? other = null) =>
                 generator.Generate(times, other ?? settings).Select(note => note.Tile - 2).ToArray();
@@ -701,7 +730,7 @@ internal static class SimultaneousNoteTests
             // the center pair itself) rolls on one hand's pair.
             var generator = new NoteGenerator();
             var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20,
-                TrillWindowMs = 40, NoTrillCenterPair = true };
+                TrillWindowMs = 40, TrillCenterPair = "LastResort" };
             var times = new[] { 0d, 300, 326, 600, 900, 926, 1200, 1500, 1526, 1800 };
             var visible = eight.GetVisibleTiles().ToList();
             var notes = generator.Generate(times, eight);
@@ -710,6 +739,152 @@ internal static class SimultaneousNoteTests
                 var pair = new[] { visible.IndexOf(notes[at].Tile) + 1, visible.IndexOf(notes[at + 1].Tile) + 1 }.Order().ToArray();
                 Assert(!pair.SequenceEqual(new[] { 4, 5 }), "A trill off the center pair: " + string.Join(" ", notes.Select(n => visible.IndexOf(n.Tile) + 1)));
             }
+        });
+        yield return ("A single after a trill never comes back onto the trill's lanes (1-2 3 1-2 3, not 1-2 2 1-2 2)", () =>
+        {
+            // User report, with the user's settings: four lanes, 2K on lanes 2-3, the center pair a trill's last resort. A trill
+            // in 2K reaches out to the left pair (2-1) and the cycle came straight back to 2.
+            var user = UserSettings;
+            var visible = user.GetVisibleTiles().ToList();
+            string Lanes(IEnumerable<VisualizerNote> notes) => string.Join(" ", notes.Select(note => visible.IndexOf(note.Tile) + 1));
+            var generator = new NoteGenerator();
+            var times = new[] { 0d, 30, 180, 380, 410, 560, 760, 790, 940, 1140, 1170, 1320 };
+            Equal(Lanes(generator.Generate(times, user)), "2 1 3 2 1 3 2 1 3 2 1 3");
+
+            // Any rhythm of trills, singles and chords, on four, six and eight lanes, with every center choice: the single right
+            // after a two-note trill is on neither of its lanes while a lane is left that the event after it does not take
+            // (between a trill on 1-2 and a chord on 3-4 every lane is taken). Before the fix, 858 of 3483 of these came back.
+            var checkedSingles = 0;
+            foreach (var center in VisualizerSettings.TrillCenterChoices)
+            foreach (var settings in new[] { user, new VisualizerSettings { MagicCircleFixedTiles = false },
+                         new VisualizerSettings { MaximumTileCount = 6, MagicCircleFixedTiles = false },
+                         new VisualizerSettings { MaximumTileCount = 8, MagicCircleFixedTiles = false } })
+            for (var seed = 1; seed <= 3; seed++)
+            {
+                var config = settings with { TrillCenterPair = center };
+                var shown = config.GetVisibleTiles().ToList();
+                var notes = generator.Generate(TrillRhythm(seed), config);
+                bool Tap(int i) => i >= 0 && i < notes.Count && !notes[i].StartsChord && (i == 0 || !notes[i - 1].StartsChord);
+                bool Close(int i) => notes[i + 1].HitTimeMs - notes[i].HitTimeMs <= config.TrillWindowMs;
+                for (var i = 0; i + 2 < notes.Count; i++)
+                {
+                    if (!Tap(i) || !Tap(i + 1) || !Close(i) || (Tap(i - 1) && Close(i - 1)) || !Tap(i + 2) || Close(i + 1)
+                        || (i + 3 < notes.Count && Tap(i + 3) && Close(i + 2))) continue;
+                    var next = notes.Skip(i + 3).TakeWhile((note, k) => k == 0 || notes[i + 2 + k].StartsChord).Select(note => note.Tile).ToArray();
+                    if (!shown.Any(tile => tile != notes[i].Tile && tile != notes[i + 1].Tile && !next.Contains(tile))) continue;
+                    checkedSingles++;
+                    Assert(notes[i + 2].Tile != notes[i].Tile && notes[i + 2].Tile != notes[i + 1].Tile,
+                        $"{shown.Count} lanes, {center}, seed {seed}, at {notes[i].HitTimeMs}: "
+                        + string.Join(" ", notes.Skip(Math.Max(0, i - 4)).Take(9).Select(note => shown.IndexOf(note.Tile) + 1)));
+                }
+            }
+            Assert(checkedSingles > 1000, "Enough singles after a trill to say something: " + checkedSingles);
+        });
+        yield return ("Trill notes are drawn in the trill color, halfway between the single and chord colors by default", () =>
+        {
+            // User rule: a trill color of its own; chords and the start, end and checkpoint colors outrank it.
+            var defaults = new VisualizerSettings();
+            Equal(defaults.TrillColor, "84, 220, 185");
+            Assert(defaults.HasSameNoteRulesAs(defaults with { TrillColor = "1, 2, 3" }), "A color is not a note rule");
+            Equal((defaults with { TrillColor = "1, 2, 3" }).WithVisuals(defaults).TrillColor, defaults.TrillColor);
+            Throws<ArgumentException>(() => (defaults with { TrillColor = "blue-ish" }).EnsureValid());
+
+            const int width = 300, height = 400;
+            var settings = defaults with
+            {
+                DynamicTiming = false, JudgmentLineHeightDip = 36, MagicCircleJudgmentLine = false, SimultaneousWindowMs = 20, TrillWindowMs = 40,
+                NoteColor = "200, 30, 30", TrillColor = "30, 30, 200", ChordColor = "30, 200, 30",
+                StartNoteColor = "255, 255, 255", EndNoteColor = "255, 255, 255"
+            };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            // The start and end notes keep their own color, so the trill (1000, 1030) and the single (2000) sit between them.
+            session.LoadTimeline(new[] { 0d, 1000, 1030, 2000, 3000 }, settings);
+            session.Toggle(); session.Start();
+            var field = new Visualizer.App.Rendering.NoteField { Session = session };
+            var visible = settings.GetVisibleTiles().ToList();
+            byte[] Render()
+            {
+                field.Tick();
+                field.Measure(new Size(width, height));
+                field.Arrange(new Rect(0, 0, width, height));
+                field.UpdateLayout();
+                var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                bitmap.Render(field);
+                var pixels = new byte[width * height * 4];
+                bitmap.CopyPixels(pixels, width * 4, 0);
+                return pixels;
+            }
+            // Four lanes of 75px with the judgment line at y 334; pixels are B G R A.
+            (byte B, byte G, byte R) At(byte[] pixels, VisualizerNote note)
+            {
+                var index = (334 * width + visible.IndexOf(note.Tile) * 75 + 37) * 4;
+                return (pixels[index], pixels[index + 1], pixels[index + 2]);
+            }
+            clock.NowMs = 1000;
+            var trill = At(Render(), session.Notes[1]);
+            Assert(trill.B > 150 && trill.R < 90, $"The trill's first note in the trill color: {trill}");
+            clock.NowMs = 2000;
+            var single = At(Render(), session.Notes[3]);
+            Assert(single.R > 150 && single.B < 90, $"The single after it in the note color: {single}");
+
+            // With trills off the same notes are singles.
+            var off = new PlaybackSession(clock);
+            off.LoadTimeline(new[] { 0d, 1000, 1030, 2000, 3000 }, settings with { TrillWindowMs = 0 });
+            // Start reads the clock as the song's beginning.
+            clock.NowMs = 0;
+            off.Toggle(); off.Start();
+            field.Session = off;
+            clock.NowMs = 1000;
+            var plain = At(Render(), off.Notes[1]);
+            Assert(plain.R > 150 && plain.B < 90, $"Trills off: the note color: {plain}");
+
+            // The rule, as both screens read it: singles that are no long note within the trill window of a neighbouring one.
+            var notes = new NoteGenerator().Generate(new[] { 0d, 30, 500, 510, 1000, 2000, 2030 }, new double?[] { null, null, null, null, null, 2500, null },
+                settings with { SimultaneousWindowMs = 20 });
+            var marks = Enumerable.Range(0, notes.Count).Select(i => TrillNotes.IsTrill(notes, i, 40)).ToArray();
+            Assert(marks.SequenceEqual(new[] { true, true, false, false, false, false, false }), "Trill, chord, single, long note: " + string.Join(" ", marks));
+            Assert(!TrillNotes.IsTrill(notes, 0, 0), "No trills with the window at 0");
+            var times = new[] { 0d, 30, 500 };
+            Assert(TrillNotes.IsTrill(3, 1, 40, _ => true, k => times[k]) && !TrillNotes.IsTrill(3, 2, 40, _ => true, k => times[k])
+                && !TrillNotes.IsTrill(3, 1, 40, k => k != 0, k => times[k]), "The same rule over other notes");
+        });
+        yield return ("The trill center pair is allowed, the last resort, or never taken as a two-note chord never takes it", () =>
+        {
+            // User rule: a list of three. Last resort is the default and the user's: the center is taken where every other pair
+            // breaks the run (4 3-2 1); never keeps every two-note trill off it, as a chord is kept off it on four lanes.
+            var generator = new NoteGenerator();
+            var user = UserSettings;
+            var visible = user.GetVisibleTiles().ToList();
+            string Lanes(VisualizerSettings settings, double[] times) =>
+                string.Join(" ", generator.Generate(times, settings).Select(note => visible.IndexOf(note.Tile) + 1));
+            var run = new[] { 0d, 80, 160, 190, 270, 350, 430, 460, 540 };
+            Equal(Lanes(user, run), "3 4 3 2 1 4 3 2 1");
+            Equal(Lanes(user with { TrillCenterPair = "Never" }, run), "3 2 4 3 2 1 4 3 2");
+            Equal(new VisualizerSettings().TrillCenterPair, "LastResort");
+
+            // Any rhythm, on four, six and eight lanes: set to never, no two-note trill sits on the pair between the hands.
+            var trills = 0;
+            foreach (var settings in new[] { user, new VisualizerSettings { MagicCircleFixedTiles = false },
+                         new VisualizerSettings { MaximumTileCount = 6, MagicCircleFixedTiles = false },
+                         new VisualizerSettings { MaximumTileCount = 8, MagicCircleFixedTiles = false } })
+            for (var seed = 1; seed <= 3; seed++)
+            {
+                var never = settings with { TrillCenterPair = "Never" };
+                var shown = never.GetVisibleTiles().ToList();
+                var notes = generator.Generate(TrillRhythm(seed), never);
+                bool Tap(int i) => i >= 0 && i < notes.Count && !notes[i].StartsChord && (i == 0 || !notes[i - 1].StartsChord);
+                bool Close(int i) => i >= 0 && i + 1 < notes.Count && notes[i + 1].HitTimeMs - notes[i].HitTimeMs <= never.TrillWindowMs;
+                for (var i = 0; i + 1 < notes.Count; i++)
+                {
+                    if (!Tap(i) || !Tap(i + 1) || !Close(i) || (Tap(i - 1) && Close(i - 1)) || (Tap(i + 2) && Close(i + 1))) continue;
+                    trills++;
+                    var pair = new[] { shown.IndexOf(notes[i].Tile), shown.IndexOf(notes[i + 1].Tile) }.Order().ToArray();
+                    Assert(!(pair[0] == shown.Count / 2 - 1 && pair[1] == shown.Count / 2),
+                        $"{shown.Count} lanes, seed {seed}: a trill on the center pair at {notes[i].HitTimeMs}");
+                }
+            }
+            Assert(trills > 1000, "Enough trills to say something: " + trills);
         });
         yield return ("A long roll in a pattern of one or two lanes goes side by side, never 2 2 2 2 or 2 3 2 3", () =>
         {

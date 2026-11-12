@@ -52,6 +52,12 @@ public static class SettingsJson
     private const string LegacyCenterPair = "ChordCenterPair";
 
     /// <summary>
+    /// The toggle <see cref="VisualizerSettings.TrillCenterPair"/> replaced in app 1.1.0: on kept the center pair for the last
+    /// resort, off used it like any other. A file that names both goes by the new one.
+    /// </summary>
+    private const string LegacyTrillCenter = "NoTrillCenterPair";
+
+    /// <summary>
     /// Settings that are gone. A file that still names one is read as if it did not (the app's own settings file keeps
     /// every setting, so refusing the name would throw all the others away with it).
     /// </summary>
@@ -123,6 +129,8 @@ public static class SettingsJson
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         JsonNode? legacyCenter = null;
         var hasLegacyCenter = false;
+        JsonNode? legacyTrill = null;
+        var hasLegacyTrill = false;
         try
         {
             foreach (var (key, value) in input)
@@ -132,6 +140,12 @@ public static class SettingsJson
                 {
                     if (hasLegacyCenter) throw new SettingsJsonException(T("Json.Repeated", LegacyCenterPair), [LegacyCenterPair]);
                     (legacyCenter, hasLegacyCenter) = (value, true);
+                    continue;
+                }
+                if (name is null && string.Equals(key, LegacyTrillCenter, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (hasLegacyTrill) throw new SettingsJsonException(T("Json.Repeated", LegacyTrillCenter), [LegacyTrillCenter]);
+                    (legacyTrill, hasLegacyTrill) = (value, true);
                     continue;
                 }
                 if (name is null && Derived.TryGetValue(key, out var property))
@@ -161,6 +175,12 @@ public static class SettingsJson
         if (unknown.Count > 0)
             throw new SettingsJsonException(T("Json.Unknown", string.Join(", ", unknown)), unknown);
         if (hasLegacyCenter) ReadLegacyChordRules(input, merged, legacyCenter, current, T);
+        if (hasLegacyTrill && !seen.Contains(nameof(VisualizerSettings.TrillCenterPair)))
+        {
+            if (legacyTrill is not JsonValue flag || !flag.TryGetValue<bool>(out var last))
+                throw new SettingsJsonException(T("Json.WrongType", LegacyTrillCenter), [LegacyTrillCenter]);
+            merged[nameof(VisualizerSettings.TrillCenterPair)] = last ? "LastResort" : "Allowed";
+        }
 
         VisualizerSettings? result;
         try { result = merged.Deserialize<VisualizerSettings>(Options); }

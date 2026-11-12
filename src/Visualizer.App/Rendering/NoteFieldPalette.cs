@@ -11,7 +11,7 @@ namespace Visualizer.App.Rendering;
 internal sealed record NoteFieldPalette(Brush Note, Brush Chord, Brush Checkpoint, Brush PressedCheckpoint,
     Brush PressedNote, Brush PressedChord, Brush Start, Brush End, Pen Judgment, Pen JudgmentGlow,
     Brush Flash, Brush[] LaneBackgrounds, GradientStopCollection BeamStops, GradientStopCollection MissStops,
-    Brush MagicBar, Pen MagicCenter, Brush MagicMarker)
+    Brush MagicBar, Pen MagicCenter, Brush MagicMarker, Brush Trill, Brush PressedTrill)
 {
     /// <summary>The top of the field background gradient; lane colors are drawn over it.</summary>
     public static readonly Color FieldColor = Color.FromRgb(10, 13, 19);
@@ -21,6 +21,7 @@ internal sealed record NoteFieldPalette(Brush Note, Brush Chord, Brush Checkpoin
     {
         var note = ToColor(VisualizerSettings.ParseColor(settings.NoteColor));
         var chord = ToColor(VisualizerSettings.ParseColor(settings.ChordColor));
+        var trill = ToColor(VisualizerSettings.ParseColor(settings.TrillColor));
         var checkpoint = ToColor(VisualizerSettings.ParseColor(settings.CheckpointColor));
         var start = ToColor(VisualizerSettings.ParseColor(settings.StartNoteColor));
         var end = ToColor(VisualizerSettings.ParseColor(settings.EndNoteColor));
@@ -50,7 +51,9 @@ internal sealed record NoteFieldPalette(Brush Note, Brush Chord, Brush Checkpoin
             // Magic circle timing bar: a dim plate, the judgment line color in its middle, and press marks in the note color.
             Freeze(new SolidColorBrush(Color.FromArgb(170, FieldColor.R, FieldColor.G, FieldColor.B))),
             Freeze(new Pen(Freeze(new SolidColorBrush(WithAlpha(judgment, 220))), 1)),
-            Freeze(new SolidColorBrush(note)));
+            Freeze(new SolidColorBrush(note)),
+            Freeze(new SolidColorBrush(trill)),
+            Freeze(new SolidColorBrush(Blend(FieldColor, trill, strength))));
     }
 
     /// <summary>

@@ -242,7 +242,6 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.ExperimentalFeatures)] = ("StateApplied", "StateNotApplied"),
         [nameof(VisualizerSettings.ChordSectionLanes)] = ("StateChordLanesOn", "StateChordLanesOff"),
         [nameof(VisualizerSettings.NoChordCenterPair)] = ("StateCenterPairOff", "StateCenterPairOn"),
-        [nameof(VisualizerSettings.NoTrillCenterPair)] = ("StateTrillCenterLast", "StateCenterPairOn"),
         [nameof(VisualizerSettings.TrillAsOneNote)] = ("StateTrillOneNote", "StateTrillEachNote"),
         [nameof(VisualizerSettings.ChordsOnlyAboveFourKeys)] = ("StateChordsAboveFourOn", "StateChordsAboveFourOff"),
         [nameof(VisualizerSettings.KeepSpeedOnLoad)] = ("StateKeepSpeedOn", "StateKeepSpeedOff")

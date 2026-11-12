@@ -95,8 +95,20 @@ public sealed record VisualizerSettings
     /// trills off and a window below the chord window leaves nothing for them either.
     /// </summary>
     public double TrillWindowMs { get; init; } = Number(nameof(TrillWindowMs));
-    /// <summary>Keeps a trill off the pair that crosses the screen center on four lanes, as <see cref="NoChordCenterPair"/> does.</summary>
-    public bool NoTrillCenterPair { get; init; } = Flag(nameof(NoTrillCenterPair));
+    /// <summary>
+    /// The pair across the screen center for a two-note trill (user rule): one of <see cref="TrillCenterChoices"/>. "Allowed"
+    /// is any other pair, "LastResort" is taken only where every other pair breaks the run, and "Never" refuses it, as a
+    /// two-note chord on four lanes is refused. Longer rolls cross the center whatever it says. Older settings files hold the
+    /// toggle NoTrillCenterPair, which SettingsJson still reads (on is "LastResort").
+    /// </summary>
+    public string TrillCenterPair { get; init; } = Text(nameof(TrillCenterPair));
+    public static IReadOnlyList<string> TrillCenterChoices { get; } = ["Allowed", "LastResort", "Never"];
+    /// <summary>Whether a trill keeps off the center pair while another fits: last resort or never.</summary>
+    [JsonIgnore]
+    public bool TrillCenterLast => TrillCenterPair.Trim() != "Allowed";
+    /// <summary>Whether a two-note trill never takes the center pair.</summary>
+    [JsonIgnore]
+    public bool TrillCenterNever => TrillCenterPair.Trim() == "Never";
     /// <summary>Which pair a trill takes first; the same choices as <see cref="ChordLanePreference"/>.</summary>
     public string TrillLanePreference { get; init; } = Text(nameof(TrillLanePreference));
     /// <summary>
@@ -309,6 +321,11 @@ public sealed record VisualizerSettings
     public int MagicCircleTiles => Math.Clamp(MagicCircleTileCount, MinimumTileCount, MaximumTileCount);
     public string NoteColor { get; init; } = Text(nameof(NoteColor));
     public string ChordColor { get; init; } = Text(nameof(ChordColor));
+    /// <summary>
+    /// The notes of a trill (user rule); by default halfway between the note and chord colors. Chords and the start, end and
+    /// checkpoint colors outrank it.
+    /// </summary>
+    public string TrillColor { get; init; } = Text(nameof(TrillColor));
     /// <summary>Notes that sit on a checkpoint tile; white by default so they stand out from the other two.</summary>
     public string CheckpointColor { get; init; } = Text(nameof(CheckpointColor));
     /// <summary>
@@ -374,7 +391,7 @@ public sealed record VisualizerSettings
         && EightKeyBoundaryMs == other.EightKeyBoundaryMs && SixKeyBoundaryMs == other.SixKeyBoundaryMs
         && FourKeyBoundaryMs == other.FourKeyBoundaryMs && TwoKeyBoundaryMs == other.TwoKeyBoundaryMs && InitialTile == other.InitialTile
         && SimultaneousWindowMs == other.SimultaneousWindowMs && TrillWindowMs == other.TrillWindowMs
-        && NoTrillCenterPair == other.NoTrillCenterPair && TrillLanePreference.Trim() == other.TrillLanePreference.Trim()
+        && TrillCenterPair.Trim() == other.TrillCenterPair.Trim() && TrillLanePreference.Trim() == other.TrillLanePreference.Trim()
         && TrillAsOneNote == other.TrillAsOneNote && ChordsOnlyAboveFourKeys == other.ChordsOnlyAboveFourKeys
         && ImmediateDownshift == other.ImmediateDownshift
         && (!ImmediateDownshift || DownshiftNoteCount == other.DownshiftNoteCount)
@@ -401,6 +418,7 @@ public sealed record VisualizerSettings
         ShowMissEffect = source.ShowMissEffect,
         NoteColor = source.NoteColor,
         ChordColor = source.ChordColor,
+        TrillColor = source.TrillColor,
         CheckpointColor = source.CheckpointColor,
         StartNoteColor = source.StartNoteColor,
         EndNoteColor = source.EndNoteColor,
@@ -521,6 +539,7 @@ public sealed record VisualizerSettings
         if (!double.IsFinite(TrillWindowMs) || TrillWindowMs is < 0 or > MaximumTrillWindowMs)
             Add(L("Error.TrillWindow"), nameof(TrillWindowMs));
         if (TrillLanePreference.Trim() is not ("None" or "1-2" or "3-4" or "1-2,3-4")) Add(L("Error.TrillLane"), nameof(TrillLanePreference));
+        if (!TrillCenterChoices.Contains(TrillCenterPair.Trim())) Add(L("Error.TrillCenter"), nameof(TrillCenterPair));
         if (!Languages.Exists(Language))
             Add(L("Error.Language", string.Join(", ", Languages.All.Select(language => language.Id))), nameof(Language));
         if (string.IsNullOrWhiteSpace(Theme) || Theme.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '-' or '_')))
@@ -580,8 +599,8 @@ public sealed record VisualizerSettings
 
         foreach (var (field, text) in new[]
         {
-            (nameof(NoteColor), NoteColor), (nameof(ChordColor), ChordColor), (nameof(JudgmentLineColor), JudgmentLineColor),
-            (nameof(MissEffectColor), MissEffectColor), (nameof(LaneEffectColor), LaneEffectColor),
+            (nameof(NoteColor), NoteColor), (nameof(ChordColor), ChordColor), (nameof(TrillColor), TrillColor),
+            (nameof(JudgmentLineColor), JudgmentLineColor), (nameof(MissEffectColor), MissEffectColor), (nameof(LaneEffectColor), LaneEffectColor),
             (nameof(CheckpointColor), CheckpointColor), (nameof(StartNoteColor), StartNoteColor), (nameof(EndNoteColor), EndNoteColor)
         })
         {

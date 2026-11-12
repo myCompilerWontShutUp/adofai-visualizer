@@ -51,7 +51,9 @@
   "SimultaneousWindowMs": 20,
   // Two single notes this close are a trill and take two lanes; chords are grouped first, so the chord window wins.
   "TrillWindowMs": 40,
-  "NoTrillCenterPair": true,
+  // The pair across the screen center for a two-note trill: "Allowed" like any other, "LastResort" only where every other
+  // pair breaks the run, "Never" not at all, as a two-note chord on four lanes.
+  "TrillCenterPair": "LastResort",
   "TrillLanePreference": "1-2,3-4",
   // On: a trill counts as one note when the tile count is worked out (the gaps around it decide); lanes are laid as with it off.
   "TrillAsOneNote": true,
@@ -128,6 +130,8 @@
   "LaneEffectColor": "140, 210, 255",
   "NoteColor": "94, 218, 242",
   "ChordColor": "74, 222, 128",
+  // Halfway between the note and chord colors (user rule).
+  "TrillColor": "84, 220, 185",
   "CheckpointColor": "255, 255, 255",
   // A deep yellow (user rule): fuller than the judgment line's pale gold, short of orange.
   "StartNoteColor": "255, 208, 0",

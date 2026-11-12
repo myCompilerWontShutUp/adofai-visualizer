@@ -24,36 +24,49 @@ internal static class SettingsStoreTests
         }
     }
 
-    /// <summary>One snapshot with a non-default, valid value for as many settings as possible.</summary>
+    /// <summary>
+    /// Settings that cannot hold a value of their own here: eight lanes take the one eight-tile pattern there is, and the
+    /// old magic circle switch follows the judgment bar's choice in the settings window.
+    /// </summary>
+    private static readonly string[] Unchangeable = [nameof(VisualizerSettings.EightKeyPattern), nameof(VisualizerSettings.MagicCircleJudgmentLine)];
+
+    /// <summary>One snapshot with a non-default, valid value for every setting but <see cref="Unchangeable"/>.</summary>
     private static VisualizerSettings EverySettingChanged()
     {
         var settings = new VisualizerSettings
         {
             Language = "english", Theme = "dark",
             MapRootDirectory = @"D:\Maps", DataRootDirectory = @"D:\Store",
-            SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path",
-            ShowGuideButtons = false, ShowSongInfo = false,
+            SongGroup = "All", SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path",
+            ShowGuideButtons = false, ShowSongInfo = false, AutoSaveSettings = false,
             ResetKey = "Back", StartTriggerKey = "N", VisualizerToggleKey = "F9",
             PreviousCheckpointKey = "[", NextCheckpointKey = "]", SettingsHotkey = "F10",
             LaneKeys = "Q W E R U I O P",
             OnlyReactWhenAdofaiForeground = false, AdofaiProcessName = "Test Game",
-            MaximumTileCount = 8, MinimumTileCount = 2, DynamicTiming = false,
+            MaximumTileCount = 8, MinimumTileCount = 2, DisplayLaneCount = 8, DynamicTiming = false,
             EightKeyBoundaryMs = 15, SixKeyBoundaryMs = 25, FourKeyBoundaryMs = 45, TwoKeyBoundaryMs = 450,
+            NextIntervalTiles = true, BothIntervalTiles = true,
             SimultaneousWindowMs = 30, ImmediateDownshift = false, DownshiftNoteCount = 5,
+            TrillWindowMs = 30, TrillCenterPair = "Never", TrillLanePreference = "3-4", TrillAsOneNote = false,
+            ChordsOnlyAboveFourKeys = true,
             StartDelayMs = 200, PlaybackSpeedPercent = 80, NoteTravelTimeMs = 700, CalibrationNoteCount = 3,
+            AlignNextNoteOnPause = false,
             NoteThickness = 1.5, NoteWidth = 0.8, HoldNoteWidth = 0.5, GlobalDisplayOffsetMs = 12,
             SixKeyPattern = "1 2 3 4 5 6", FourKeyPattern = "2 3 4 5", TwoKeyPattern = "3 6",
             ExtraLanes = true, SlowNotesPastJudgmentLine = true,
             ExperimentalFeatures = true, ChordSectionLanes = true, ChordLanePreference = "3-4", NoChordCenterPair = false, KeepSpeedOnLoad = true,
+            ChordAvoidBeforeLanes = true, RestartPatternOnRun = true, EnhancedChordRules = true, OneHandFourChords = true,
             EnableTilePreference = true, TwoKeyOrder = "1 2", FourKeyOrder = "1 2 3 4",
             SixKeyOrder = "1 2 3 4 5 6", EightKeyOrder = "1 2 3 4 5 6 7 8", InitialTile = 3,
-            AutoCheckpointAdvance = false, JudgmentLineHeightDip = 100, KeyPressWindowMs = 120,
+            AutoCheckpointAdvance = false, AutoCheckpointOnLoad = false, JudgmentLineHeightDip = 100, KeyPressWindowMs = 120,
             ShowInputEffect = false, ShowMissEffect = false,
+            JudgmentBarMode = "Always", JudgmentBarDifficulty = "Strict", JudgmentAverageCount = 5, ShowJudgmentAverage = false,
             MagicCircleJudgmentLine = true, MagicCircleNoteCount = 30, MagicCircleMaxIntervalMs = 150,
             MagicCircleFadeInMs = 300, MagicCircleLeadMs = 400, MagicCircleFadeOutMs = 200,
             MagicCircleFixedTiles = false, MagicCircleTileCount = 2, MagicCircleChords = false,
             LaneEffectColor = "10, 20, 30", NoteColor = "11, 21, 31", ChordColor = "12, 22, 32",
             CheckpointColor = "13, 23, 33", JudgmentLineColor = "14, 24, 34", MissEffectColor = "15, 25, 35",
+            StartNoteColor = "16, 26, 36", EndNoteColor = "17, 27, 37", TrillColor = "18, 28, 38",
             PressedNoteTransparencyPercent = 50,
             LaneBackgroundColors = "#111111 #222222 #333333 #444444 #555555 #666666 #777777 #888888"
         };
@@ -231,6 +244,14 @@ internal static class SettingsStoreTests
         ("Every setting survives the settings window and the stored file", () =>
         {
             var settings = EverySettingChanged();
+            // Every setting is changed, so one the window does not read back cannot pass unseen (user report: a new trill
+            // window went back to 40 ms on Apply, and the snapshot here had never changed it).
+            var defaults = new VisualizerSettings();
+            var unchanged = typeof(VisualizerSettings).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(property => property.CanWrite && !Unchangeable.Contains(property.Name)
+                    && Equals(property.GetValue(settings), property.GetValue(defaults)))
+                .Select(property => property.Name).ToArray();
+            Assert(unchanged.Length == 0, "Settings left at their default here: " + string.Join(", ", unchanged));
 
             // The file: what Apply writes is what the next launch reads back.
             var stored = SettingsJson.Import(SettingsJson.Export(settings), new VisualizerSettings());
@@ -240,6 +261,34 @@ internal static class SettingsStoreTests
             var window = new SettingsPanel(settings, new MemorySettingsLayoutStore());
             var applied = window.BuildSettings();
             Assert(Differences(applied, settings).Length == 0, "Lost in the settings window — " + Differences(applied, settings));
+        }),
+
+        ("The trill settings: a typed trill window applies, the center pair is a list of three, and older files carry over", () =>
+        {
+            // User report: the trill window went back to 40 ms on Apply whatever was typed.
+            var window = new SettingsPanel(new VisualizerSettings(), new MemorySettingsLayoutStore());
+            ((TextBox)window.InputFor(nameof(VisualizerSettings.TrillWindowMs))!).Text = "30";
+            Equal(window.BuildSettings().TrillWindowMs, 30d);
+
+            // User rule: the center pair is a list (allowed, last resort, never) instead of a toggle, last resort by default.
+            var center = (ComboBox)window.InputFor(nameof(VisualizerSettings.TrillCenterPair))!;
+            Equal(string.Join(" / ", center.Items.Cast<string>()), "가능 / 최후순위 / 불가능");
+            Equal(center.SelectedIndex, 1);
+            center.SelectedIndex = 2;
+            Equal(window.BuildSettings().TrillCenterPair, "Never");
+            var labels = FindAll<TextBlock>(window).Select(block => block.Text).ToHashSet();
+            Assert(labels.Contains("트릴 중앙 배치") && labels.Contains("트릴을 단일 노트로 판정"), "The renamed labels");
+
+            // A file from before the list holds the toggle: on was the last resort, off used the center like any pair.
+            Equal(SettingsJson.Import("""{ "NoTrillCenterPair": true }""", new VisualizerSettings { TrillCenterPair = "Never" }).TrillCenterPair, "LastResort");
+            Equal(SettingsJson.Import("""{ "NoTrillCenterPair": false }""", new VisualizerSettings()).TrillCenterPair, "Allowed");
+            Equal(SettingsJson.Import("""{ "NoTrillCenterPair": false, "TrillCenterPair": "Never" }""", new VisualizerSettings()).TrillCenterPair, "Never");
+            IReadOnlyList<string>? refused = null;
+            try { SettingsJson.Import("""{ "NoTrillCenterPair": "yes" }""", new VisualizerSettings()); }
+            catch (SettingsJsonException error) { refused = error.Fields; }
+            Assert(refused is not null && refused.SequenceEqual(["NoTrillCenterPair"]), "A wrong old value is named: " + string.Join(", ", refused ?? []));
+            Throws<SettingsJsonException>(() => SettingsJson.Import("""{ "TrillCenterPair": "Sometimes" }""", new VisualizerSettings()));
+            Assert(!SettingsJson.Export(new VisualizerSettings()).Contains("NoTrillCenterPair", StringComparison.Ordinal), "Only the new name is written");
         }),
 
         ("Importing an export in the settings window brings back every setting but this PC's folders", () =>

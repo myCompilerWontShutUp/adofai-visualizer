@@ -226,6 +226,25 @@ internal static class MapCompatibilityTests
                 Equal(Parse(actions: "[{\"floor\":1,\"eventType\":\"SetConditionalEvents\",\"lossTag\":\"\uc5c6\uc74c\"}," +
                     $"{{\"floor\":2,{tagged},\"eventTag\":\"\uc5c6\uc74c\"}}]").Status, MapParseStatus.Unsupported);
         });
+        yield return ("SetInputEvent that lets keys through only starts tagged visual events", () =>
+        {
+            // \u53e5\u308b\u308a - \u5fd8\u308c\u3082\u306e\u6ce8\u610f: arrow keys switch the lyrics during the countdown, then the slots are emptied with NONE.
+            const string Lyrics = "{\"floor\":1,\"eventType\":\"SetText\",\"eventTag\":\"cn_ly\"},{\"floor\":1,\"eventType\":\"MoveDecorations\",\"eventTag\":\"en_ly x\"},";
+            foreach (var ignore in new[] { "false", "\"Disabled\"" })
+                Times(Parse(actions: "[" + Lyrics +
+                    $"{{\"floor\":1,\"eventType\":\"SetInputEvent\",\"target\":\"Down\",\"state\":\"Down\",\"ignoreInput\":{ignore},\"targetEventTag\":\"cn_ly\",\"angleOffset\":-1080}}," +
+                    "{\"floor\":1,\"eventType\":\"SetInputEvent\",\"target\":\"Up\",\"state\":\"Down\",\"ignoreInput\":false,\"targetEventTag\":\"en_ly\",\"angleOffset\":-1080}," +
+                    "{\"floor\":2,\"eventType\":\"SetInputEvent\",\"target\":\"Down\",\"state\":\"Down\",\"ignoreInput\":false,\"targetEventTag\":\"NONE\",\"angleOffset\":0}]"),
+                    500, 1000, 1500);
+            // A slot that swallows the press (scrPlayer.Hit returns before the hit) or has no value of its own is not verified.
+            foreach (var ignore in new[] { ",\"ignoreInput\":true", ",\"ignoreInput\":\"Enabled\"", "" })
+                Equal(Parse(actions: $"[{{\"floor\":1,\"eventType\":\"SetInputEvent\",\"target\":\"Any\",\"state\":\"Down\"{ignore},\"targetEventTag\":\"NONE\"}}]").Status,
+                    MapParseStatus.Unsupported);
+            // A key may start tagged visual events only.
+            foreach (var tagged in new[] { "\"eventType\":\"Twirl\"", "\"eventType\":\"Pause\",\"duration\":1", "\"eventType\":\"Checkpoint\"", "\"eventType\":\"RepeatEvents\",\"tag\":\"y\"" })
+                Equal(Parse(actions: "[{\"floor\":1,\"eventType\":\"SetInputEvent\",\"target\":\"Up\",\"state\":\"Down\",\"ignoreInput\":false,\"targetEventTag\":\"lyrics\"}," +
+                    $"{{\"floor\":1,{tagged},\"eventTag\":\"a lyrics\"}}]").Status, MapParseStatus.Unsupported);
+        });
         if (readOnlyMapRoot is not null)
             yield return ("Opt-in user maps: read-only parse, prepare, checkpoint and rendering", () => AuditMaps(readOnlyMapRoot, artifactRoot, compareGameRules));
     }

@@ -9,7 +9,7 @@ namespace Visualizer.Infrastructure.Parsing;
 public sealed class AdofaiTimelineParser : IMapTimelineParser
 {
     // Raise this whenever what is cached changes (the app then asks for a map sync); docs/adofai-parser.md has the evidence.
-    public const string CurrentVersion = "adofai-v27-any-first-direction";
+    public const string CurrentVersion = "adofai-v28-input-events";
     /// <summary>
     /// Level formats checked against the game and a real map each. The game reads the level version only for 7 (LoadLevel),
     /// 9 (editor MakeLevel), decoration components up to 12 and the level list (above 19), so none of these has a timing branch
@@ -265,6 +265,27 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                         if (tags.Intersect((eventTag.GetString() ?? "").Split(' '), StringComparer.Ordinal).Any()
                             && !VisualEvents.Contains(Text(target, "eventType")))
                             throw new Unsupported("타이밍/체크포인트/반복 이벤트를 대상으로 한 RepeatEvents는 지원하지 않습니다.");
+                    }
+                }
+                else if (type == "SetInputEvent")
+                {
+                    // LevelEventType 65 is compared in neither floor pass nor scrLevelMaker. ffxSetInputEventPlus.StartEffect only files
+                    // itself in scrController.inputEventFfx[state][target], and its PrepVfx takes the floor's effects whose eventTag
+                    // (split on ' ') holds targetEventTag out of the floor's run, for scrPlayer.HitInputEvent to start when that key
+                    // goes down or up. scrPlayer.Hit drops a press only when HitInputEvent returns false, which takes ignoreInput on a
+                    // Down slot, so with it off every hit is as before (句るり - 忘れもの注意: arrow keys switch the lyrics).
+                    // Decode reads ignoreInput with GetBool; a missing one would take the event definition's default, not read here.
+                    if (!action.TryGetProperty("ignoreInput", out var ignoreInput)
+                        || ignoreInput.ValueKind is not (JsonValueKind.False or JsonValueKind.String) || Toggle(action, "ignoreInput"))
+                        throw new Unsupported($"SetInputEvent는 ignoreInput이 꺼진 것만 지원합니다 (floor {floor}).");
+                    // Like the tags above, the events a key starts must be visual only, looked up on every floor.
+                    var inputTag = Text(action, "targetEventTag", "");
+                    foreach (var target in allActions)
+                    {
+                        if (!target.TryGetProperty("eventTag", out var inputEventTag) || inputEventTag.ValueKind != JsonValueKind.String) continue;
+                        if ((inputEventTag.GetString() ?? "").Split(' ').Contains(inputTag, StringComparer.Ordinal)
+                            && !VisualEvents.Contains(Text(target, "eventType")))
+                            throw new Unsupported("타이밍/체크포인트/반복 이벤트를 대상으로 한 SetInputEvent는 지원하지 않습니다.");
                     }
                 }
                 else if (type == "MultiPlanet")
