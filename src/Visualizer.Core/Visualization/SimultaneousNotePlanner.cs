@@ -64,11 +64,11 @@ internal static class SimultaneousNotePlanner
 
     /// <summary>
     /// Trills (user rule): single taps that each come within the trill window of the one before are one roll, however many
-    /// there are: a b c with a-b and b-c that close is a three-note trill, on four lanes 1-2-3 or 2-3-4. A roll is cut at the
-    /// number of screen lanes, which is as far as it can roll; what is left starts the next one. Chords come first: a group
-    /// of two or more is never part of a trill. Long notes are never trills. Each group's place in its roll comes back: 0
-    /// outside any, 1 the first note, 2 the second and so on; <paramref name="lengths"/> holds each roll's length at its first
-    /// note. The cursor, the chord pass and the trill pass all read trills from here, so they agree on which notes roll.
+    /// there are: a b c with a-b and b-c that close is a three-note trill, on four lanes 1-2-3 or 2-3-4. A chain longer than
+    /// the screen's lanes is cut into rolls by <see cref="ChainPieces"/>. Chords come first: a group of two or more is never
+    /// part of a trill. Long notes are never trills. Each group's place in its roll comes back: 0 outside any, 1 the first
+    /// note, 2 the second and so on; <paramref name="lengths"/> holds each roll's length at its first note. The cursor, the
+    /// chord pass and the trill pass all read trills this way, so they agree on which notes roll.
     /// </summary>
     internal static int[] TrillRuns(IReadOnlyList<GroupedHit> groups, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds,
         out int[] lengths)
@@ -83,12 +83,57 @@ internal static class SimultaneousNotePlanner
         {
             if (!Tap(i) || !Tap(i + 1) || !Close(i)) { i++; continue; }
             var end = i + 1;
-            while (end + 1 < groups.Count && end + 1 - i < cap && Tap(end + 1) && Close(end)) end++;
-            lengths[i] = end - i + 1;
-            for (var k = i; k <= end; k++) positions[k] = k - i + 1;
+            while (end + 1 < groups.Count && Tap(end + 1) && Close(end)) end++;
+            var first = i;
+            var at = i;
+            foreach (var piece in ChainPieces(end - i + 1, k => groups[first + k + 1].TimeMs - groups[first + k].TimeMs, cap))
+            {
+                if (piece >= 2)
+                {
+                    lengths[at] = piece;
+                    for (var k = 0; k < piece; k++) positions[at + k] = k + 1;
+                }
+                at += piece;
+            }
             i = end + 1;
         }
         return positions;
+    }
+
+    /// <summary>
+    /// The rolls a chain of <paramref name="count"/> notes, each within the trill window of the one before, is played as: their
+    /// lengths in order. <paramref name="gapAfter"/> is the gap from the chain's note k to the next. A chain the lanes hold is
+    /// one roll whatever its gaps (user rule: a b c is a three-note trill). A longer one is cut where its rhythm groups it, at
+    /// each gap clearly longer than the gaps on both sides of it (user rule: three-note trills in a row read 4-3-2 4-3-2; cut every four
+    /// notes they read 4-3-2 1-4-3, which is no trill at all), never leaving one note on either side. A piece still longer
+    /// than <paramref name="cap"/> is cut every <paramref name="cap"/> notes, so an even stream walks the pattern (4 3 2 1 4 3 2 1)
+    /// as before; what is left over (one note) is no trill.
+    /// </summary>
+    /// <summary>
+    /// How much longer than the gap before it a gap has to be to group a chain (see <see cref="ChainPieces"/>). Hit times
+    /// come from the level exactly, so an even stream has equal gaps; a quarter longer is already a rhythm (a triplet
+    /// followed by a sixteenth is half again as long).
+    /// </summary>
+    internal const double RollBreakFactor = 1.25;
+
+    internal static List<int> ChainPieces(int count, Func<int, double> gapAfter, int cap)
+    {
+        var pieces = new List<int>();
+        if (count <= cap)
+        {
+            pieces.Add(count);
+            return pieces;
+        }
+        var start = 0;
+        // A pause between groups is longer than the gaps on both sides of it; one longer than a flam before it alone is not.
+        for (var k = 1; k + 2 < count; k++)
+            if (gapAfter(k) > Math.Max(gapAfter(k - 1), gapAfter(k + 1)) * RollBreakFactor && k + 1 - start >= 2 && count - (k + 1) >= 2)
+            {
+                pieces.Add(k + 1 - start);
+                start = k + 1;
+            }
+        pieces.Add(count - start);
+        return pieces.SelectMany(length => Enumerable.Range(0, (length + cap - 1) / cap).Select(part => Math.Min(cap, length - part * cap))).ToList();
     }
 
     /// <summary>
@@ -163,19 +208,36 @@ internal static class SimultaneousNotePlanner
         var lastEnd = -2;
         var lastLow = -1;
         var lastRoll = Array.Empty<int>();
-        // How many notes roll from here (user rule): taps that each come within the window of the one before, cut at the
-        // screen's lanes as TrillRuns cuts them. Long notes end a roll.
+        // Where the rolls of the current row start: rolls as long as each other with nothing between them.
+        var rollRun = new List<int>();
+        // How many notes roll from each note that starts a roll (user rule): taps that each come within the window of the one
+        // before, cut as TrillRuns cuts them (ChainPieces). Long notes end a roll. A note left over from a cut is inside a
+        // chain but rolls with nothing, so it is never paired with the next roll.
         bool Tap(int index) => Single(index) && result[index].HoldEndMs is null;
-        int RunLength(int index)
+        var rollFrom = new int[result.Count];
+        var inChain = new bool[result.Count];
+        for (var start = 0; start + 1 < result.Count;)
         {
-            var end = index + 1;
-            while (end + 1 < result.Count && end + 1 - index < RollLanes(settings) && Tap(index) && Tap(end) && Tap(end + 1) && Trill(end)) end++;
-            return end - index + 1;
+            if (!Tap(start) || !Tap(start + 1) || !Trill(start)) { start++; continue; }
+            var end = start + 1;
+            while (end + 1 < result.Count && Tap(end + 1) && Trill(end)) end++;
+            var first = start;
+            var at = start;
+            foreach (var piece in ChainPieces(end - start + 1, k => result[first + k + 1].HitTimeMs - result[first + k].HitTimeMs, RollLanes(settings)))
+            {
+                rollFrom[at] = piece;
+                at += piece;
+            }
+            for (var k = start; k <= end; k++) inChain[k] = true;
+            start = end + 1;
         }
         for (var i = 0; i + 1 < result.Count; i++)
         {
             if (!Trill(i)) continue;
-            if (RunLength(i) is var length and >= 3)
+            // Two singles this close with a long note among them are still turned as a pair.
+            var length = rollFrom[i] > 0 ? rollFrom[i] : inChain[i] ? 0 : 2;
+            if (length < 2) continue;
+            if (length >= 3)
             {
                 LayRoll(i, length);
                 i += length - 1;
@@ -264,11 +326,12 @@ internal static class SimultaneousNotePlanner
             i++;
         }
 
-        // A roll of three notes or more (user rule: a b c, each within the window of the one before, read 1-2-3 or 2-3-4 on
-        // four lanes) runs over that many lanes side by side in the pattern's direction, back the other way only from the far
-        // edge. One already laid out so stays; else the lanes keep off the event before and the event after, a roll right
-        // after one keeps off its lanes, the first note stays where it can, and nothing moves onto a lane a long note holds.
-        // The center rule is the two-note trill's own, so it does not apply here. A roll with nowhere to go stays as it is.
+        // A roll of three notes or more (user rule: a b c, each within the window of the one before, read 3-2-1 or 4-3-2 on
+        // four lanes) runs over that many lanes side by side in the pattern's direction, back the other way only when it starts
+        // on the far edge lane (1-2-3; 2-3-4 is against the pattern, user report). A roll right after one as long takes the same
+        // lanes (user rule: 4-3-2 4-3-2). One already laid out so stays; else the lanes keep off the event before and the event
+        // after, the first note stays where it can, and nothing moves onto a lane a long note holds. The center rule is the
+        // two-note trill's own, so it does not apply here. A roll with nowhere to go stays as it is.
         void LayRoll(int at, int length)
         {
             var step = Direction(settings, Enumerable.Range(at, length).Max(k => result[k].Mode));
@@ -277,6 +340,7 @@ internal static class SimultaneousNotePlanner
             if (WalksPattern(length, Enumerable.Range(at, length).Min(k => Math.Min(result[k].Mode, visible.Count))))
             {
                 (lastEnd, lastRoll, lastLow) = (at + length - 1, lanes, Math.Min(lanes[^2], lanes[^1]));
+                rollRun.Clear();
                 return;
             }
             var before = LanesAround(result, at - 1, backward: true);
@@ -286,24 +350,52 @@ internal static class SimultaneousNotePlanner
             bool Fits(int first, int way) => first >= 0 && first < visible.Count
                 && first + (length - 1) * way >= 0 && first + (length - 1) * way < visible.Count
                 && (!byHand || first / 4 == (first + (length - 1) * way) / 4);
-            bool Allowed(int first, int way) => Fits(first, way) && (way == step || !Fits(first, step));
+            // The far edge is where the pattern's way runs out of lanes (of the hand, played by hand).
+            bool AtEdge(int first) => first + step < 0 || first + step >= visible.Count || (byHand && (first + step) / 4 != first / 4);
+            bool Allowed(int first, int way) => Fits(first, way) && (way == step || AtEdge(first));
             int LaneAt(int first, int way, int k) => first + k * way;
-            // Rolls in a row are the ones that follow each other closely; one after a pause may well read the same.
-            bool Repeats(int first, int way) => lastEnd == at - 1 && lastRoll.Length > 0
-                && result[at].HitTimeMs - result[at - 1].HitTimeMs <= settings.TrillWindowMs * NoteGenerator.RollLeadWindows
-                && Enumerable.Range(0, length).Select(k => LaneAt(first, way, k)).Order().SequenceEqual(lastRoll.Order());
+            bool Usable(int first, int way) => Allowed(first, way)
+                && Enumerable.Range(0, length).All(k => Free(visible[LaneAt(first, way, k)], result[at + k].HitTimeMs));
             bool Clear(int first, int way) => !before.Contains(visible[first]) && !ahead.Contains(visible[LaneAt(first, way, length - 1)]);
+            // The roll right before, when it is as long and nothing comes between them.
+            (int First, int Way)? last = lastEnd == at - 1 && lastRoll.Length == length && lastRoll.All(lane => lane >= 0)
+                && Math.Abs(lastRoll[1] - lastRoll[0]) == 1 && Enumerable.Range(1, length - 1).All(k => lastRoll[k] - lastRoll[k - 1] == lastRoll[1] - lastRoll[0])
+                ? (lastRoll[0], lastRoll[1] - lastRoll[0]) : null;
+            bool Again(int first, int way) => last is { } roll && roll.First == first && roll.Way == way;
+            var repeatable = last is { } previous && Usable(previous.First, previous.Way) && Clear(previous.First, previous.Way);
+            // Only a single right after on the lane it would end on stands in the way: it moves beside the roll instead, on the
+            // side the roll ran to, else the other, else the nearest lane left, never onto the event after it nor a held lane
+            // (user rule, as after a two-note trill).
+            var after = at + length;
+            if (!repeatable && last is { } again && Usable(again.First, again.Way) && !before.Contains(visible[again.First])
+                && ahead.Length == 1 && Single(after) && result[after].HoldEndMs is null)
+            {
+                var roll = Enumerable.Range(0, length).Select(k => LaneAt(again.First, again.Way, k)).ToArray();
+                var next = LanesAround(result, after + 1, backward: false);
+                var side = new[] { roll[^1] + again.Way, roll[0] - again.Way }
+                    .Concat(Enumerable.Range(0, visible.Count).OrderBy(lane => Math.Abs(lane - roll[^1])))
+                    .Where(lane => lane >= 0 && lane < visible.Count && !roll.Contains(lane) && !next.Contains(visible[lane])
+                        && Free(visible[lane], result[after].HitTimeMs) && (!byHand || lane / 4 == roll[0] / 4))
+                    .Select(lane => (int?)lane).FirstOrDefault();
+                if (side is { } moved)
+                {
+                    result[after] = result[after] with { Tile = visible[moved] };
+                    ahead = [visible[moved]];
+                    repeatable = true;
+                }
+            }
             var way = lanes.All(lane => lane >= 0) && Enumerable.Range(1, length - 1).All(k => lanes[k] - lanes[k - 1] == lanes[1] - lanes[0])
                 && Math.Abs(lanes[1] - lanes[0]) == 1 ? lanes[1] - lanes[0] : 0;
-            if (way == 0 || !Allowed(lanes[0], way) || !Clear(lanes[0], way) || Repeats(lanes[0], way))
+            if (way == 0 || !Allowed(lanes[0], way) || !Clear(lanes[0], way) || (repeatable && !Again(lanes[0], way)))
             {
                 var current = lanes[0] >= 0 ? lanes[0] : 0;
                 var chosen = Enumerable.Range(0, visible.Count).SelectMany(first => new[] { (First: first, Way: step), (First: first, Way: -step) })
-                    .Where(option => Allowed(option.First, option.Way)
-                        && Enumerable.Range(0, length).All(k => Free(visible[LaneAt(option.First, option.Way, k)], result[at + k].HitTimeMs)))
+                    .Where(option => Usable(option.First, option.Way))
                     .OrderBy(option => Clear(option.First, option.Way) ? 0 : 1)
-                    .ThenBy(option => Repeats(option.First, option.Way) ? 1 : 0)
+                    .ThenBy(option => Again(option.First, option.Way) ? 0 : 1)
                     .ThenBy(option => option.Way == step ? 0 : 1)
+                    // A roll turned the pattern's way keeps its lanes (2-3-4 becomes 4-3-2).
+                    .ThenBy(option => Enumerable.Range(0, length).Select(k => LaneAt(option.First, option.Way, k)).Order().SequenceEqual(lanes.Order()) ? 0 : 1)
                     .ThenBy(option => Math.Abs(option.First - current))
                     .Select(option => ((int First, int Way)?)option).FirstOrDefault();
                 if (chosen is { } pick)
@@ -312,6 +404,16 @@ internal static class SimultaneousNotePlanner
                     lanes = Enumerable.Range(0, length).Select(k => LaneAt(pick.First, pick.Way, k)).ToArray();
                 }
             }
+            // A roll that could not take the lanes of the ones right before it gives them its own instead, when they are free
+            // then and the event before them allows it: rolls in a row share one set of lanes either way (user rule). Those
+            // before may have been laid by a chord block, which never saw the rolls after them.
+            if (last is not null && !lanes.SequenceEqual(lastRoll) && rollRun.Count > 0 && lanes.All(lane => lane >= 0)
+                && !LanesAround(result, rollRun[0] - 1, backward: true).Contains(visible[lanes[0]])
+                && rollRun.All(start => Enumerable.Range(0, length).All(k => Free(visible[lanes[k]], result[start + k].HitTimeMs))))
+                foreach (var start in rollRun)
+                    for (var k = 0; k < length; k++) result[start + k] = result[start + k] with { Tile = visible[lanes[k]] };
+            if (last is null) rollRun.Clear();
+            rollRun.Add(at);
             lastEnd = at + length - 1;
             lastRoll = lanes;
             lastLow = Math.Min(lanes[^2], lanes[^1]);
@@ -864,9 +966,11 @@ internal static class SimultaneousNotePlanner
                 var length = flow.LengthOf(groupIndex);
                 // Played by hand, a roll of four keys or fewer stays in one hand (user rule).
                 bool SameHand(int a, int b) => !flow.ByHand || a / 4 == b / 4;
+                // Against the pattern only from the far edge lane (1-2-3, never 2-3-4: user report).
+                bool AtEdge(int at) => at + flow.Step < 0 || at + flow.Step >= visible.Length || !SameHand(at, at + flow.Step);
                 int RollWay(int at) => at < 0 ? 0
                     : at + (length - 1) * flow.Step is var end && end >= 0 && end < visible.Length && SameHand(at, end) ? flow.Step
-                    : at - (length - 1) * flow.Step is var back && back >= 0 && back < visible.Length && SameHand(at, back) ? -flow.Step : 0;
+                    : AtEdge(at) && at - (length - 1) * flow.Step is var back && back >= 0 && back < visible.Length && SameHand(at, back) ? -flow.Step : 0;
                 int Long(int tile)
                 {
                     var at = Array.IndexOf(visible, tile);

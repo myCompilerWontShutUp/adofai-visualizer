@@ -106,17 +106,24 @@ public sealed class TilePatternCursor
 
     /// <summary>
     /// The lanes a roll of three notes or more rolls over (user rule: a b c, each within the trill window of the one before,
-    /// read 1-2-3 or 2-3-4 on four lanes, in the pattern's direction). The same way <see cref="OpenTrill"/> looks for two:
-    /// from this tile or the next one, ending on either, and back the other way only from the far edge; rolls that keep the
-    /// flow first, then lanes that have rested, then the pattern's own way, then not the last roll's lanes again. The center
-    /// rule is the two-note trill's own (user rule), so a longer roll crosses the center freely. Null when no lanes fit, which
-    /// leaves the notes to the pattern.
+    /// read 3-2-1 or 4-3-2 on four lanes, in the pattern's direction). A roll right after one as long takes its lanes again
+    /// (user rule: three-note trills in a row read 4-3-2 4-3-2; kept off each other's lanes they read 4-3-2 3-2-1 and lost
+    /// the trill). Otherwise the same way <see cref="OpenTrill"/> looks for two: from this tile or the next one, ending on
+    /// either, and back the other way only when it starts on the far edge lane (1-2-3); short of the edge the same lanes go
+    /// the pattern's way (4-3-2, never 2-3-4: user report); rolls that keep the flow first, then lanes that have rested, then
+    /// the pattern's own way, then not the last roll's lanes again.
+    /// The center rule is the two-note trill's own (user rule), so a longer roll crosses the center freely. Null when no
+    /// lanes fit, which leaves the notes to the pattern.
     /// </summary>
     private int[]? OpenRoll(int tile, int length)
     {
         // A roll the pattern walks is the pattern's own walk (user report: a fast run reads 4 3 2 1 4 3 2 1). Laid side by
         // side it could only start on the far lane and turned back whenever that lane had just been played.
         if (SimultaneousNotePlanner.WalksPattern(length, _pattern.Count)) return null;
+        // The note just played closed a roll as long as this one (played by hand, in the hand this run is in).
+        if (_lastTrill is not null && _lastRoll.Length == length && _lastRoll.All(lane => IndexOf(lane) >= 0)
+            && (_hand < 0 || CurrentMode > 4 || _lastRoll.All(lane => IndexOf(lane) / 4 == _hand)))
+            return [.. _lastRoll];
         var next = _pattern[(_offset + _emittedInCycle + 1) % _pattern.Count];
         int[]? Run(int start, int step)
         {
@@ -134,18 +141,21 @@ public sealed class TilePatternCursor
         int[]? Into(int end) => IndexOf(end) is var at && at >= 0 && at - (length - 1) * _step is var first
             && first >= 0 && first < _visible.Count ? Run(_visible[first], _step) : null;
         var forward = new[] { Run(tile, _step), Run(next, _step), Into(tile), Into(next) }.OfType<int[]>()
-            .Select(lanes => (Lanes: lanes, Back: false));
-        // At the far edge a roll has nowhere to go that way, so it rolls back (user rule, as two-note trills do).
+            .Select(lanes => (Rank: lanes, Lanes: lanes, Back: false));
+        // A roll with no room the pattern's way from where it starts: from the far edge lane it rolls back (user rule, as
+        // two-note trills do: 1-2-3); short of the edge it takes the same lanes the pattern's way (user report: 2-3-4 read
+        // against a 4 3 2 1 pattern, 4-3-2 is meant). It is ranked as the roll it turns, so the lanes chosen stay the same.
         var back = new[] { Run(tile, -_step), Run(next, -_step) }.OfType<int[]>().Where(lanes => Run(lanes[0], _step) is null)
-            .Select(lanes => (Lanes: lanes, Back: true));
-        var found = forward.Concat(back).Where(option => option.Lanes[0] != _lastTile)
-            .DistinctBy(option => string.Join(",", option.Lanes)).ToArray();
+            .Select(lanes => Neighbour(lanes[0], _step) is null ? (Rank: lanes, Lanes: lanes, Back: true)
+                : (Rank: lanes, Lanes: lanes.Reverse().ToArray(), Back: false));
+        // The same lanes may come up more than once, ranked differently; the best of them counts.
+        var found = forward.Concat(back).Where(option => option.Lanes[0] != _lastTile).ToArray();
         int Breaks(int[] lanes) => !_closeToLast ? 0 : (lanes[0] != tile ? 1 : 0) + (lanes.Contains(_lastTile) ? 1 : 0);
         int Recent(int[] lanes) => lanes.Select((lane, k) => _recent?.Invoke(lane, k) == true ? 1 : 0).Sum();
         // Only a roll that follows the last one closely keeps off its lanes; after a pause the same roll reads well.
         bool Repeats(int[] lanes) => _closeToLast && _lastRoll.Length > 0 && _lastRoll.Order().SequenceEqual(lanes.Order());
-        return found.OrderBy(option => Breaks(option.Lanes))
-            .ThenBy(option => Recent(option.Lanes))
+        return found.OrderBy(option => Breaks(option.Rank))
+            .ThenBy(option => Recent(option.Rank))
             .ThenBy(option => option.Back ? 1 : 0)
             .ThenBy(option => Repeats(option.Lanes) ? 1 : 0)
             .Select(option => option.Lanes).FirstOrDefault();
@@ -278,7 +288,8 @@ public sealed class TilePatternCursor
     /// Going on never lands back on the trill's own lanes (user report: 2K sits on 2-3, so a trill there reaches out to 2-1
     /// and the cycle came straight back to 2, reading 1-2 2 1-2 2 instead of 1-2 3 1-2 3): then the pattern's next tile off
     /// the trill comes first, and when the pattern has none (2K under a 3-2 trill), the lane beside the trill, on the side it
-    /// ran to and then the other. Null when <paramref name="next"/>, the tile the pattern goes on with, is fine as it is.
+    /// ran to and then the other. A roll of three notes or more counts every one of its lanes (2K under 3-2-1 read 3-2-1 3).
+    /// Null when <paramref name="next"/>, the tile the pattern goes on with, is fine as it is.
     /// </para>
     /// </summary>
     private int? BesideTrill((int First, int Second) trill, int next)
@@ -288,13 +299,15 @@ public sealed class TilePatternCursor
         if (first < 0 || second < 0 || Math.Abs(first - second) != 1) return null;
         var lane = second + (second - first);
         if (lane >= 0 && lane < _visible.Count && IndexInPattern(_visible[lane]) >= 0 && _visible[lane] != _lastTile) return Place(_visible[lane]);
-        bool OnTrill(int tile) => tile == trill.First || tile == trill.Second;
+        // _lastRoll is the whole roll that just closed; its first lane is where the other side begins.
+        bool OnTrill(int tile) => tile == trill.First || tile == trill.Second || _lastRoll.Contains(tile);
+        var start = _lastRoll.Length > 0 && IndexOf(_lastRoll[0]) is var head and >= 0 ? head : first;
         // One tile has nowhere else to go (1K stays on its lane).
         if (!OnTrill(next) || _pattern.Count < 2) return null;
         for (var k = 1; k < _pattern.Count; k++)
             if (_pattern[(_offset + _emittedInCycle + k) % _pattern.Count] is var later && !OnTrill(later)) return Place(later);
         // Played by hand, four keys or fewer never step over to the other hand (user rule).
-        foreach (var side in new[] { lane, first - (second - first) })
+        foreach (var side in new[] { lane, start - (second - first) })
             if (side >= 0 && side < _visible.Count && !OnTrill(_visible[side]) && (_hand < 0 || CurrentMode > 4 || side / 4 == first / 4))
                 return _visible[side];
         return null;

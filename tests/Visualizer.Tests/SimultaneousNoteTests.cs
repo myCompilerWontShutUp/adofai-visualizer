@@ -740,6 +740,93 @@ internal static class SimultaneousNoteTests
                 Assert(!pair.SequenceEqual(new[] { 4, 5 }), "A trill off the center pair: " + string.Join(" ", notes.Select(n => visible.IndexOf(n.Tile) + 1)));
             }
         });
+        yield return ("Three-note trills in a row keep their lanes, a chain is cut where its rhythm groups it, and none runs against the pattern", () =>
+        {
+            // User report, with the user's settings and a 60 ms trill window: three-note trills in a row read 4-3-2 1-4-3 (one
+            // chain cut every four notes) or took turns on other lanes, and a trill sometimes read 2-3-4 against 4 3 2 1.
+            var user = UserSettings with { TrillWindowMs = 60 };
+            var visible = user.GetVisibleTiles().ToList();
+            var generator = new NoteGenerator();
+            int[] Lanes(double[] times, VisualizerSettings settings) => generator.Generate(times, settings).Select(note => visible.IndexOf(note.Tile) + 1).ToArray();
+            // Five groups of three, then a single 200 ms after the last.
+            static double[] Groups(double inner, double between)
+            {
+                var times = new List<double>();
+                for (var group = 0; group < 5; group++)
+                {
+                    var at = group * (2 * inner + between);
+                    times.AddRange([at, at + inner, at + 2 * inner]);
+                }
+                times.Add(times[^1] + 200);
+                return times.ToArray();
+            }
+            // Apart (100 ms), and inside one chain (45 or 35 ms between, inside the window): every group on the same lanes, each
+            // the pattern's way, and the single after the last one off its lanes.
+            foreach (var (inner, between) in new[] { (30d, 100d), (30d, 45d), (26d, 35d) })
+            {
+                var lanes = Lanes(Groups(inner, between), user);
+                var groups = lanes.Take(15).Chunk(3).ToArray();
+                var what = $"{inner}/{between}: " + string.Join(" ", lanes);
+                Assert(groups.All(group => group.SequenceEqual(groups[0])), "The same lanes every time, " + what);
+                Assert(groups[0][1] - groups[0][0] == -1 && groups[0][2] - groups[0][1] == -1, "The pattern's way, " + what);
+                Assert(!groups[0].Contains(lanes[^1]), "The single after keeps off the trill, " + what);
+            }
+            // An even stream has no groups: it walks the pattern over every lane as before (4 3 2 1 4 3 2 1).
+            var stream = Lanes(Groups(30, 30), user).Take(15).ToArray();
+            Assert(stream.Zip(stream.Skip(1)).All(pair => pair.Second == pair.First - 1 || (pair.First == 1 && pair.Second == 4)),
+                "An even stream walks: " + string.Join(" ", stream));
+            // A three-note trill with no room the pattern's way where it starts takes the same lanes the pattern's way: after
+            // 4 3 it read 2-3-4, and 4-3-2 is meant. From the edge lane it rolls back (1-2-3), as before.
+            var mixed = Lanes([0, 37, 75, 150, 225, 300, 337, 375, 450, 525, 600, 675, 750, 787, 825, 900], user);
+            Assert(mixed.Skip(5).Take(3).SequenceEqual([4, 3, 2]), "4 3 then 4-3-2: " + string.Join(" ", mixed));
+
+            // Any rhythm of three-note trills, singles, chords and joined groups, on four lanes and eight played by hand: no roll
+            // of three runs against the pattern unless it starts on the edge lane of its hand, and three-note trills right after
+            // one another take the same lanes.
+            int rolls = 0, pairs = 0, kept = 0;
+            foreach (var settings in new[] { user, user with { MaximumTileCount = 8, TrillWindowMs = 60 } })
+            for (var seed = 1; seed <= 3; seed++)
+            {
+                var random = new Random(seed);
+                var times = new List<double>();
+                var at = 0d;
+                for (var events = 0; events < 600; events++)
+                {
+                    var kind = random.Next(5);
+                    var inner = 26 + random.Next(10);
+                    if (kind <= 1) times.AddRange([at, at + inner, at + 2 * inner]);
+                    else if (kind == 2) times.AddRange([at, at + 5]);
+                    else times.Add(at);
+                    at = times[^1] + new[] { 45, 55, 75, 100, 150, 200, 300 }[random.Next(7)];
+                }
+                var shown = settings.GetVisibleTiles().ToList();
+                var notes = generator.Generate(times.ToArray(), settings);
+                bool Tap(int i) => i >= 0 && i < notes.Count && !notes[i].StartsChord && (i == 0 || !notes[i - 1].StartsChord);
+                bool Close(int i) => notes[i + 1].HitTimeMs - notes[i].HitTimeMs <= settings.TrillWindowMs;
+                bool Three(int i) => i >= 0 && i + 2 < notes.Count && Tap(i) && Tap(i + 1) && Tap(i + 2) && Close(i) && Close(i + 1)
+                    && !(Tap(i - 1) && Close(i - 1)) && !(i + 3 < notes.Count && Tap(i + 3) && Close(i + 2));
+                var span = settings.PlaysByHand ? 4 : shown.Count;
+                for (var i = 0; i + 2 < notes.Count; i++)
+                {
+                    // A whole chain of three or four (a roll the lanes hold), judged from its first note.
+                    if (!Tap(i) || (Tap(i - 1) && Close(i - 1))) continue;
+                    var end = i;
+                    while (end + 1 < notes.Count && Tap(end + 1) && Close(end)) end++;
+                    if (end - i + 1 is < 3 or > 4) continue;
+                    var lanes = Enumerable.Range(i, end - i + 1).Select(k => shown.IndexOf(notes[k].Tile)).ToArray();
+                    if (Three(i)) rolls++;
+                    Assert(!(lanes.Zip(lanes.Skip(1)).All(pair => pair.Second - pair.First == 1) && lanes[0] % span != 0),
+                        $"{shown.Count} lanes, seed {seed}, at {notes[i].HitTimeMs}: " + string.Join("-", lanes.Select(lane => lane + 1)));
+                    if (Three(i) && Three(i + 3))
+                    {
+                        pairs++;
+                        if (notes[i + 3].Tile == notes[i].Tile && notes[i + 4].Tile == notes[i + 1].Tile && notes[i + 5].Tile == notes[i + 2].Tile) kept++;
+                    }
+                }
+            }
+            Assert(rolls > 500 && pairs > 50, $"Enough to say something: {rolls} trills, {pairs} in a row");
+            Assert(kept >= pairs * 0.95, $"Three-note trills in a row keep their lanes: {kept} of {pairs}");
+        });
         yield return ("A single after a trill never comes back onto the trill's lanes (1-2 3 1-2 3, not 1-2 2 1-2 2)", () =>
         {
             // User report, with the user's settings: four lanes, 2K on lanes 2-3, the center pair a trill's last resort. A trill
