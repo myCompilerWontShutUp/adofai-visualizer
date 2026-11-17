@@ -6,7 +6,8 @@ namespace AdofaiVisualizerSync
 {
     /// <summary>
     /// Unity Mod Manager entry point. The mod reads the game's own playback state and sends it to the visualizer; it writes
-    /// nothing back, synthesises no input and patches no game method (AGENTS.md rule 6, docs/game-sync-plan.md).
+    /// no game field and synthesises no input (AGENTS.md rule 6, docs/game-sync-plan.md). Its one change to the game is the
+    /// judgment ease the user asked for (<see cref="JudgmentEase"/>), which is 1, the game's own judgment, unless set.
     /// </summary>
     public static class Main
     {
@@ -42,12 +43,17 @@ namespace AdofaiVisualizerSync
 
         private static bool OnToggle(UnityModManager.ModEntry modEntry, bool active)
         {
-            if (active) Started();
+            if (active)
+            {
+                Started();
+                JudgmentEase.Start(line => modEntry.Logger.Log(line));
+            }
             else
             {
                 _writer?.Stop();
                 _writer = null;
                 KeyViewer.Release();
+                JudgmentEase.Stop();
             }
             return true;
         }
@@ -57,6 +63,7 @@ namespace AdofaiVisualizerSync
             _writer?.Stop();
             _writer = null;
             KeyViewer.Release();
+            JudgmentEase.Stop();
             return true;
         }
 
@@ -126,6 +133,7 @@ namespace AdofaiVisualizerSync
             var writer = Started();
             foreach (var line in writer.TakeLog()) modEntry.Logger.Log(line);
             Reader.Resolve();
+            writer.NameJudgments(Reader.JudgmentNames);
             if (Reader.Problem != null)
             {
                 if (!_toldProblem)
@@ -136,6 +144,7 @@ namespace AdofaiVisualizerSync
                 return;
             }
             var sample = Reader.Read(Clock.Elapsed.TotalMilliseconds);
+            sample.Ease = JudgmentEase.Patched ? JudgmentEase.Scale : -1;
             if (sample.Failed)
             {
                 // The game threw this frame; the next one tries again. Said once per run of failures.

@@ -1,6 +1,13 @@
+using Visualizer.Core.Maps;
 using Visualizer.Core.Visualization;
 
 namespace Visualizer.Application.Playback;
+
+/// <summary>
+/// A press that matched a prepared note: when it was shown, how late it was (negative is early) and which note. When the
+/// game is linked, <paramref name="GameGrade"/> is the grade the game itself gave it.
+/// </summary>
+public sealed record PressMark(double DisplayTimeMs, double DeviationMs, int Note, HitGrade? GameGrade = null);
 
 /// <summary>
 /// Visual-only estimate of which prepared note a lane key press hit. It never changes notes or
@@ -13,16 +20,38 @@ public sealed class NotePressJudge
     private bool[] _releasedEarly = [];
     private double _longestHoldMs;
     private int _missCursor;
-    private readonly List<(double DisplayTimeMs, double DeviationMs)> _recent = [];
+    private readonly List<PressMark> _recent = [];
 
     /// <summary>How many recent presses are remembered for the magic circle timing bar.</summary>
     private const int RecentPressCount = 8;
 
     /// <summary>
-    /// The last few presses that matched a note: when they were shown and how late they were (negative is early).
-    /// Only for drawing the timing bar; nothing is written down and the list is cleared with every new note list.
+    /// The last few presses that matched a note. Only for drawing the timing bar; nothing is written down and the list is
+    /// cleared with every new note list.
     /// </summary>
-    public IReadOnlyList<(double DisplayTimeMs, double DeviationMs)> RecentPresses => _recent;
+    public IReadOnlyList<PressMark> RecentPresses => _recent;
+
+    /// <summary>
+    /// Gives the grades the game reported to the latest presses that have none yet: the judgment counts the linker sends
+    /// went up by these since the last reading. Only presses shown within <paramref name="withinMs"/> before
+    /// <paramref name="nowDisplayMs"/> take one, since an older press was graded long ago. Several at once (a chord, or two
+    /// presses in one game frame) are matched in order of timing, earliest grade to earliest press. Returns how many were given.
+    /// </summary>
+    public int TakeGameGrades(IReadOnlyList<HitGrade> grades, double nowDisplayMs, double withinMs)
+    {
+        ArgumentNullException.ThrowIfNull(grades);
+        if (grades.Count == 0 || !double.IsFinite(nowDisplayMs) || !double.IsFinite(withinMs) || withinMs < 0) return 0;
+        var open = Enumerable.Range(0, _recent.Count)
+            .Where(i => _recent[i].GameGrade is null && nowDisplayMs - _recent[i].DisplayTimeMs is var age && age >= 0 && age <= withinMs)
+            .ToList();
+        // The newest presses are the ones the game just graded.
+        if (open.Count > grades.Count) open = open.Skip(open.Count - grades.Count).ToList();
+        var ordered = open.OrderBy(i => _recent[i].DeviationMs).ToArray();
+        var sorted = grades.Order().Skip(grades.Count - ordered.Length).ToArray();
+        for (var k = 0; k < ordered.Length; k++) _recent[ordered[k]] = _recent[ordered[k]] with { GameGrade = sorted[k] };
+        if (ordered.Length > 0) Version++;
+        return ordered.Length;
+    }
 
     /// <summary>Changes whenever a mark is added or cleared, so renderers can skip static frames.</summary>
     public int Version { get; private set; }
@@ -88,7 +117,7 @@ public sealed class NotePressJudge
             var deviation = target - notes[index].HitTimeMs;
             session.AddCalibrationSample(deviation);
             if (_recent.Count == RecentPressCount) _recent.RemoveAt(0);
-            _recent.Add((target, deviation));
+            _recent.Add(new PressMark(target, deviation, index));
             Version++;
         }
         return best;

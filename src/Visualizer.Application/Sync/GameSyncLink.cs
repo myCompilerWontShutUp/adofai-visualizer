@@ -14,10 +14,16 @@ namespace Visualizer.Application.Sync;
 /// <remarks>
 /// <see cref="NoFail"/> is the game's No Fail, null when the mod did not say (an older one); <see cref="Judgments"/> its
 /// judgment counts by HitMargin (TooEarly 0 … FailMiss 8, FailOverload 9), null likewise. Only link inspect reads them.
+/// <see cref="Floor"/> is the highest tile reached since the level was loaded (scrController.currentFloorID never goes
+/// down), so a restart leaves it on the tile the last run reached. <see cref="RestartFloor"/> is the tile a restart puts
+/// the player on (GCS.checkpointNum: 0, a checkpoint's respawn tile, the practice start), null from an older mod.
+/// <see cref="Difficulty"/> is the game's judgment difficulty (0 Lenient, 1 Normal, 2 Strict), null from an older mod.
+/// <see cref="Ease"/> is the judgment ease the linker applies in the game now (1 for none), null from a linker without it.
 /// </remarks>
 public sealed record GameSyncMessage(int Protocol, double ModClockMs, double PositionMs, string State, bool Paused,
     int Floor, double Speed, string Path, double PitchRate = 1, double InputOffsetMs = 0, double VisualOffsetMs = 0,
-    bool Dead = false, bool? NoFail = null, IReadOnlyList<int>? Judgments = null);
+    bool Dead = false, bool? NoFail = null, IReadOnlyList<int>? Judgments = null, int? RestartFloor = null, int? Difficulty = null,
+    double? Ease = null);
 
 /// <summary>
 /// A tile the game moved onto, with the song position it was noticed at. The mod only looks once a frame, so the crossing
@@ -79,6 +85,7 @@ public sealed class GameSyncLink
     private GameSyncMessage? _last;
     private GameSyncLevel? _level;
     private string? _modVersion;
+    private IReadOnlyList<string>? _judgmentNames;
 
     /// <summary>
     /// <paramref name="clock"/> should be the one the playback session runs on, so a reading's arrival can be compared
@@ -107,6 +114,18 @@ public sealed class GameSyncLink
 
     /// <summary>The build the connected mod came from, or null when it never said (an older mod, or none connected).</summary>
     public string? ModVersion { get { lock (_gate) return _modVersion; } }
+
+    /// <summary>
+    /// The names of the game's grades in the order of <see cref="GameSyncMessage.Judgments"/>, or null when the mod did not
+    /// say (an older one). The game build of 2026-11-04 put new grades in the middle, so counts are read by these names.
+    /// </summary>
+    public IReadOnlyList<string>? JudgmentNames { get { lock (_gate) return _judgmentNames; } }
+
+    /// <summary>Takes the grade names the mod sends with its version.</summary>
+    public void SetJudgmentNames(IReadOnlyList<string>? names)
+    {
+        lock (_gate) _judgmentNames = names;
+    }
 
     /// <summary>Takes the mod's own version, which it sends first on every connection.</summary>
     public void SetMod(string version)
@@ -164,6 +183,7 @@ public sealed class GameSyncLink
             _crossings.Clear();
             _level = null;
             _modVersion = null;
+            _judgmentNames = null;
         }
     }
 

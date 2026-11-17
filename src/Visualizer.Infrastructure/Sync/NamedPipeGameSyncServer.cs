@@ -45,6 +45,7 @@ public sealed class NamedPipeGameSyncServer : IDisposable
     {
         public uint ProcessId { get; } = processId;
         public string? Mod { get; set; }
+        public IReadOnlyList<string>? JudgmentNames { get; set; }
         public GameSyncLevel? Level { get; set; }
         public double LastReadingMs { get; set; } = double.NaN;
     }
@@ -180,8 +181,13 @@ public sealed class NamedPipeGameSyncServer : IDisposable
                 if (ParseMod(line) is { } mod)
                 {
                     client.Mod = mod;
+                    client.JudgmentNames = ParseJudgmentNames(line);
                     if (_active is null) Follow(client);
-                    else if (client == _active) _link.SetMod(mod);
+                    else if (client == _active)
+                    {
+                        _link.SetMod(mod);
+                        _link.SetJudgmentNames(client.JudgmentNames);
+                    }
                 }
                 else if (ParseLevel(line) is { } level)
                 {
@@ -226,6 +232,7 @@ public sealed class NamedPipeGameSyncServer : IDisposable
         _active = client;
         _link.BeginConnection();
         if (client.Mod is { } mod) _link.SetMod(mod);
+        _link.SetJudgmentNames(client.JudgmentNames);
         if (client.Level is { } level) _link.SetLevel(level);
     }
 
@@ -261,8 +268,36 @@ public sealed class NamedPipeGameSyncServer : IDisposable
                 judgments = counts.EnumerateArray().All(count => count.ValueKind == JsonValueKind.Number && count.TryGetInt32(out var whole) && whole >= 0)
                     ? counts.EnumerateArray().Select(count => count.GetInt32()).ToArray()
                     : null;
+            // An older mod sends no restart tile; anything but a whole tile number is the same as not knowing it.
+            int? restart = root.TryGetProperty("cp", out var restartValue) && restartValue.ValueKind == JsonValueKind.Number
+                && restartValue.TryGetInt32(out var restartFloor) && restartFloor >= 0 ? restartFloor : null;
+            // Lenient, Normal or Strict; any other number is not a difficulty this app knows.
+            int? difficulty = root.TryGetProperty("df", out var difficultyValue) && difficultyValue.ValueKind == JsonValueKind.Number
+                && difficultyValue.TryGetInt32(out var level) && level is >= 0 and <= 2 ? level : null;
+            // The judgment ease in force in the game; anything outside what the settings allow is not one.
+            double? ease = Number(root, "ez", out var easeValue) && easeValue >= 1 && easeValue <= Visualizer.Core.Maps.HitGrading.MaximumEase
+                ? easeValue : null;
             return new GameSyncMessage((int)protocol, clock, position, state, paused, floor, speed, path, pitch, input, visual, dead,
-                noFail, judgments);
+                noFail, judgments, restart, difficulty, ease);
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>The grade names a mod's hello carries, or null when it has none (an older mod) or they are not all text.</summary>
+    internal static IReadOnlyList<string>? ParseJudgmentNames(string line)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("hmn", out var names) || names.ValueKind != JsonValueKind.Array) return null;
+            var list = new List<string>();
+            foreach (var name in names.EnumerateArray())
+            {
+                if (name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString())) return null;
+                list.Add(name.GetString()!);
+            }
+            return list.AsReadOnly();
         }
         catch (JsonException) { return null; }
     }

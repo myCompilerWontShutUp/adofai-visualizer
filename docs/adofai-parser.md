@@ -1,6 +1,6 @@
 # ADOFAI 파서와 실제 맵 호환 범위
 
-`AdofaiTimelineParser`(`adofai-v28-input-events`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
+`AdofaiTimelineParser`(`adofai-v29-hit-windows`)는 JSON 원문만 받고 파일 쓰기 기능이 없습니다. Map Sync가 읽기 전용 소스로 원문을 넘기고 결과만 앱 캐시에 저장합니다. hit마다 게임 타일(floor) 번호를 함께 저장합니다(구간 시작용). 게임 앱 버전과 맵 형식 버전은 구분합니다([환경 대응](environment-compatibility.md)). 모든 `.adofai`를 지원한다는 뜻은 아니며, 범위 밖 이벤트는 규칙과 근거·테스트를 먼저 추가해야 합니다(AGENTS 안전 규칙 7).
 
 ## 지원 범위
 

@@ -16,6 +16,9 @@
   "SongSortHighFirst": true,
   // Song list details, switched in the song list window. Any of: Artist Length Notes Difficulty Checkpoints Date Path.
   "SongListFields": "Artist Length Notes Difficulty Checkpoints Date Path",
+  // Practice maps stay out of the song lists: the levels beside a folder's main.adofai, or in a folder without one every
+  // level but the longest. link auto still loads one the game plays.
+  "HidePracticeMaps": true,
   "ShowGuideButtons": true,
   "ShowSongInfo": true,
   "OnlyReactWhenAdofaiForeground": true,
@@ -96,6 +99,8 @@
   // Lenient / Normal / Strict, named after the game's own difficulties and using its counted floors (91 / 65 / 40 ms).
   "JudgmentBarDifficulty": "Normal",
   "JudgmentAverageCount": 8,
+  // Practice only: the game's minimum hit times times this (1 to 3); 1 keeps the game's own judgment. The linker applies it.
+  "JudgmentEaseScale": 1,
   "ShowJudgmentAverage": true,
   // On keeps chords off the pair across the center (lanes 2-3) on four lanes.
   "NoChordCenterPair": true,

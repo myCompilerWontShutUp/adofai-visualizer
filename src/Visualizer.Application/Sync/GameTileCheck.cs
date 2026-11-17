@@ -56,6 +56,31 @@ public static class GameTileCheck
             matched.MaxBy(tile => Math.Abs(tile.OffsetMs - middle)));
     }
 
+    /// <summary>
+    /// Whether the game's tile times are this timeline's own schedule, which names the song when its path does not: every
+    /// hit's tile is one the game has, all of them differ by one offset within <see cref="Tolerance"/>, and the last hit is
+    /// at the level's end (a short map that only agrees with the start of a longer one is another map). Stops at the first
+    /// tile that disagrees, so trying it on every song in the list costs next to nothing.
+    /// </summary>
+    public static bool LinesUp(IReadOnlyList<double> gameTimesByFloor, ParsedTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(gameTimesByFloor);
+        ArgumentNullException.ThrowIfNull(timeline);
+        if (timeline.HitFloors is not { Count: > 0 } floors || gameTimesByFloor.Count == 0) return false;
+        var last = floors[^1];
+        if (last >= gameTimesByFloor.Count || gameTimesByFloor[^1] - gameTimesByFloor[last] > Tolerance) return false;
+        var low = double.PositiveInfinity;
+        var high = double.NegativeInfinity;
+        for (var index = 0; index < floors.Count; index++)
+        {
+            var offset = gameTimesByFloor[floors[index]] - timeline.HitTimesMs[index];
+            low = Math.Min(low, offset);
+            high = Math.Max(high, offset);
+            if (high - low > Tolerance) return false;
+        }
+        return true;
+    }
+
     private static double Median(IEnumerable<TileOffset> tiles)
     {
         var sorted = tiles.Select(tile => tile.OffsetMs).Order().ToArray();

@@ -5,6 +5,7 @@ using System.Windows.Media;
 using Visualizer.App.Input;
 using Visualizer.Application.Playback;
 using Visualizer.Core.Localization;
+using Visualizer.Core.Maps;
 using Visualizer.Core.Settings;
 using Visualizer.Core.Visualization;
 using static Visualizer.App.Rendering.NoteFieldPalette;
@@ -37,6 +38,13 @@ public sealed class NoteField : FrameworkElement
     private static readonly Brush JudgmentCountedBrush = Freeze(new SolidColorBrush(Color.FromArgb(210, 214, 69, 69)));
     private static readonly Brush JudgmentPerfectBrush = Freeze(new SolidColorBrush(Color.FromArgb(210, 226, 190, 64)));
     private static readonly Brush JudgmentPureBrush = Freeze(new SolidColorBrush(Color.FromArgb(210, 76, 190, 104)));
+    /// <summary>The exact middle band (XPerfect since the game build of 2026-11-04), lighter than the perfect green.</summary>
+    private static readonly Brush JudgmentExactBrush = Freeze(new SolidColorBrush(Color.FromArgb(230, 190, 245, 200)));
+    /// <summary>A press beyond the counted window: the game's too early / too late.</summary>
+    private static readonly Brush JudgmentTooBrush = Freeze(new SolidColorBrush(Color.FromArgb(255, 186, 104, 230)));
+    private static readonly Brush JudgmentVeryBrush = Freeze(new SolidColorBrush(Color.FromArgb(255, 235, 80, 80)));
+    private static readonly Brush JudgmentNearBrush = Freeze(new SolidColorBrush(Color.FromArgb(255, 240, 205, 70)));
+    private static readonly Brush JudgmentPerfectMarkBrush = Freeze(new SolidColorBrush(Color.FromArgb(255, 96, 222, 120)));
     private static readonly Brush JudgmentArrowBrush = Freeze(new SolidColorBrush(Colors.White));
     // A dark plate under the bar: the note field behind it is busy, and the zones need something to sit on.
     private static readonly Brush JudgmentPlateBrush = Freeze(new SolidColorBrush(Color.FromArgb(190, 6, 9, 14)));
@@ -383,6 +391,30 @@ public sealed class NoteField : FrameworkElement
         }
     }
 
+    /// <summary>The mark colour of a grade: the zone of the bar it belongs to, white for the exact middle.</summary>
+    private static Brush GradeBrush(HitGrade grade) => grade switch
+    {
+        HitGrade.XPerfect => JudgmentMarkBrush,
+        HitGrade.PerfectMinus or HitGrade.PerfectPlus => JudgmentPerfectMarkBrush,
+        HitGrade.EarlyPerfect or HitGrade.LatePerfect => JudgmentNearBrush,
+        HitGrade.VeryEarly or HitGrade.VeryLate => JudgmentVeryBrush,
+        _ => JudgmentTooBrush
+    };
+
+    /// <summary>The first note at or after <paramref name="timeMs"/> (note time), or null when none is left.</summary>
+    private static int? NextNoteAt(IReadOnlyList<VisualizerNote> notes, double timeMs)
+    {
+        var low = 0;
+        var high = notes.Count;
+        while (low < high)
+        {
+            var middle = low + (high - low) / 2;
+            if (notes[middle].HitTimeMs < timeMs) low = middle + 1;
+            else high = middle;
+        }
+        return low < notes.Count ? low : null;
+    }
+
     /// <summary>
     /// The magic circle timing bar: while a section of equal intervals is coming up or running, a plate with the judgment line in
     /// its middle shows the last presses, early to the left and late to the right. Display only.
@@ -417,27 +449,38 @@ public sealed class NoteField : FrameworkElement
         var centerX = width / 2;
         var rect = new Rect(centerX - barWidth / 2, geometry.JudgmentY * 0.5, barWidth, MagicBarHeight);
         dc.PushOpacity(opacity);
-        // The game grades by angle: counted 60 deg, perfect 45, pure 30 (GCS.HITMARGIN_*). Those ratios put green in
-        // the middle, yellow around it and red at the ends, which is what its own bar looks like.
+        // The bar is the game's grading for the tile being played (user request): the ends are where a press stops counting,
+        // as on the game's own bar, but the inner edges are drawn where they really are. The game draws them at a fixed
+        // 0.75 and 0.5 of the counted window, which only holds on slower tiles: on fast ones the minimum times keep the
+        // counted window at 65 ms (Normal) while perfect ends at 25 ms, so a press inside its green was graded late
+        // (user report). The zones are those of the latest press's tile, or of the next note before any press.
+        var difficulty = HitGrading.DifficultyOf(settings.JudgmentBarDifficulty);
+        var recent = Judge?.RecentPresses ?? [];
+        var zones = (recent.Count > 0 ? session.HitWindowsOf(recent[^1].Note, difficulty) : null)
+            ?? (NextNoteAt(session.Notes, timeline) is int next ? session.HitWindowsOf(next, difficulty) : null)
+            ?? HitGrading.Fallback(session.GameDifficulty ?? difficulty, session.JudgmentEase);
         var half = barWidth / 2;
+        double Inner(double ms) => half * Math.Clamp(ms / zones.CountedMs, 0, 1);
         var plate = new Rect(rect.X - 6, rect.Y - 5, rect.Width + 12, rect.Height + 20);
         dc.DrawRoundedRectangle(JudgmentPlateBrush, JudgmentPlatePen, plate, 7, 7);
         dc.DrawRoundedRectangle(JudgmentCountedBrush, null, rect, 5, 5);
-        dc.DrawRectangle(JudgmentPerfectBrush, null, new Rect(centerX - half * 0.75, rect.Top, half * 1.5, MagicBarHeight));
-        dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - half * 0.5, rect.Top, half, MagicBarHeight));
+        dc.DrawRectangle(JudgmentPerfectBrush, null, new Rect(centerX - Inner(zones.PerfectMs), rect.Top, 2 * Inner(zones.PerfectMs), MagicBarHeight));
+        dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - Inner(zones.PureMs), rect.Top, 2 * Inner(zones.PureMs), MagicBarHeight));
+        dc.DrawRectangle(JudgmentExactBrush, null, new Rect(centerX - Inner(zones.XPerfectMs), rect.Top, 2 * Inner(zones.XPerfectMs), MagicBarHeight));
         dc.DrawLine(palette.MagicCenter, new Point(centerX, rect.Top + 2), new Point(centerX, rect.Bottom - 2));
-        // The window is the one the difficulty names, not this app's press window: the bar stands for the game's grading.
-        var window = settings.JudgmentWindowMs;
-        var recent = Judge?.RecentPresses ?? [];
-        foreach (var (pressTime, deviation) in recent)
+        // Each press sits where the game would put it, against its own tile's counted window, and takes the colour of its
+        // grade: the game's own when the linker reported it, otherwise the one the game's rules give that deviation.
+        HitWindows WindowsOf(PressMark mark) => session.HitWindowsOf(mark.Note, difficulty) ?? zones;
+        foreach (var mark in recent)
         {
-            var age = timeline - pressTime;
+            var age = timeline - mark.DisplayTimeMs;
             if (age < 0 || age > MagicMarkMs) continue;
-            // The ends of the bar are that window: an early press sits left of the middle, a late one right.
-            var x = centerX + Math.Clamp(deviation / window, -1, 1) * (half - 3);
+            var windows = WindowsOf(mark);
+            var x = centerX + Math.Clamp(mark.DeviationMs / windows.CountedMs, -1, 1) * (half - 3);
             dc.PushOpacity(1 - age / MagicMarkMs);
             // Taller than the bar and outlined, so a press is visible wherever it lands.
-            dc.DrawRoundedRectangle(JudgmentMarkBrush, JudgmentMarkPen, new Rect(x - 2, rect.Top - 3, 4, MagicBarHeight + 6), 2, 2);
+            dc.DrawRoundedRectangle(GradeBrush(mark.GameGrade ?? windows.Grade(mark.DeviationMs)), JudgmentMarkPen,
+                new Rect(x - 2, rect.Top - 3, 4, MagicBarHeight + 6), 2, 2);
             dc.Pop();
         }
         // Where the recent presses sit on average, so a steady lean shows up even when single marks scatter.
@@ -445,9 +488,10 @@ public sealed class NoteField : FrameworkElement
         {
             var taken = Math.Min(settings.JudgmentAverageCount, recent.Count);
             var average = 0d;
-            for (var i = recent.Count - taken; i < recent.Count; i++) average += recent[i].DeviationMs;
+            for (var i = recent.Count - taken; i < recent.Count; i++)
+                average += Math.Clamp(recent[i].DeviationMs / WindowsOf(recent[i]).CountedMs, -1, 1);
             average /= taken;
-            var target = centerX + Math.Clamp(average / window, -1, 1) * (half - 3);
+            var target = centerX + average * (half - 3);
             // Eased towards the average instead of snapping: a jumping arrow is harder to read than a moving one.
             _arrowX = double.IsNaN(_arrowX) ? target : _arrowX + (target - _arrowX) * ArrowEase;
             var x = _arrowX;

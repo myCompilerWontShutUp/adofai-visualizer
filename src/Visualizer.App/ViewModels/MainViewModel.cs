@@ -401,6 +401,7 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
 
     private static bool ListChanged(VisualizerSettings before, VisualizerSettings after) =>
         before.SongSortKey != after.SongSortKey || before.SongSortHighFirst != after.SongSortHighFirst || before.SongGroup != after.SongGroup
+        || before.HidePracticeMaps != after.HidePracticeMaps
         // The marks after the titles are in the app's language.
         || before.Language != after.Language;
 

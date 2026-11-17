@@ -31,6 +31,8 @@ public sealed partial class MainViewModel
     private Dictionary<string, MapCacheEntry> _songsById = new(StringComparer.Ordinal);
     private Dictionary<string, SongPreference> _songPreferences = new(StringComparer.Ordinal);
     private HashSet<string> _secondary = new(StringComparer.Ordinal);
+    /// <summary>The practice maps (<see cref="MapFileRules.PracticeLevels"/>), whether or not the setting leaves them out now.</summary>
+    private HashSet<string> _practice = new(StringComparer.Ordinal);
     /// <summary>Songs a sync added that have not been loaded since, shown as new; the main window keeps them in the app store.</summary>
     private HashSet<string> _newSongs = new(StringComparer.Ordinal);
     /// <summary>Edits saved in the editor while the app runs and not loaded since, shown as recently; never saved.</summary>
@@ -131,8 +133,20 @@ public sealed partial class MainViewModel
     public bool IsHiddenByDefault(MapCacheEntry entry) => entry is not null && _secondary.Contains(entry.Id);
 
     /// <summary>Whether the song is out of the main list right now, by choice or by the automatic default.</summary>
-    public bool IsHidden(MapCacheEntry entry) =>
-        (_songPreferences.TryGetValue(entry.Id, out var pref) ? pref.Hidden : null) ?? IsHiddenByDefault(entry);
+    public bool IsHidden(MapCacheEntry entry) => IsPractice(entry)
+        || ((_songPreferences.TryGetValue(entry.Id, out var pref) ? pref.Hidden : null) ?? IsHiddenByDefault(entry));
+
+    /// <summary>
+    /// Whether the song is a practice map that <paramref name="settings"/> (the applied ones when null) leave out of every
+    /// list: the main list, the song list window and the console's (user rule). It is still in <see cref="AllSongs"/>, so
+    /// link auto loads it when the game plays it.
+    /// </summary>
+    public bool IsPractice(MapCacheEntry entry, VisualizerSettings? settings = null) =>
+        entry is not null && (settings ?? Settings).HidePracticeMaps && _practice.Contains(entry.Id);
+
+    /// <summary>The songs the song list window and the console list: every synced one but the practice maps left out.</summary>
+    public IReadOnlyList<MapCacheEntry> ListedSongs(VisualizerSettings? settings = null) =>
+        (settings ?? Settings).HidePracticeMaps ? _allSongs.Where(entry => !_practice.Contains(entry.Id)).ToArray() : _allSongs;
 
     /// <summary>Hides or shows one song at once (the console's hide and show); every other choice stays.</summary>
     public void SetHidden(MapCacheEntry entry, bool hidden)
@@ -284,12 +298,12 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// Scans one of the app's map folders and takes the result into the library. The report is collected by the caller,
-    /// which scans all three folders in a row.
+    /// which scans all three folders in a row. Only new and changed levels are parsed unless <paramref name="reparse"/>.
     /// </summary>
     public async Task<MapSyncReport> SyncAsync(MapSyncService service, IReadOnlyMapDirectory source,
-        IProgress<MapScanProgress>? progress = null)
+        IProgress<MapScanProgress>? progress = null, bool reparse = false)
     {
-        var report = await service.SyncAsync(source, progress);
+        var report = await service.SyncAsync(source, progress, reparse: reparse);
         SetLibrary(report.Entries);
         return report;
     }
@@ -324,10 +338,24 @@ public sealed partial class MainViewModel
                 .Where(other => string.Equals(other.RootDirectory, entry.RootDirectory, StringComparison.OrdinalIgnoreCase))
                 .Select(other => other.RelativePath)))
             .Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        // The practice maps, folder by folder; the store's top folder holds songs of their own, so length decides nothing there.
+        _practice = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var folder in songs.GroupBy(entry => (Path.TrimEndingDirectorySeparator(entry.RootDirectory).ToUpperInvariant(),
+                     (Path.GetDirectoryName(entry.RelativePath) ?? "").ToUpperInvariant())))
+        {
+            var levels = folder.ToArray();
+            foreach (var index in MapFileRules.PracticeLevels(levels.Select(entry => (entry.RelativePath, LengthOf(entry))).ToArray(),
+                         byLength: folder.Key.Item2.Length > 0))
+                _practice.Add(levels[index].Id);
+        }
         _allSongs = songs;
         _songsById = songs.GroupBy(entry => entry.Id, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         RebuildLibrary();
     }
+
+    /// <summary>How long a song runs to its last hit, for telling a folder's main map from its practice maps; null when unread.</summary>
+    private static double? LengthOf(MapCacheEntry entry) => entry.Timeline is not { } timeline ? null
+        : timeline.HitTimesMs.Count > 0 ? timeline.HitTimesMs[^1] : 0;
 
     public bool IsExampleEntry(MapCacheEntry entry) => ExampleRoot is { } root
         && string.Equals(Path.TrimEndingDirectorySeparator(entry.RootDirectory), Path.TrimEndingDirectorySeparator(root), StringComparison.OrdinalIgnoreCase);

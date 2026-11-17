@@ -100,6 +100,7 @@ public partial class SettingsPanel : UserControl
     private VisualizerSettings _current;
     private readonly CheckBox _autoCheckpointBox = new();
     private readonly CheckBox _autoCheckpointLoad = new();
+    private readonly CheckBox _hidePractice = new();
     private readonly CheckBox _autoSave = new();
     private readonly ComboBox _nextInterval = new();
     private readonly CheckBox _chordBefore = new();
@@ -227,6 +228,7 @@ public partial class SettingsPanel : UserControl
         AddSection("SectionSongs");
         AddField("Song order", SortRow(), nameof(settings.SongSortKey));
         AddField("Song group", _songGroup, nameof(settings.SongGroup));
+        AddField("Hide practice maps", _hidePractice, nameof(settings.HidePracticeMaps), "PracticeMapsHelp");
         CurrentSection.Children.Add(SongListButtons());
 
         // Everything about checkpoints in one card, instead of the toggle living only on the main screen and its keys
@@ -282,6 +284,7 @@ public partial class SettingsPanel : UserControl
         AddField("Judgment window", _judgmentDifficulty, nameof(settings.JudgmentBarDifficulty), "JudgmentDifficultyHelp");
         AddField("Average arrow", _judgmentAverage, nameof(settings.ShowJudgmentAverage));
         AddText("Average of notes", nameof(settings.JudgmentAverageCount));
+        AddText("Judgment ease", nameof(settings.JudgmentEaseScale), "JudgmentEaseHelp");
 
         // The magic circle has its own card; its switch at the top disables every row below it.
         AddSection("SectionMagic", "MagicCircleHelp");

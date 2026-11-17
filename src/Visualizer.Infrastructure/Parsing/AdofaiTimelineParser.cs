@@ -9,7 +9,7 @@ namespace Visualizer.Infrastructure.Parsing;
 public sealed class AdofaiTimelineParser : IMapTimelineParser
 {
     // Raise this whenever what is cached changes (the app then asks for a map sync); docs/adofai-parser.md has the evidence.
-    public const string CurrentVersion = "adofai-v28-input-events";
+    public const string CurrentVersion = "adofai-v29-hit-windows";
     /// <summary>
     /// Level formats checked against the game and a real map each. The game reads the level version only for 7 (LoadLevel),
     /// 9 (editor MakeLevel), decoration components up to 12 and the level list (above 19), so none of these has a timing branch
@@ -309,6 +309,13 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
             // scnGame.ApplyEventsToFloors writes floor.numPlanets at the end of each floor's events, so the count carries
             // to the floors after it exactly as the speed does. PlanetCount is { TwoPlanets = 2, ThreePlanets = 3 }.
             var planets = 2;
+            // The hit windows (HitGrading): the tempo each tile turns at, and the margin scale. scnGame.ApplyEventsToFloors
+            // starts the scale at 1, sets it to "scale" / 100 on a ScaleMargin and writes it into every floor after that floor's
+            // events, as it does the speed; the game grades a hit with the tile it lands on (scrPlayer.get__marginScale reads
+            // currFloor.nextfloor) and the speed of the tile it turns from (planetarySystem.speed).
+            var floorTempos = new double[angles.Length + 1];
+            var floorScales = new double[angles.Length + 1];
+            var marginScale = 1d;
             for (var floor = 0; floor < angles.Length; floor++)
             {
                 var extraBeats = 0d;
@@ -321,6 +328,8 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                             case "Twirl": clockwise = !clockwise; break;
                             case "MultiPlanet": planets = Planets(action); break;
                             case "Pause": extraBeats += Number(action, "duration"); break;
+                            // Below zero the fixed angles drop out and the minimum times are the windows, as at zero.
+                            case "ScaleMargin": marginScale = Math.Max(0, Number(action, "scale", 100) / 100); break;
                             case "SetSpeed":
                                 bpm = Text(action, "speedType", "Bpm") switch
                                 {
@@ -333,6 +342,8 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
                         }
                     }
                 }
+                floorTempos[floor] = bpm;
+                floorScales[floor] = marginScale;
                 double degrees;
                 if (angles[floor] == 999)
                 {
@@ -374,6 +385,13 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
             if (pitch != 1)
                 for (var floor = 0; floor < entryTimes.Length; floor++) entryTimes[floor] /= pitch;
             var hitTimes = hitFloors.Select(floor => entryTimes[floor]).ToArray();
+            // The end tile is not turned from, but a ScaleMargin on it still sets its own scale.
+            if (byFloor.TryGetValue(angles.Length, out var endEvents))
+                foreach (var action in endEvents.Where(a => Text(a, "eventType") == "ScaleMargin"))
+                    marginScale = Math.Max(0, Number(action, "scale", 100) / 100);
+            floorScales[angles.Length] = marginScale;
+            var hitTempos = hitFloors.Select(floor => floorTempos[floor - 1] * pitch).ToArray();
+            var hitScales = hitFloors.Select(floor => floorScales[floor]).ToArray();
             // Auto state per floor: the latest AutoPlayTiles "enabled", events of a floor applying to that floor.
             var auto = new bool[angles.Length + 1];
             var autoOn = false;
@@ -445,7 +463,8 @@ public sealed class AdofaiTimelineParser : IMapTimelineParser
             // The mini-game band: from the auto tile that starts it to the next hit, which is where notes come back.
             var sections = freeRoams.Keys.Order().Select(floor => new TimelineSection(entryTimes[floor], entryTimes[floor + 1])).ToArray();
             return new(MapParseStatus.Supported, new ParsedTimeline(hitTimes, checkpoints, true, hitFloors,
-                hitKinds.All(kind => kind == HitKind.Tap) ? null : hitKinds, sections), title, warnings.AsReadOnly(), info);
+                hitKinds.All(kind => kind == HitKind.Tap) ? null : hitKinds, sections, hitTempos,
+                hitScales.All(scale => scale == 1) ? null : hitScales), title, warnings.AsReadOnly(), info);
         }
         catch (Unsupported error) { return new(MapParseStatus.Unsupported, null, title, new[] { error.Message }, info); }
         catch (NotSupportedException error) { return new(MapParseStatus.Unsupported, null, title, new[] { error.Message }, info); }

@@ -14,8 +14,13 @@ public sealed record MapForceReport(MapParseResult Result, IReadOnlyList<MapCach
 
 public sealed class MapSyncService(IReadOnlyMapCache cache, IMapCacheWriter writer, IMapTimelineParser parser)
 {
+    /// <summary>
+    /// Brings the cache up to date with one folder. A level already cached from the same text by this parser keeps its
+    /// entry: parsing is the slow part, and a sync is for the songs that came in or changed (user rule). With
+    /// <paramref name="reparse"/> every level is read again, which is what sync rebuild does.
+    /// </summary>
     public async Task<MapSyncReport> SyncAsync(IReadOnlyMapDirectory source, IProgress<MapScanProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool reparse = false)
     {
         writer.ValidateMapRoot(source.RootDirectory);
         var existing = await cache.ReadAsync(cancellationToken).ConfigureAwait(false);
@@ -39,12 +44,21 @@ public sealed class MapSyncService(IReadOnlyMapCache cache, IMapCacheWriter writ
             try
             {
                 var raw = await source.ReadAsync(path, cancellationToken).ConfigureAwait(false);
-                var result = parser.Parse(raw);
-                // A song forced before stays forced while its file is the same, so a sync does not quietly take it away.
-                if (result.Status == MapParseStatus.Unsupported && before.TryGetValue(id, out var old) && old.ForcedFormatVersion is not null
-                    && old.SourceHash == HashOf(raw.Text) && parser.ParseForced(raw) is { Status: MapParseStatus.Supported } forced)
-                    result = forced;
-                entry = EntryOf(id, source.RootDirectory, path, result, raw.Text);
+                var hash = HashOf(raw.Text);
+                before.TryGetValue(id, out var old);
+                // The same text read by the same parser gives the same entry (a forced one stays forced), so it is kept.
+                if (!reparse && old is not null && old.SourceHash == hash && old.ParserVersion == parser.Version
+                    && string.Equals(old.RootDirectory, source.RootDirectory, StringComparison.OrdinalIgnoreCase))
+                    entry = old;
+                else
+                {
+                    var result = parser.Parse(raw);
+                    // A song forced before stays forced while its file is the same, so a sync does not quietly take it away.
+                    if (result.Status == MapParseStatus.Unsupported && old?.ForcedFormatVersion is not null
+                        && old.SourceHash == hash && parser.ParseForced(raw) is { Status: MapParseStatus.Supported } forced)
+                        result = forced;
+                    entry = EntryOf(id, source.RootDirectory, path, result, raw.Text);
+                }
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException)
             {
@@ -55,7 +69,10 @@ public sealed class MapSyncService(IReadOnlyMapCache cache, IMapCacheWriter writ
             progress?.Report(new MapScanProgress(++parsed, levels.Length, entry.SongName));
         }
         var snapshot = Array.AsReadOnly(entries.Values.OrderBy(e => e.SongName, StringComparer.OrdinalIgnoreCase).ToArray());
-        await writer.ReplaceAsync(snapshot, cancellationToken).ConfigureAwait(false);
+        // Nothing came in, changed or left: the cache file already says this, and writing it again is the other slow part.
+        var kept = existing.ToHashSet(ReferenceEqualityComparer.Instance);
+        if (snapshot.Count != existing.Count || !snapshot.All(kept.Contains))
+            await writer.ReplaceAsync(snapshot, cancellationToken).ConfigureAwait(false);
         return new MapSyncReport(snapshot, discovery.Warnings, discovery.RelativePaths.Count);
     }
 

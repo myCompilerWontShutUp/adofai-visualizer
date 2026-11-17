@@ -26,6 +26,11 @@
       <HintPath>$(GameManagedDir)\UnityModManager\UnityModManager.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Harmony ships with Unity Mod Manager; the judgment ease (user request) patches one game method with it. -->
+    <Reference Include="0Harmony">
+      <HintPath>$(GameManagedDir)\UnityModManager\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine">
       <HintPath>$(GameManagedDir)\UnityEngine.dll</HintPath>
       <Private>false</Private>
@@ -41,7 +46,7 @@
        disagree about which build is loaded. Ascii: the content is plain and a byte order mark would be noise. -->
   <Target Name="WriteModInfo" AfterTargets="Build">
     <PropertyGroup>
-      <ModInfoJson>{%0A  &quot;Id&quot;: &quot;AdofaiVisualizerSync&quot;,%0A  &quot;DisplayName&quot;: &quot;ADOFAI Visualizer Sync (read-only)&quot;,%0A  &quot;Author&quot;: &quot;personal&quot;,%0A  &quot;Version&quot;: &quot;$(Version)&quot;,%0A  &quot;AssemblyName&quot;: &quot;AdofaiVisualizerSync.dll&quot;,%0A  &quot;EntryMethod&quot;: &quot;AdofaiVisualizerSync.Main.Load&quot;%0A}</ModInfoJson>
+      <ModInfoJson>{%0A  &quot;Id&quot;: &quot;AdofaiVisualizerSync&quot;,%0A  &quot;DisplayName&quot;: &quot;ADOFAI Visualizer Sync&quot;,%0A  &quot;Author&quot;: &quot;personal&quot;,%0A  &quot;Version&quot;: &quot;$(Version)&quot;,%0A  &quot;AssemblyName&quot;: &quot;AdofaiVisualizerSync.dll&quot;,%0A  &quot;EntryMethod&quot;: &quot;AdofaiVisualizerSync.Main.Load&quot;%0A}</ModInfoJson>
     </PropertyGroup>
     <WriteLinesToFile File="$(OutputPath)Info.json" Lines="$(ModInfoJson)" Overwrite="true"
                       WriteOnlyWhenDifferent="true" Encoding="ascii" />

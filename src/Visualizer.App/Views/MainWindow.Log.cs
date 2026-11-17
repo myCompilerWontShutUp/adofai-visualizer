@@ -71,7 +71,7 @@ public partial class MainWindow
         if (seen.Level is { } level && !ReferenceEquals(level, was?.Level)) Log("LogLevel", level.Path, level.TimesMs.Count);
         if (reading is not null && (reading.State != was?.State || reading.Paused != was?.Paused))
             Log("LogGame", reading.State + (reading.Paused ? T("GamePaused") : "") + (reading.Dead ? T("GameOver") : ""),
-                reading.Floor, Ms(reading.PositionMs));
+                reading.Floor, Ms(reading.PositionMs), reading.RestartFloor?.ToString(CultureInfo.InvariantCulture) ?? "-");
         if (was is null || seen.Follow != was.Follow) Log("LogFollow", T("Follow." + seen.Follow), _follower.OffsetMs is { } offset ? Ms(offset) : "-");
         if (was is not null && seen.Following != was.Following) Log(seen.Following ? "LogFollowOn" : "LogFollowOff");
         if (seen.AutoNote is { } note && note != was?.AutoNote) Log("LogAuto", note);

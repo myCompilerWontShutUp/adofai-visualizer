@@ -37,7 +37,7 @@ internal static class SettingsStoreTests
         {
             Language = "english", Theme = "dark",
             MapRootDirectory = @"D:\Maps", DataRootDirectory = @"D:\Store",
-            SongGroup = "All", SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path",
+            SongGroup = "All", SongSortKey = "Title", SongSortHighFirst = false, SongListFields = "Notes Path", HidePracticeMaps = false,
             ShowGuideButtons = false, ShowSongInfo = false, AutoSaveSettings = false,
             ResetKey = "Back", StartTriggerKey = "N", VisualizerToggleKey = "F9",
             PreviousCheckpointKey = "[", NextCheckpointKey = "]", SettingsHotkey = "F10",
@@ -60,7 +60,7 @@ internal static class SettingsStoreTests
             SixKeyOrder = "1 2 3 4 5 6", EightKeyOrder = "1 2 3 4 5 6 7 8", InitialTile = 3,
             AutoCheckpointAdvance = false, AutoCheckpointOnLoad = false, JudgmentLineHeightDip = 100, KeyPressWindowMs = 120,
             ShowInputEffect = false, ShowMissEffect = false,
-            JudgmentBarMode = "Always", JudgmentBarDifficulty = "Strict", JudgmentAverageCount = 5, ShowJudgmentAverage = false,
+            JudgmentBarMode = "Always", JudgmentBarDifficulty = "Strict", JudgmentAverageCount = 5, ShowJudgmentAverage = false, JudgmentEaseScale = 1.5,
             MagicCircleJudgmentLine = true, MagicCircleNoteCount = 30, MagicCircleMaxIntervalMs = 150,
             MagicCircleFadeInMs = 300, MagicCircleLeadMs = 400, MagicCircleFadeOutMs = 200,
             MagicCircleFixedTiles = false, MagicCircleTileCount = 2, MagicCircleChords = false,
@@ -192,6 +192,26 @@ internal static class SettingsStoreTests
             File.WriteAllText(Path.Combine(pointed, "data-root.txt"), @"D:\Chosen");
             Assert(StoreMove.Run(pointed, target).Moved, "The pointer moves");
             Equal(Directory.GetFiles(target).Select(Path.GetFileName).Single(), "data-root.txt");
+        }),
+
+        ("The judgment ease is told to the linker in the store's home, whatever folder holds the data", () =>
+        {
+            // The game's linker reads it from %LOCALAPPDATA%\AdofaiVisualizer itself, so it must not follow a chosen data
+            // folder the mod cannot know about. Written whole, as plain invariant text.
+            var home = Path.Combine(artifactRoot, "ease-home");
+            var chosen = Path.Combine(artifactRoot, "ease-chosen");
+            foreach (var folder in new[] { home, chosen }) if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+            Directory.CreateDirectory(home);
+            File.WriteAllText(Path.Combine(home, "data-root.txt"), chosen);
+            var storage = AppStorage.At(home);
+            Assert(!storage.UsesDefaultRoot, "The data is in the chosen folder");
+            storage.WriteJudgmentEase(1.4);
+            Equal(File.ReadAllText(Path.Combine(home, "judgment-ease.txt")), "1.4");
+            Assert(!File.Exists(Path.Combine(chosen, "judgment-ease.txt")), "Not in the chosen folder");
+            storage.WriteJudgmentEase(1);
+            Equal(File.ReadAllText(storage.JudgmentEasePath), "1");
+            Assert(!File.Exists(storage.JudgmentEasePath + ".tmp"), "Nothing half written is left");
+            Throws<ArgumentOutOfRangeException>(() => storage.WriteJudgmentEase(0.5));
         }),
 
         ("Every copy shares one store under %LOCALAPPDATA% and it keeps settings across runs", () =>

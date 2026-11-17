@@ -617,11 +617,95 @@ internal static class GameSyncTests
             misses.Clear();
             // The countdown: the song well before the checkpoint, the tile still the one the run died on.
             for (var t = 3000; t <= 3400; t += 16) Frame(t, At(1300 + (t - 3000), "Countdown"));
-            Assert(Math.Abs(session.HideNotesBeforeMs - session.NoteTimeOf(1700 - 1200)) < 0.001,
-                $"Hidden only up to the respawn tile: {session.HideNotesBeforeMs}");
+            Sequence(session.Notes.Where(note => note.HitTimeMs < session.HideNotesBeforeMs).Select(note => (int)note.HitTimeMs), 0, 300);
             Assert(session.Notes.Any(note => note.HitTimeMs >= session.HideNotesBeforeMs && note.HitTimeMs < session.NoteTimeOf(900)),
                 "The note after the checkpoint falls during the countdown");
             Assert(misses.Count == 0, "The note hidden before the checkpoint went by without a miss: " + string.Join(",", misses));
+        });
+
+        yield return ("The restart tile the linker sends decides which notes the countdown shows, whatever tile the game names", () =>
+        {
+            // User report: after a game over the countdown showed no notes and they all appeared when it ended, whether the
+            // game restarted from the start, a checkpoint or a practice tile. The game only ever raises the tile it names
+            // (scrController.Update keeps Math.Max(currentFloorID, currFloor.seqID)), so it stays on the tile the run died on;
+            // GCS.checkpointNum is the tile the attempt starts on. Only the tiles up to it are not played (user rule).
+            var settings = new VisualizerSettings { StartDelayMs = 0, GlobalDisplayOffsetMs = 0 };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            // Hits on tiles 1, 2, 4, 5 and no verified checkpoints: the restart tile alone has to say it.
+            session.LoadParsedTimeline(new ParsedTimeline([0, 300, 600, 900], hitFloors: [1, 2, 4, 5]), settings);
+            session.Toggle();
+            session.Reset(settings);
+            var follower = new GameSyncFollower();
+            Equal(follower.Prepare(new GameSyncLevel("L", [1050, 1200, 1500, 1700, 1800, 2100]), session), null);
+            var judge = new NotePressJudge();
+            session.Presses = judge;
+            var misses = new List<int>();
+            GameSyncMessage At(double position, int? restart, string state = "Countdown", int floor = 5, bool dead = false) =>
+                new(GameSyncLink.Protocol, 0, position, dead ? "Fail" : state, false, floor, 1, "L", Dead: dead, RestartFloor: restart);
+            void Frame(double nowMs, GameSyncMessage reading)
+            {
+                clock.NowMs = nowMs;
+                follower.Follow(reading, nowMs, nowMs, session);
+                judge.CollectMisses(session, 100, misses);
+            }
+            int[] Shown() => session.Notes.Where(note => note.HitTimeMs >= session.HideNotesBeforeMs).Select(note => (int)note.HitTimeMs).ToArray();
+
+            // A run from the start that dies on tile 5.
+            for (var t = 1000; t <= 2000; t += 16) Frame(t, At(1100 + (t - 1000), 0, "PlayerControl", floor: t < 1700 ? 2 : 5));
+            Frame(2016, At(2116, 0, floor: 5, dead: true));
+            // Back to the start: the countdown runs before the first tile, the game still names tile 5, and every note falls.
+            for (var t = 3000; t <= 3200; t += 16) Frame(t, At(-1000 + (t - 3000), 0));
+            Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(-1000 + 192 - 1200)) < 1, "On the countdown: " + session.TimelineTimeMs);
+            Sequence(Shown(), 0, 300, 600, 900);
+
+            // Past a checkpoint respawning on tile 3, dead on tile 5 again. The countdown back to tile 3 starts more than a
+            // few beats before it (7 s here), which no guess from the song's place could tell.
+            for (var t = 4000; t <= 4400; t += 16) Frame(t, At(1700 + (t - 4000), 3, "PlayerControl", floor: 5));
+            Frame(4416, At(2116, 3, floor: 5, dead: true));
+            misses.Clear();
+            for (var t = 5000; t <= 12_000; t += 16) Frame(t, At(1700 - 7000 + (t - 5000), 3));
+            Sequence(Shown(), 600, 900);
+            Assert(misses.Count == 0, "The notes before the restart tile went by without a miss: " + string.Join(",", misses));
+            // The standing tile's own hit is not played either: a respawn on tile 4 hides the note on tile 4.
+            Frame(12_016, At(2116, 4, floor: 5, dead: true));
+            for (var t = 13_000; t <= 13_200; t += 16) Frame(t, At(1800 - 2000 + (t - 13_000), 4));
+            Sequence(Shown(), 900);
+
+            // A practice run that starts on tile 4: the app is waiting, and the countdown over the tiles before it hides them.
+            session.Reset(settings);
+            Equal(follower.Prepare(new GameSyncLevel("L", [1050, 1200, 1500, 1700, 1800, 2100]), session), null);
+            Frame(14_000, At(-200, 4, floor: 4));
+            Frame(14_016, At(-184, 4, floor: 4));
+            Equal(session.State, PlaybackState.Playing);
+            Sequence(Shown(), 900);
+        });
+
+        yield return ("Without the restart tile the countdown does not trust the tile the run died on", () =>
+        {
+            // An older linker sends no restart tile. The tile it names is the highest reached, so after a game over it is the
+            // one the run died on; hiding the notes up to there left the countdown empty (user report). With no checkpoint
+            // just ahead of the song to go by, only what is already behind the song is hidden.
+            var settings = new VisualizerSettings { StartDelayMs = 0, GlobalDisplayOffsetMs = 0 };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 300, 600, 900], hitFloors: [1, 2, 4, 5]), settings);
+            session.Toggle();
+            session.Reset(settings);
+            var follower = new GameSyncFollower();
+            Equal(follower.Prepare(new GameSyncLevel("L", [1050, 1200, 1500, 1700, 1800, 2100]), session), null);
+            GameSyncMessage At(double position, string state = "PlayerControl", int floor = 5, bool dead = false) =>
+                new(GameSyncLink.Protocol, 0, position, dead ? "Fail" : state, false, floor, 1, "L", Dead: dead);
+            void Frame(double nowMs, GameSyncMessage reading)
+            {
+                clock.NowMs = nowMs;
+                follower.Follow(reading, nowMs, nowMs, session);
+            }
+            for (var t = 1000; t <= 2000; t += 16) Frame(t, At(1100 + (t - 1000), floor: t < 1700 ? 2 : 5));
+            Frame(2016, At(2116, dead: true));
+            for (var t = 3000; t <= 3200; t += 16) Frame(t, At(-1000 + (t - 3000), "Countdown"));
+            Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs),
+                $"Every note of the new attempt falls during the countdown: hidden before {session.HideNotesBeforeMs}");
         });
 
         yield return ("A game over holds the notes until the game starts again, through the reload in between", () =>
@@ -665,25 +749,23 @@ internal static class GameSyncTests
             Equal(session.TimelineTimeMs, ended);
 
             // The level starts again from its countdown: the notes go back there and follow it. The first reading may still
-            // name the tile the run ended on, which would hide every note before it for the whole attempt; the tile the
-            // restart really is on shows them again.
+            // name the tile the run ended on (the game only raises it), which is not believed: nothing it would hide shows.
             Frame(4000, At(-1000, floor: 5), 4000);
-            Assert(session.HideNotesBeforeMs > session.Notes[0].HitTimeMs, "The stale tile hides notes for a moment");
+            Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs), "The stale tile hides nothing");
             Frame(4016, At(-984, floor: 0), 4016);
             Assert(Math.Abs(session.TimelineTimeMs - session.TimelineTimeOf(-984 - 1200)) < 0.001, "Back on the game's clock: " + session.TimelineTimeMs);
             Equal(session.State, PlaybackState.Playing);
             Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs), "Every note of the new attempt is drawn");
 
             // A tile that never comes back (user report, Wont Let You Go after a game error: the game kept naming the tile the
-            // last run died on, seconds ahead of the song). The countdown keeps it hidden, but once the player has control a
-            // tile that far ahead is not believed, and the notes from where the song is are drawn.
+            // last run died on, seconds ahead of the song). Neither the countdown nor control hides the notes up to it.
             Frame(4100, At(-700, dead: true, floor: 5), 4100);
             for (var t = 4200; t <= 4296; t += 16) Frame(t, At(-1000 + (t - 4200), floor: 5) with { State = "Countdown" }, t);
-            var staleCut = session.NoteTimeOf(2100 - 1200);
-            Assert(Math.Abs(session.HideNotesBeforeMs - staleCut) < 0.001, "The countdown trusts the tile: " + session.HideNotesBeforeMs);
+            Assert(session.Notes.All(note => note.HitTimeMs >= session.HideNotesBeforeMs),
+                "The countdown does not trust the tile: " + session.HideNotesBeforeMs);
             for (var t = 4312; t <= 4408; t += 16) Frame(t, At(-1000 + (t - 4200), floor: 5), t);
             Assert(session.HideNotesBeforeMs <= session.NoteTimeOf(-1000 + 208 - 1200) + 0.001,
-                $"Control shows the notes from the song's place on: {session.HideNotesBeforeMs} (the tile said {staleCut})");
+                $"Control shows the notes from the song's place on: {session.HideNotesBeforeMs}");
         });
 
         yield return ("link auto finds an edit by its original, and with it on only the linker moves the playhead", () =>
@@ -921,6 +1003,126 @@ internal static class GameSyncTests
                     MainWindow.GameSyncPipeName = oldPipe;
                 }
             }
+        });
+
+        yield return ("link auto finds a map put in by hand under other names by the tile times the game sends", () =>
+        {
+            // User report: a map put in by hand, not from the Steam folder, was not loaded by link auto. The game opens it from
+            // a folder of its own, so its path has nothing in common with the copy in the list; the tile times the game
+            // works out are that map's own schedule.
+            static Visualizer.Application.Cache.MapCacheEntry Song(string id, string path, ParsedTimeline timeline) => new(id, @"C:\maps", path, id,
+                Visualizer.Application.Maps.MapParseStatus.Supported, timeline, Array.Empty<string>(), "",
+                Visualizer.Infrastructure.Parsing.AdofaiTimelineParser.CurrentVersion);
+            var mine = Song("m", @"He_He_He\main.adofai", new ParsedTimeline([0, 300, 600, 900], hitFloors: [1, 2, 4, 5]));
+            var other = Song("o", @"999\main.adofai", new ParsedTimeline([0, 300, 600], hitFloors: [1, 2, 3]));
+            // A short map that agrees with the start of the game's level is another map.
+            var start = Song("s", @"777\main.adofai", new ParsedTimeline([0, 300], hitFloors: [1, 2]));
+            var edit = Song("e", @"He_He_He\1\main.adofai", mine.Timeline!);
+            string? OriginalOf(Visualizer.Application.Cache.MapCacheEntry song) => song.Id == "e" ? mine.RelativePath : null;
+            var level = new GameSyncLevel(@"D:\Downloads\He He He (fixed)\He He He.adofai", [1050, 1200, 1500, 1700, 1800, 2100]);
+            Assert(GameTileCheck.LinesUp(level.TimesMs, mine.Timeline!), "Its tiles line up");
+            Assert(!GameTileCheck.LinesUp(level.TimesMs, start.Timeline!), "A map that only agrees with the start does not");
+            Assert(!GameTileCheck.LinesUp(level.TimesMs, other.Timeline!), "Another map does not");
+            Assert(!GameTileCheck.LinesUp([1050, 1200, 1500, 1700, 1803, 2100], mine.Timeline!), "Nor do tiles 3 ms out");
+            Assert(!GameTileCheck.LinesUp(level.TimesMs, new ParsedTimeline([0, 300, 600, 900])), "Nor a song without tile numbers");
+            Equal(MainWindow.SongFor(level, [start, other, edit, mine], OriginalOf)?.Id, "m");
+            Equal(MainWindow.SongFor(level, [start, other, edit], OriginalOf)?.Id, "e");
+            Equal(MainWindow.SongFor(level, [start, other], OriginalOf), null);
+            // Two copies of it: the one under the game's file name.
+            var named = Song("n", @"Other\He He He.adofai", mine.Timeline!);
+            Equal(MainWindow.SongFor(level, [mine, named], OriginalOf)?.Id, "n");
+            // The path still comes first.
+            Equal(MainWindow.SongFor(level with { Path = @"C:\Steam\999\main.adofai" }, [mine, other], OriginalOf)?.Id, "o");
+
+            // The window, as link auto runs each frame: the map is loaded, then followed, and link tiles has nothing to warn.
+            var oldClock = MainWindow.PlaybackClock;
+            var oldPipe = MainWindow.GameSyncPipeName;
+            MainWindow.PlaybackClock = new Clock { NowMs = 1000 };
+            MainWindow.GameSyncPipeName = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+            var window = EnglishWindow();
+            try
+            {
+                var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                var host = (ICmdHost)window;
+                model.SetLibrary([other, mine]);
+                model.LoadChosen(other, null);
+                host.GameSync(true, false, false);
+                var sync = (GameSyncLink)typeof(MainWindow).GetProperty("Sync", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+                var frame = typeof(MainWindow).GetMethod("AutoFollowGame", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                void Frame() => frame.Invoke(window, null);
+                sync.SetLevel(level);
+                host.GameSyncAuto(true);
+                Frame();
+                Equal(model.LoadedEntry?.Id, "m");
+                Frame();
+                Assert(model.FollowingGame && model.Playback.ClockFollowsGame, "And followed: " + string.Join(" | ", host.GameSync(false, false, false)));
+                Assert(host.GameSyncTiles().All(line => !line.StartsWith("Careful", StringComparison.Ordinal)),
+                    "link tiles knows it is the game's map: " + string.Join(" | ", host.GameSyncTiles()));
+                // Picked by hand afterwards, another song stays until the game moves on, as with any other map.
+                model.LoadChosen(other, null);
+                Frame();
+                Equal(model.LoadedEntry?.Id, "o");
+            }
+            finally
+            {
+                window.Close();
+                MainWindow.PlaybackClock = oldClock;
+                MainWindow.GameSyncPipeName = oldPipe;
+            }
+        });
+
+        yield return ("One visualizer runs at a time, so the game's link cannot go to a window nobody looks at", () =>
+        {
+            // User report: link auto did nothing. Two visualizers were running; the game was linked to the one started the
+            // night before, and link auto was typed into the new one, which could not get the pipe. A second start now hands
+            // over to the first (App.OnStartup). A name of the test's own keeps the running app out of it.
+            var name = @"Local\AdofaiVisualizer.Test." + Guid.NewGuid().ToString("N");
+            using (var first = new Visualizer.Infrastructure.Instances.SingleInstance(name))
+            {
+                Assert(first.First, "The first one runs");
+                using var second = new Visualizer.Infrastructure.Instances.SingleInstance(name);
+                Assert(!second.First, "A second one is told that one runs already");
+            }
+            using var after = new Visualizer.Infrastructure.Instances.SingleInstance(name);
+            Assert(after.First, "Once the first has closed, the next one runs");
+            // Every copy of the app shares the store and the pipe name, so the name carries no path of a copy.
+            Assert(!Visualizer.Infrastructure.Instances.SingleInstance.Name.Contains(':', StringComparison.Ordinal)
+                && Visualizer.Infrastructure.Instances.SingleInstance.Name.StartsWith(@"Local\", StringComparison.Ordinal),
+                "One name for the session: " + Visualizer.Infrastructure.Instances.SingleInstance.Name);
+        });
+
+        yield return ("The game's judgment counts become the grades of the presses, by name or by the known orders", () =>
+        {
+            // User request: with the game linked, the judgment bar shows the grade the game itself gave. The game build of
+            // 2026-11-04 put XPerfect and Perfect+/- in the middle of HitMargin, so the counts are read by the names the linker
+            // sends; an older linker sends none, and the two known orders are told apart by their length (12 before, 16 after).
+            static int[] Counts(int length, params (int Index, int Count)[] set)
+            {
+                var counts = new int[length];
+                foreach (var (index, count) in set) counts[index] = count;
+                return counts;
+            }
+            Equal(GameGrades.GradeAt(6, 16, null), (HitGrade?)HitGrade.LatePerfect);
+            Equal(GameGrades.GradeAt(4, 12, null), (HitGrade?)HitGrade.LatePerfect);
+            Equal(GameGrades.GradeAt(3, 12, null), (HitGrade?)HitGrade.XPerfect);
+            Equal(GameGrades.GradeAt(10, 16, null), (HitGrade?)null);
+            Equal(GameGrades.GradeAt(8, 12, null), (HitGrade?)null);
+            Equal(GameGrades.GradeAt(3, 14, null), (HitGrade?)null);
+            string[] names = ["VeryLate", "TooEarly", "FailMiss", "3"];
+            Equal(GameGrades.GradeAt(0, 4, names), (HitGrade?)HitGrade.VeryLate);
+            Equal(GameGrades.GradeAt(2, 4, names), (HitGrade?)null);
+            Equal(GameGrades.GradeAt(3, 4, names), (HitGrade?)null);
+
+            var grades = new GameGrades();
+            Equal(grades.Take(Counts(16, (4, 10)), null).Count, 0);
+            var next = Counts(16, (4, 11), (6, 1));
+            Assert(grades.Take(next, null).SequenceEqual([HitGrade.XPerfect, HitGrade.LatePerfect]), "An exact middle and a late perfect");
+            Equal(grades.Take(next, null).Count, 0);
+            // A restart counts from zero again: nothing is made up from that.
+            Equal(grades.Take(Counts(16, (4, 1)), null).Count, 0);
+            Assert(grades.Take(Counts(16, (4, 1), (10, 1), (7, 1)), null).SequenceEqual([HitGrade.VeryLate]), "A miss is not a press grade");
+            grades.Reset();
+            Equal(grades.Take(Counts(16, (7, 3)), null).Count, 0);
         });
 
         yield return ("Following works with the start wait, the display offset and a restart's misses", () =>
@@ -1512,7 +1714,7 @@ internal static class GameSyncTests
             Send("""{"v":2,"t":12.5,"pos":8317.25,"st":"PlayerControl","paused":false,"floor":128,"speed":1,"path":"C:\\maps\\main.adofai"}""");
             Send("""{"v":2,"t":20,"pos":8325,"st":"PlayerControl","paused":true,"floor":128,"speed":0.75,"pitch":0.9,"ci":100,"cv":-20,"path":"C:\\maps\\main.adofai"}""");
             // Who the mod is, exactly as tools/GameSyncMod writes it on every connection.
-            Send("""{"v":2,"mod":"0.7.3"}""");
+            Send("""{"v":2,"mod":"0.7.3","hmn":["TooEarly","VeryEarly","EarlyPerfect"]}""");
             // The level's own tile times, exactly as tools/GameSyncMod writes them when a level loads.
             Send("""{"v":2,"lvl":"C:\\maps\\main.adofai","times":[0,1050,1200,1500.5]}""");
             Send("not json at all");
@@ -1533,10 +1735,23 @@ internal static class GameSyncTests
             Sequence(link.Level!.TimesMs.Select(t => (int)t), 0, 1050, 1200, 1500);
             Equal(report.LevelTiles, 4);
             Equal(link.ModVersion, "0.7.3");
+            // The grade names come with the hello, so the judgment counts are read by name whatever order the game uses.
+            Assert(link.JudgmentNames!.SequenceEqual(["TooEarly", "VeryEarly", "EarlyPerfect"]), "The names: " + string.Join(" ", link.JudgmentNames!));
             // A mod left over from an older build is named, not left looking like one that sends nothing.
             Assert(GameSyncLink.Lines(report, true, true, null, "0.7.3").Any(l => l == "Mod      0.7.3"), "The mod says who it is");
             Assert(GameSyncLink.Lines(report, true, true, null, "0.8.0").Any(l => l.Contains("this app is 0.8.0", StringComparison.Ordinal)),
                 "A mod from another build is called out");
+            // The restart tile comes through; an older mod sends none, and one that could not be read is sent as nothing too.
+            Send("""{"v":2,"t":40,"pos":8340,"st":"PlayerControl","paused":false,"floor":128,"speed":1,"path":"C:\\maps\\main.adofai","cp":96,"df":2,"ez":1.4}""");
+            Wait(() => link.Report() is { Accepted: 3 }, "the pipe to hand over a reading with a restart tile");
+            Equal(link.Report()!.Last!.RestartFloor, (int?)96);
+            Equal(link.Report()!.Last!.Difficulty, (int?)2);
+            Equal(link.Report()!.Last!.Ease, (double?)1.4);
+            Send("""{"v":2,"t":50,"pos":8350,"st":"PlayerControl","paused":false,"floor":128,"speed":1,"path":"C:\\maps\\main.adofai","cp":-1,"df":7,"ez":9}""");
+            Wait(() => link.Report() is { Accepted: 4 }, "the pipe to hand over a reading with no restart tile");
+            Equal(link.Report()!.Last!.RestartFloor, (int?)null);
+            Equal(link.Report()!.Last!.Difficulty, (int?)null);
+            Equal(link.Report()!.Last!.Ease, (double?)null);
 
             // Only one listener can hold a name. A second one must say so and wait, not spin on it.
             using (var second = new NamedPipeGameSyncServer(new GameSyncLink(), name))
@@ -1561,7 +1776,7 @@ internal static class GameSyncTests
                     restarted.Write(bytes, 0, bytes.Length);
                 }
                 restarted.Flush();
-                Wait(() => link.Report() is { Accepted: 3 }, "the restarted mod's reading to be taken");
+                Wait(() => link.Report() is { Accepted: 5 }, "the restarted mod's reading to be taken");
             }
             Equal(link.Report()!.Last!.PositionMs, 100d);
 

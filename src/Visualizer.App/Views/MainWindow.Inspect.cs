@@ -101,7 +101,7 @@ public partial class MainWindow
         if (!_syncServer.Connected || reading is null) return T("InspectNoLinker");
         if (_linkAuto) return T("InspectAutoOn");
         if (Sync.Level is not { } level) return T("InspectNoLevel");
-        if (_model.LoadedEntry is not { } entry || !GamePlays(level.Path, entry)) return T("InspectOtherSong");
+        if (_model.LoadedEntry is not { } entry || !GamePlays(level, entry)) return T("InspectOtherSong");
         if (reading.NoFail is null) return T("InspectOldLinker");
         if (reading.NoFail != true) return T("InspectNoFailOff");
         return null;

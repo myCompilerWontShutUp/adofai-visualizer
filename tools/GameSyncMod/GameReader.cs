@@ -18,7 +18,20 @@ namespace AdofaiVisualizerSync
         public bool Dead;
         public string State;
         public bool Paused;
+        /// <summary>
+        /// scrController.currentFloorID. The game only ever raises it within one controller (scrController.Update keeps
+        /// Math.Max(currentFloorID, currFloor.seqID)), so after a restart it goes on naming the tile the last run reached.
+        /// </summary>
         public int Floor;
+        /// <summary>
+        /// GCS.checkpointNum: the tile a restart puts the player on (0 for the start, a checkpoint's respawn tile, the
+        /// practice or editor start tile); -1 when it cannot be read. Tiles up to it are not played in that attempt.
+        /// </summary>
+        public int RestartFloor;
+        /// <summary>GCS.difficulty: 0 Lenient, 1 Normal, 2 Strict; -1 when it cannot be read. It sets the minimum hit windows.</summary>
+        public int Difficulty;
+        /// <summary>The judgment ease this mod applies in the game now (1 for none), or -1 when it could not patch the game.</summary>
+        public double Ease;
         public double Speed;
         public string Path;
         /// <summary>No Fail: 1 on, 0 off, -1 when it cannot be read. link inspect only presses keys while it is on.</summary>
@@ -102,6 +115,8 @@ namespace AdofaiVisualizerSync
         private Member? _entryTime;
         private Member? _noFail;
         private Member? _noFailOption;
+        private Member? _restartFloor;
+        private Member? _difficulty;
         private Member? _playerManagerInstance;
         private Member? _mistakesManager;
         private Member? _marginTrackers;
@@ -118,6 +133,11 @@ namespace AdofaiVisualizerSync
         public string? Trouble { get; private set; }
         /// <summary>How many frames in a row could not be read.</summary>
         public int Failures => _failures;
+        /// <summary>
+        /// The names of the game's grades in the order its judgment counts use (the HitMargin enum), or null when it was not
+        /// found. The game build of 2026-11-04 added grades in the middle, so the visualizer reads the counts by these names.
+        /// </summary>
+        public string[]? JudgmentNames { get; private set; }
 
         private const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance
                                          | BindingFlags.FlattenHierarchy;
@@ -169,6 +189,15 @@ namespace AdofaiVisualizerSync
                 // (scrController.noFail), else the option it comes from (GCS.useNoFail).
                 _noFail = Member.Of(controller, "noFail");
                 _noFailOption = Member.Of(game.GetType("GCS"), "useNoFail");
+                // Where a restart carries on: ffxCheckpoint.StartEffect raises it to the checkpoint's respawn tile,
+                // SetPracticeMode and scnEditor.Play set it to their start tile, RestartProgress puts it back to 0, and
+                // scrController.Start_Rewind starts the attempt there. The app hides the tiles before it while the
+                // countdown runs, which currentFloorID cannot tell (it keeps the highest tile reached).
+                _restartFloor = Member.Of(game.GetType("GCS"), "checkpointNum");
+                // The judgment difficulty the player chose: its minimum times are part of every hit window (scrMisc.GetMinimumTimes).
+                _difficulty = Member.Of(game.GetType("GCS"), "difficulty");
+                var margins = game.GetType("HitMargin");
+                if (margins != null && margins.IsEnum) JudgmentNames = Enum.GetNames(margins);
                 // The judgments so far, so link inspect can tell a Miss or an Overload in its run: scrPlayerManager's
                 // mistakesManager keeps one scrMarginTracker per player, each counting hits by HitMargin (hitMarginsCount).
                 var players = game.GetType("scrPlayerManager");
@@ -200,7 +229,8 @@ namespace AdofaiVisualizerSync
         /// </summary>
         public GameSample Read(double sampledMs)
         {
-            var sample = new GameSample { SampledMs = sampledMs, State = "?", Path = string.Empty, Pitch = 1, Speed = 1, Floor = -1, NoFail = -1 };
+            var sample = new GameSample { SampledMs = sampledMs, State = "?", Path = string.Empty, Pitch = 1, Speed = 1, Floor = -1,
+                RestartFloor = -1, Difficulty = -1, NoFail = -1 };
             if (Problem != null) return sample;
             // A state that throws every frame is not worth an exception every frame inside the game: after a second of it,
             // one frame in so many tries again.
@@ -237,6 +267,9 @@ namespace AdofaiVisualizerSync
                 sample.Dead = IsDeath(state, controller);
                 sample.Paused = OptionalObject(_paused, controller) is bool paused && paused;
                 sample.Floor = OptionalObject(_currentFloor, controller) is int floor ? floor : -1;
+                sample.RestartFloor = OptionalObject(_restartFloor, null) is int restart && restart >= 0 ? restart : -1;
+                sample.Difficulty = OptionalObject(_difficulty, null) is { } difficulty && difficulty.GetType().IsEnum
+                    ? Convert.ToInt32(difficulty) : -1;
                 sample.Speed = Optional(_speed, null) is double speed ? speed : 1;
                 sample.NoFail = OptionalObject(_noFail, controller) is bool noFail ? (noFail ? 1 : 0)
                     : OptionalObject(_noFailOption, null) is bool option ? (option ? 1 : 0) : -1;

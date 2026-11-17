@@ -221,6 +221,7 @@ public partial class SettingsPanel
     {
         [nameof(VisualizerSettings.ShowGuideButtons)] = ("StateShown", "StateHidden"),
         [nameof(VisualizerSettings.ShowSongInfo)] = ("StateShown", "StateHidden"),
+        [nameof(VisualizerSettings.HidePracticeMaps)] = ("StatePracticeHidden", "StatePracticeShown"),
         [nameof(VisualizerSettings.OnlyReactWhenAdofaiForeground)] = ("StateScopeGame", "StateScopeAny"),
         [nameof(VisualizerSettings.EnableTilePreference)] = ("StateOrderOwn", "StateOrderDefault"),
         [nameof(VisualizerSettings.ImmediateDownshift)] = ("StateDownshiftNow", "StateDownshiftCycle"),

@@ -40,6 +40,14 @@ internal static class ExtendedTests
                 "Synthetic fixture", Array.Empty<string>());
         }
     }
+    /// <summary>Counts the cache writes a sync makes and passes them on.</summary>
+    private sealed class CountedWriter(WorkspaceMapCache cache) : IMapCacheWriter
+    {
+        public int Writes { get; private set; }
+        public Task ReplaceAsync(IReadOnlyList<MapCacheEntry> entries, CancellationToken cancellationToken = default)
+        { Writes++; return cache.ReplaceAsync(entries, cancellationToken); }
+        public void ValidateMapRoot(string rootDirectory) => cache.ValidateMapRoot(rootDirectory);
+    }
     private sealed class CountedSource(IReadOnlyMapDirectory source) : IReadOnlyMapDirectory
     {
         public int Reads { get; private set; }
@@ -282,6 +290,82 @@ internal static class ExtendedTests
             Equal(sync.SyncAsync(source).GetAwaiter().GetResult().Entries.Count, 2);
             Equal(sync.SyncAsync(source).GetAwaiter().GetResult().Entries.Count, 2);
             Equal(Directory.GetFiles(nested).Length, 2);
+        }),
+        ("The parser keeps each hit's tempo and margin scale for the judgment bar, and the cache keeps them too", () =>
+        {
+            // The game grades a hit with the speed of the tile the planet turns from (planetarySystem.speed) and the margin
+            // scale of the tile it lands on (scrPlayer.get__marginScale); ScaleMargin sets "scale" / 100 and carries on like
+            // the speed (scnGame.ApplyEventsToFloors). The song's pitch makes every tempo real time.
+            static MapParseResult Parse(string settings, string actions) => new AdofaiTimelineParser().Parse(
+                new("windows.adofai", "{\"settings\":{\"version\":13,\"bpm\":120" + settings + "},\"angleData\":[0,0,0,0,0],\"actions\":" + actions + "}"));
+            var plain = Parse("", "[]").Timeline!;
+            Sequence(plain.HitTempos!.Select(t => (int)t), 120, 120, 120, 120, 120);
+            Equal(plain.HitMarginScales, null);
+            var changed = Parse(",\"pitch\":200", """
+                [{"floor":1,"eventType":"SetSpeed","speedType":"Bpm","beatsPerMinute":300},
+                 {"floor":2,"eventType":"ScaleMargin","scale":50},
+                 {"floor":4,"eventType":"ScaleMargin","scale":150,"active":false},
+                 {"floor":5,"eventType":"ScaleMargin","scale":80}]
+                """).Timeline!;
+            // Hit 1 is reached from tile 0 (120), the rest from tile 1 on (300); all twice as fast at pitch 200.
+            Sequence(changed.HitTempos!.Select(t => (int)t), 240, 600, 600, 600, 600);
+            // Tiles 2 to 4 have half the margin; a switched-off event changes nothing; the end tile's own event counts.
+            Sequence(changed.HitMarginScales!.Select(s => (int)Math.Round(s * 100)), 100, 50, 50, 50, 80);
+            Assert(changed.WindowsOf(1, 1).PureMs == 25 && Math.Abs(changed.WindowsOf(0, 1).PureMs - 30 * 60000 / 240.0 / 180) < 1e-9,
+                "The windows follow the tempo");
+            // Kept in the cache file, and an older file without them still reads.
+            var f = Fixture(artifactRoot);
+            var entry = new MapCacheEntry("windows", f.Maps, "windows.adofai", "Windows", MapParseStatus.Supported, changed,
+                Array.Empty<string>(), "", AdofaiTimelineParser.CurrentVersion);
+            f.Cache.ReplaceAsync([entry]).GetAwaiter().GetResult();
+            var read = new WorkspaceMapCache(f.Repo).ReadAsync().GetAwaiter().GetResult().Single().Timeline!;
+            Assert(read.HitTempos!.SequenceEqual(changed.HitTempos!) && read.HitMarginScales!.SequenceEqual(changed.HitMarginScales!),
+                "The tempos and scales come back");
+            var file = Path.Combine(f.Cache.StorageDirectory, "library.json");
+            var text = File.ReadAllText(file);
+            Assert(text.Contains("\"HitTempos\"", StringComparison.Ordinal), "Written as HitTempos: " + text[..Math.Min(200, text.Length)]);
+            File.WriteAllText(file, System.Text.RegularExpressions.Regex.Replace(text, ",\\s*\"Hit(Tempos|MarginScales)\":\\s*(null|\\[[^\\]]*\\])", ""));
+            var old = new WorkspaceMapCache(f.Repo).ReadAsync().GetAwaiter().GetResult().Single().Timeline!;
+            Assert(old.HitTempos is null && old.HitMarginScales is null, "An older cache reads without them");
+        }),
+        ("A sync parses only the levels that came in or changed, and the rebuild parses every one again", () =>
+        {
+            // User report: sync took about as long as sync rebuild. Both parsed every level of all three folders, which is
+            // the slow part; a sync is for the songs that came in (user rule).
+            var f = Fixture(artifactRoot);
+            var source = new ReadOnlyDirectoryMapSource(f.Maps);
+            var parser = new FixtureParser();
+            var writer = new CountedWriter(f.Cache);
+            var sync = new MapSyncService(f.Cache, writer, parser);
+            MapSyncReport Run(bool reparse = false) => sync.SyncAsync(source, reparse: reparse).GetAwaiter().GetResult();
+            var first = Run().Entries.Single();
+            Equal(parser.Calls, 1);
+            Equal(writer.Writes, 1);
+            // Nothing new: nothing is parsed and the cache file is not written again, and the song is as it was.
+            Run();
+            var again = Run().Entries.Single();
+            Equal(parser.Calls, 1);
+            Equal(writer.Writes, 1);
+            Assert(again.Id == first.Id && again.SourceHash == first.SourceHash && again.Timeline!.HitTimesMs.SequenceEqual(first.Timeline!.HitTimesMs),
+                "The kept entry is the synced one");
+            // A level that came in is parsed, and only it.
+            File.WriteAllText(Path.Combine(f.Maps, "second.adofai"), "synthetic second level");
+            Equal(Run().Entries.Count, 2);
+            Equal(parser.Calls, 2);
+            Equal(writer.Writes, 2);
+            // A level whose text changed is parsed again.
+            File.WriteAllText(Path.Combine(f.Maps, "fixture.adofai"), "synthetic test input, changed");
+            Run();
+            Equal(parser.Calls, 3);
+            // So is one an older parser read, since its times may not be this parser's.
+            var cached = f.Cache.ReadAsync().GetAwaiter().GetResult();
+            f.Cache.ReplaceAsync(cached.Select(entry => entry.RelativePath == "second.adofai" ? entry with { ParserVersion = "older" } : entry).ToArray())
+                .GetAwaiter().GetResult();
+            Run();
+            Equal(parser.Calls, 4);
+            // The rebuild reads every level again.
+            Run(reparse: true);
+            Equal(parser.Calls, 6);
         }),
         ("Editor backup.adofai beside a level is not listed as a second song", () =>
         {

@@ -140,6 +140,179 @@ internal static class DesignAndTimingTests
             Throws<ArgumentException>(() => (settings with { JudgmentAverageCount = 51 }).EnsureValid());
         });
 
+        yield return ("The judgment bar grades as the game does: each tile's tempo, margin scale and difficulty, nine grades", () =>
+        {
+            // User report: on fast tiles a press inside the game's green was graded late. The game takes each edge as the larger
+            // of a fixed angle and a minimum time (scrMisc.GetAdjustedAngleBoundaryInDeg); its bar paints the inner edges at a
+            // fixed 0.75 and 0.5 of the counted one, which only holds on slower tiles.
+            static void Near(double actual, double expected, string what) =>
+                Assert(Math.Abs(actual - expected) < 1e-9, $"{what}: {actual} instead of {expected}");
+            var slow = HitGrading.Windows(200, 1, 1);
+            Near(slow.CountedMs, 100, "Counted at 200 BPM is 60 degrees");
+            Near(slow.PerfectMs, 75, "Perfect at 200 BPM is 45 degrees");
+            Near(slow.PureMs, 50, "Pure at 200 BPM is 30 degrees");
+            Near(slow.XPerfectMs, 12.5 * 60000 / 200 / 180, "The middle band is 12.5 degrees");
+            var fast = HitGrading.Windows(400, 1, 1);
+            Near(fast.CountedMs, 65, "Normal's counted minimum");
+            Near(fast.PerfectMs, 37.5, "Perfect is still the angle");
+            Near(fast.PureMs, 25, "Pure stops at its minimum");
+            Near(fast.XPerfectMs, 1000.0 / 60, "The middle band stops at 1/60 s");
+            // The report: 30 ms late on such a tile is a late perfect, although it sits inside the half of the bar the game
+            // paints green.
+            Equal(fast.Grade(30), HitGrade.LatePerfect);
+            Assert(30 / fast.CountedMs < 0.5, "Inside the game's painted green");
+            // The difficulty only moves the counted minimum; the margin scale only the angles.
+            Near(HitGrading.Windows(400, 1, 0).CountedMs, 91, "Lenient");
+            Near(HitGrading.Windows(400, 1, 2).CountedMs, 50, "Strict keeps the angle here");
+            Near(HitGrading.Windows(400, 1, 0).PureMs, 25, "Lenient leaves perfect alone");
+            var scaled = HitGrading.Windows(200, 0.5, 1);
+            Near(scaled.CountedMs, 65, "Half the angles");
+            Near(scaled.PerfectMs, 37.5, "Half the angles");
+            Near(scaled.PureMs, 25, "Half the angles, floored");
+            Near(HitGrading.Windows(200, 0, 1).PureMs, 25, "No angle at all leaves the minimum");
+            // The edges as scrMisc.SelectHitMarginByTimeBoundary draws them.
+            Equal(slow.Grade(0), HitGrade.XPerfect);
+            Equal(slow.Grade(slow.XPerfectMs), HitGrade.XPerfect);
+            Equal(slow.Grade(-slow.XPerfectMs), HitGrade.PerfectMinus);
+            Equal(slow.Grade(slow.XPerfectMs + 0.1), HitGrade.PerfectPlus);
+            Equal(slow.Grade(50), HitGrade.PerfectPlus);
+            Equal(slow.Grade(50.1), HitGrade.LatePerfect);
+            Equal(slow.Grade(75.1), HitGrade.VeryLate);
+            Equal(slow.Grade(100), HitGrade.VeryLate);
+            Equal(slow.Grade(100.1), HitGrade.TooLate);
+            Equal(slow.Grade(-49.9), HitGrade.PerfectMinus);
+            Equal(slow.Grade(-50), HitGrade.EarlyPerfect);
+            Equal(slow.Grade(-75), HitGrade.VeryEarly);
+            Equal(slow.Grade(-100), HitGrade.TooEarly);
+            Equal(HitGrading.DifficultyOf("Lenient"), 0);
+            Equal(HitGrading.DifficultyOf("Normal"), 1);
+            Equal(HitGrading.DifficultyOf("Strict"), 2);
+            Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(0, 1, 1));
+            Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(200, 1, 3));
+
+            // A prepared note knows its tile's windows: the practice speed plays the tile slower, as the game's practice
+            // mode does, and the game's difficulty comes before the one in the settings.
+            var settings = new VisualizerSettings { StartDelayMs = 0, DynamicTiming = false };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 150, 300], hitFloors: [1, 2, 3], hitTempos: [400, 400, 200]), settings);
+            session.Toggle();
+            Near(session.HitWindowsOf(0, 1)!.PureMs, 25, "A fast tile");
+            Near(session.HitWindowsOf(2, 1)!.PureMs, 50, "A slower one");
+            session.GameDifficulty = 0;
+            Near(session.HitWindowsOf(0, 1)!.CountedMs, 91, "The game's Lenient");
+            session.GameDifficulty = null;
+            session.ApplySettings(settings with { PlaybackSpeedPercent = 50 });
+            Near(session.HitWindowsOf(2, 1)!.PureMs, 100, "Half speed is half the tempo");
+            Equal(session.HitWindowsOf(3, 1), null);
+            // A cache from before tempos were kept gets the difficulty's floor with the angle ratios.
+            var older = new PlaybackSession(new Clock());
+            older.LoadParsedTimeline(new ParsedTimeline([0, 150]), settings);
+            older.Toggle();
+            Near(older.HitWindowsOf(0, 1)!.CountedMs, 65, "Normal's floor");
+            Near(older.HitWindowsOf(0, 1)!.PerfectMs, 48.75, "With the angle ratio");
+            Throws<ArgumentException>(() => new ParsedTimeline([0, 150], hitTempos: [400]));
+            Throws<ArgumentException>(() => new ParsedTimeline([0, 150], hitTempos: [400, 0]));
+            Throws<ArgumentException>(() => new ParsedTimeline([0, 150], hitMarginScales: [1, -1]));
+
+            // The game's own grade goes to the press just made (link): the latest presses without one, matched in order of
+            // timing, and never one made long before.
+            session.ApplySettings(settings);
+            var judge = new NotePressJudge();
+            session.Presses = judge;
+            session.Start();
+            clock.NowMs = 10;
+            Assert(judge.Press(session, session.Notes[0].Tile, 150) is 0, "The first note is pressed 10 ms late");
+            clock.NowMs = 140;
+            Assert(judge.Press(session, session.Notes[1].Tile, 150) is 1, "The second 10 ms early");
+            Equal(judge.TakeGameGrades([HitGrade.LatePerfect, HitGrade.EarlyPerfect], 150, 400), 2);
+            Equal(judge.RecentPresses[0].GameGrade, (HitGrade?)HitGrade.LatePerfect);
+            Equal(judge.RecentPresses[1].GameGrade, (HitGrade?)HitGrade.EarlyPerfect);
+            Equal(judge.RecentPresses[1].Note, 1);
+            clock.NowMs = 300;
+            Assert(judge.Press(session, session.Notes[2].Tile, 150) is 2, "The third on time");
+            Equal(judge.TakeGameGrades([HitGrade.XPerfect], 300 + 500, 400), 0);
+            Equal(judge.RecentPresses[2].GameGrade, null);
+
+            // Drawn: on a fast tile the green ends where perfect really ends (25 of 65 ms), not at half the bar as the game
+            // paints it, so 30 ms late lands in yellow. Bar 280 px wide in a 400 px field: centre 200, 140 px a side.
+            var barClock = new Clock();
+            var barSession = new PlaybackSession(barClock);
+            var barSettings = settings with { JudgmentBarMode = "Always", ShowJudgmentAverage = false };
+            barSession.LoadParsedTimeline(new ParsedTimeline([0, 150, 300, 450], hitFloors: [1, 2, 3, 4], hitTempos: [400, 400, 400, 400]), barSettings);
+            barSession.Toggle();
+            var barJudge = new NotePressJudge();
+            barSession.Presses = barJudge;
+            barSession.Start();
+            barClock.NowMs = 140;
+            barJudge.Press(barSession, barSession.Notes[1].Tile, 150);
+            var field = new NoteField { Session = barSession, Judge = barJudge, Width = 400, Height = 600 };
+            field.Measure(new Size(400, 600));
+            field.Arrange(new Rect(0, 0, 400, 600));
+            field.UpdateLayout();
+            field.Tick();
+            var bitmap = new RenderTargetBitmap(400, 600, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(field);
+            var png = new PngBitmapEncoder();
+            png.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var stream = File.Create(Path.Combine(artifactRoot, "judgment-bar-fast-tile.png"))) png.Save(stream);
+            var pixels = new byte[400 * 600 * 4];
+            bitmap.CopyPixels(pixels, 400 * 4, 0);
+            (byte R, byte G, byte B) Pixel(int x, int y) { var i = (y * 400 + x) * 4; return (pixels[i + 2], pixels[i + 1], pixels[i]); }
+            static bool Green((byte R, byte G, byte B) c) => c.G > c.R + 40 && c.G > c.B + 40;
+            static bool Yellow((byte R, byte G, byte B) c) => c.R > 140 && c.G > 120 && c.B < 100;
+            static bool Red((byte R, byte G, byte B) c) => c.R > 140 && c.G < 100;
+            // The bar's middle row: where its red end is, found rather than worked out from the field's own layout.
+            var reds = Enumerable.Range(0, 600).Where(y => Red(Pixel(200 - 130, y))).ToArray();
+            Assert(reds.Length > 0, "The bar is drawn");
+            var row = reds[reds.Length / 2];
+            (byte R, byte G, byte B) At(int x) => Pixel(x, row);
+            Assert(Green(At(200 + 45)), $"Perfect at 21 ms: {At(245)}");
+            Assert(Yellow(At(200 + 64)), $"Late perfect at 30 ms, inside the half the game paints green: {At(264)}");
+            Assert(Red(At(200 + 100)), $"Very late at 46 ms: {At(300)}");
+            Assert(Yellow(At(200 - 64)), $"The same on the early side: {At(136)}");
+        });
+
+        yield return ("The judgment ease widens the game's minimum times only, and the bar draws what the game applies", () =>
+        {
+            // User request: for practice, the game's minimum hit times longer by a scale the visualizer sets; the linker
+            // multiplies the time constants of scrMisc.GetMinimumTimes, so every minimum grows by it and nothing else does.
+            static void Near(double actual, double expected, string what) =>
+                Assert(Math.Abs(actual - expected) < 1e-9, $"{what}: {actual} instead of {expected}");
+            var eased = HitGrading.Windows(400, 1, 1, 1.4);
+            Near(eased.CountedMs, 91, "65 ms times 1.4");
+            Near(eased.PerfectMs, 42, "30 ms times 1.4");
+            Near(eased.PureMs, 35, "25 ms times 1.4");
+            Near(eased.XPerfectMs, 1000.0 / 60, "The middle band's 1/60 s is not one of the minimum times");
+            // A slow tile's angles are already wider, so it stays as it was.
+            var slow = HitGrading.Windows(200, 1, 1, 1.4);
+            Near(slow.CountedMs, 100, "Still 60 degrees");
+            Near(slow.PureMs, 50, "Still 30 degrees");
+            Near(HitGrading.Fallback(1, 1.4).CountedMs, 91, "The fallback eases too");
+            Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(400, 1, 1, 0.9));
+            Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(400, 1, 1, 3.1));
+
+            // A setting from 1 to 3, off (1) by default.
+            var settings = new VisualizerSettings { StartDelayMs = 0, DynamicTiming = false };
+            Equal(settings.JudgmentEaseScale, 1d);
+            (settings with { JudgmentEaseScale = 3 }).EnsureValid();
+            foreach (var invalid in new[] { 0.99, 3.01, double.NaN })
+                Throws<ArgumentException>(() => (settings with { JudgmentEaseScale = invalid }).EnsureValid());
+            Assert(settings.HasSameNoteRulesAs(settings with { JudgmentEaseScale = 2 }), "It moves no note");
+
+            // The bar uses what the linked game applies; with no game, the setting.
+            var session = new PlaybackSession(new Clock());
+            session.LoadParsedTimeline(new ParsedTimeline([0, 150], hitFloors: [1, 2], hitTempos: [400, 400]), settings with { JudgmentEaseScale = 1.4 });
+            session.Toggle();
+            Near(session.HitWindowsOf(0, 1)!.PureMs, 35, "The setting, with no game linked");
+            session.GameEase = 1;
+            Near(session.HitWindowsOf(0, 1)!.PureMs, 25, "A linked game that applies none");
+            session.GameEase = 2;
+            Near(session.HitWindowsOf(0, 1)!.PureMs, 50, "The game's own ease");
+            session.GameEase = 9;
+            Near(session.HitWindowsOf(0, 1)!.PureMs, 35, "Nonsense from the game is not taken");
+        });
+
         yield return ("Fewer tiles wait for repeated slow notes (downshift wait)", () =>
         {
             var s = new VisualizerSettings();

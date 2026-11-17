@@ -43,10 +43,18 @@ public sealed class ParsedTimeline
     public IReadOnlyList<HitKind>? HitKinds { get; }
     /// <summary>Stretches with no notes that the game plays itself (free roam), in hit time; empty for most songs.</summary>
     public IReadOnlyList<TimelineSection> Sections { get; }
+    /// <summary>
+    /// The real tempo each hit is reached at: the beats a minute of the tile the planet turns on before it (the game grades
+    /// with conductor.bpm × planetarySystem.speed) times the song's pitch. Null for synthetic timelines and older caches.
+    /// Only the hit windows read it (<see cref="HitGrading"/>); it moves no hit time.
+    /// </summary>
+    public IReadOnlyList<double>? HitTempos { get; }
+    /// <summary>The hit tile's margin scale (ScaleMargin, 1 = 100%), or null when every hit has 1 or it is not known.</summary>
+    public IReadOnlyList<double>? HitMarginScales { get; }
 
     public ParsedTimeline(IEnumerable<double> hitTimesMs, IEnumerable<TimelineCheckpoint>? checkpoints = null,
         bool checkpointsVerified = false, IEnumerable<int>? hitFloors = null, IEnumerable<HitKind>? hitKinds = null,
-        IEnumerable<TimelineSection>? sections = null)
+        IEnumerable<TimelineSection>? sections = null, IEnumerable<double>? hitTempos = null, IEnumerable<double>? hitMarginScales = null)
     {
         var times = hitTimesMs.ToArray();
         if (times.Any(t => !double.IsFinite(t) || t < 0)
@@ -81,6 +89,32 @@ public sealed class ParsedTimeline
             || bands.Zip(bands.Skip(1)).Any(pair => pair.First.EndMs > pair.Second.StartMs))
             throw new ArgumentException("Sections must be finite, forward and in order.");
         Sections = Array.AsReadOnly(bands);
+        HitTempos = PerHit(hitTempos, times.Length, zeroAllowed: false, "Hit tempos");
+        // A margin scale of zero leaves only the minimum times, which the game allows.
+        HitMarginScales = PerHit(hitMarginScales, times.Length, zeroAllowed: true, "Hit margin scales");
+    }
+
+    private static IReadOnlyList<double>? PerHit(IEnumerable<double>? values, int hits, bool zeroAllowed, string what)
+    {
+        var array = values?.ToArray();
+        if (array is null) return null;
+        if (array.Length != hits || array.Any(value => !double.IsFinite(value) || value < 0 || (value == 0 && !zeroAllowed)))
+            throw new ArgumentException(what + " must match the hits and be finite and positive.");
+        return Array.AsReadOnly(array);
+    }
+
+    /// <summary>
+    /// The game's windows for hit <paramref name="index"/> at <paramref name="difficulty"/>, with the song played at
+    /// <paramref name="rate"/> (1 = 100%) and the minimum times eased by <paramref name="ease"/>. A timeline without tempos
+    /// gets the difficulty's fallback windows.
+    /// </summary>
+    public HitWindows WindowsOf(int index, int difficulty, double rate = 1, double ease = 1)
+    {
+        if ((uint)index >= (uint)HitTimesMs.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        if (!double.IsFinite(rate) || rate <= 0) throw new ArgumentOutOfRangeException(nameof(rate));
+        return HitTempos is { } tempos
+            ? HitGrading.Windows(tempos[index] * rate, HitMarginScales?[index] ?? 1, difficulty, ease)
+            : HitGrading.Fallback(difficulty, ease);
     }
 
     /// <summary>Checkpoints the map places. Checkpoint 1 is the start of the song, so it is not counted.</summary>

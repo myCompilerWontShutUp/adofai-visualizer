@@ -12,9 +12,9 @@ public sealed class WorkspaceMapCache : IReadOnlyMapCache, IMapCacheWriter
     public string StorageDirectory { get; }
     private string CachePath => Path.Combine(StorageDirectory, "library.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    // HitFloors, HitKinds and Sections are optional so caches written before them still load (as null).
+    // HitFloors, HitKinds, Sections, HitTempos and HitMarginScales are optional so caches written before them still load (as null).
     private sealed record TimelineData(double[] HitTimesMs, TimelineCheckpoint[] Checkpoints, bool CheckpointsVerified, int[]? HitFloors = null,
-        HitKind[]? HitKinds = null, TimelineSection[]? Sections = null);
+        HitKind[]? HitKinds = null, TimelineSection[]? Sections = null, double[]? HitTempos = null, double[]? HitMarginScales = null);
     // ForcedFormatVersion is optional so caches written before load -force still load (as null).
     private sealed record EntryData(string Id, string RootDirectory, string RelativePath, string SongName,
         MapParseStatus Status, TimelineData? Timeline, string[] Warnings, string SourceHash, string ParserVersion, MapSongInfo? Info = null,
@@ -71,7 +71,8 @@ public sealed class WorkspaceMapCache : IReadOnlyMapCache, IMapCacheWriter
                 throw new InvalidDataException("Invalid cache entry.");
             ValidateMapRoot(entry.RootDirectory);
             var timeline = entry.Timeline is { } t
-                ? new ParsedTimeline(t.HitTimesMs, t.Checkpoints, t.CheckpointsVerified, t.HitFloors, t.HitKinds, t.Sections) : null;
+                ? new ParsedTimeline(t.HitTimesMs, t.Checkpoints, t.CheckpointsVerified, t.HitFloors, t.HitKinds, t.Sections,
+                    t.HitTempos, t.HitMarginScales) : null;
             if ((entry.Status == MapParseStatus.Supported) != (timeline is not null))
                 throw new InvalidDataException("Cache support status and timeline disagree.");
             entries.Add(new(entry.Id, entry.RootDirectory, entry.RelativePath, entry.SongName,
@@ -87,7 +88,7 @@ public sealed class WorkspaceMapCache : IReadOnlyMapCache, IMapCacheWriter
         foreach (var entry in entries) ValidateMapRoot(entry.RootDirectory);
         var data = new CacheData(1, entries.Select(e => new EntryData(e.Id, e.RootDirectory, e.RelativePath, e.SongName,
             e.Status, e.Timeline is { } t ? new TimelineData(t.HitTimesMs.ToArray(), t.Checkpoints.ToArray(), t.CheckpointsVerified, t.HitFloors?.ToArray(),
-                t.HitKinds?.ToArray(), t.Sections.Count == 0 ? null : t.Sections.ToArray()) : null,
+                t.HitKinds?.ToArray(), t.Sections.Count == 0 ? null : t.Sections.ToArray(), t.HitTempos?.ToArray(), t.HitMarginScales?.ToArray()) : null,
             e.Warnings.ToArray(), e.SourceHash, e.ParserVersion, e.Info, e.ForcedFormatVersion)).ToArray());
         var json = JsonSerializer.Serialize(data, JsonOptions);
         cancellationToken.ThrowIfCancellationRequested();

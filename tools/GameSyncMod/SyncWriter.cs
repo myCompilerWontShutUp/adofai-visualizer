@@ -42,8 +42,15 @@ namespace AdofaiVisualizerSync
         private double[]? _levelTimes;
         private bool _levelSent;
         private bool _helloSent;
+        private string[]? _judgmentNames;
         private volatile bool _stop;
         private double _lastSentMs = double.NegativeInfinity;
+
+        /// <summary>The game's grade names, said once on every connection so the visualizer reads the judgment counts by name.</summary>
+        public void NameJudgments(string[]? names)
+        {
+            lock (_gate) _judgmentNames = names;
+        }
 
         /// <summary>Hands the waiting log lines to the game thread, oldest first.</summary>
         public string[] TakeLog()
@@ -188,9 +195,10 @@ namespace AdofaiVisualizerSync
             string? levelPath = null;
             double[]? levelTimes = null;
             var hello = false;
+            string[]? names = null;
             lock (_gate)
             {
-                if (!_helloSent) { hello = true; _helloSent = true; }
+                if (!_helloSent) { hello = true; _helloSent = true; names = _judgmentNames; }
                 if (!_levelSent && _levelTimes != null)
                 {
                     levelPath = _levelPath;
@@ -202,7 +210,7 @@ namespace AdofaiVisualizerSync
             {
                 if (hello)
                 {
-                    var who = Encoding.UTF8.GetBytes(HelloLine());
+                    var who = Encoding.UTF8.GetBytes(HelloLine(names));
                     pipe.Write(who, 0, who.Length);
                 }
                 if (levelTimes != null)
@@ -260,8 +268,22 @@ namespace AdofaiVisualizerSync
         /// Which mod this is, sent first on every connection. The visualizer compares it with its own version, so a mod
         /// left over from an older build is named instead of looking like a mod that simply sends nothing.
         /// </summary>
-        private static string HelloLine() =>
-            "{\"v\":" + Protocol + ",\"mod\":\"" + Escape(Version) + "\"}\n";
+        private static string HelloLine(string[]? names)
+        {
+            var text = new StringBuilder(64);
+            text.Append("{\"v\":").Append(Protocol).Append(",\"mod\":\"").Append(Escape(Version)).Append('"');
+            if (names != null)
+            {
+                text.Append(",\"hmn\":[");
+                for (var index = 0; index < names.Length; index++)
+                {
+                    if (index > 0) text.Append(',');
+                    text.Append('"').Append(Escape(names[index])).Append('"');
+                }
+                text.Append(']');
+            }
+            return text.Append("}\n").ToString();
+        }
 
         /// <summary>The build this mod came from; the same number as the app it was built with.</summary>
         public static string Version =>
@@ -298,6 +320,10 @@ namespace AdofaiVisualizerSync
                 .Append(",\"cv\":").Append(Number(sample.VisualOffsetMs))
                 .Append(",\"path\":\"").Append(Escape(sample.Path))
                 .Append("\",\"nf\":").Append(sample.NoFail < 0 ? "null" : sample.NoFail == 1 ? "true" : "false");
+            // Left out when it cannot be read, so the app tells that apart from a restart at the start (0).
+            if (sample.RestartFloor >= 0) text.Append(",\"cp\":").Append(sample.RestartFloor.ToString(CultureInfo.InvariantCulture));
+            if (sample.Difficulty >= 0) text.Append(",\"df\":").Append(sample.Difficulty.ToString(CultureInfo.InvariantCulture));
+            if (sample.Ease >= 1) text.Append(",\"ez\":").Append(Number(sample.Ease));
             if (sample.Judgments is { } judgments)
             {
                 text.Append(",\"hm\":[");

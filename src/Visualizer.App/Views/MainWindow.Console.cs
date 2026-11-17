@@ -112,6 +112,8 @@ public partial class MainWindow
             Log("LogFollowProblem", error.Message);
             _autoRefusedAt = _model.PlaybackClock.NowMs;
         }
+        try { GradeFrame(); }
+        catch (Exception error) when (IsExpectedError(error)) { }
         // After following, so a run plans its presses from where this frame put the notes.
         try { InspectFrame(); }
         catch (Exception error) when (IsExpectedError(error)) { StopInspect(T("InspectCouldNotGoOn", error.Message)); }
@@ -122,6 +124,35 @@ public partial class MainWindow
 
     /// <summary>Why following last stopped on its own, for link to show.</summary>
     private string? _followProblem;
+
+    /// <summary>The game's judgment counts as last seen, turned into the grades it gave since.</summary>
+    private readonly GameGrades _gameGrades = new();
+    /// <summary>How long after a press the game's grade may still arrive for it: a reading or two later, with room to spare.</summary>
+    private const double GradeWithinMs = 400;
+
+    /// <summary>
+    /// The link's part in the judgment bar, once a frame (user request): while the linker says so, the game's own difficulty
+    /// sets the windows, and the grades the game gave go to the presses just made, so the bar shows the game's grading
+    /// itself rather than this app's estimate of it.
+    /// </summary>
+    private void GradeFrame()
+    {
+        var playback = _model.Playback;
+        if (_syncServer is not { Connected: true })
+        {
+            playback.GameDifficulty = null;
+            playback.GameEase = null;
+            _gameGrades.Reset();
+            return;
+        }
+        var (reading, _) = Sync.Latest;
+        playback.GameDifficulty = reading?.Difficulty;
+        // A linker that says nothing of the ease applies none, whatever the settings ask for.
+        playback.GameEase = reading is null ? null : reading.Ease ?? 1;
+        var grades = _gameGrades.Take(reading?.Judgments, Sync.JudgmentNames);
+        if (grades.Count > 0 && playback.State == PlaybackState.Playing)
+            _model.Presses.TakeGameGrades(grades, playback.TimelineTimeMs - playback.Offsets.TotalMs, GradeWithinMs);
+    }
 
     private void FollowGameSyncFrame()
     {
@@ -246,9 +277,9 @@ public partial class MainWindow
         if (!_linkAuto) return;
         if (_syncServer is not { Listening: true } || Sync.Level is not { } level) return;
         // The game moving to another song comes first (user rule: link auto loads it), following or not.
-        if (_model.LoadedEntry is not { } entry || !GamePlays(level.Path, entry))
+        if (_model.LoadedEntry is not { } entry || !GamePlays(level, entry))
         {
-            LoadGameSong(level.Path);
+            LoadGameSong(level);
             return;
         }
         _autoLoadedPath = level.Path;
@@ -275,12 +306,13 @@ public partial class MainWindow
     /// Loads the song the game moved to, once per song. Not under the editor or the settings panel: they hold work of the
     /// user's, so it waits for them to close. The load is the one the console's load does, speed rule included.
     /// </summary>
-    private void LoadGameSong(string gamePath)
+    private void LoadGameSong(GameSyncLevel level)
     {
+        var gamePath = level.Path;
         if (string.IsNullOrWhiteSpace(gamePath) || string.Equals(_autoLoadedPath, gamePath, StringComparison.OrdinalIgnoreCase)) return;
         if (Busy || _settingsPanel is not null) return;
         _autoLoadedPath = gamePath;
-        if (SongFor(gamePath, _model.AllSongs, OriginalPathOf) is not { } song)
+        if (SongFor(level, _model.AllSongs, OriginalPathOf) is not { } song)
         {
             _autoNote = T("AutoNotListed", gamePath);
             _model.SetMessage(_model.Text["GameSongMissing"]);
@@ -299,13 +331,14 @@ public partial class MainWindow
         // The level the linker sent names the song, or failing that the path in its latest reading; link auto has no part
         // in it (user report: load link did nothing with link auto off).
         var (reading, _) = Sync.Latest;
-        var path = Sync.Level?.Path is { Length: > 0 } level ? level : reading?.Path;
+        var level = Sync.Level is { Path.Length: > 0 } sent ? sent : null;
+        var path = level?.Path ?? reading?.Path;
         if (!_syncServer.Connected || string.IsNullOrEmpty(path))
         {
             problem = T("LinkerNotConnected");
             return null;
         }
-        if (SongFor(path, _model.AllSongs, OriginalPathOf) is { } song)
+        if ((level is null ? SongFor(path, _model.AllSongs, OriginalPathOf) : SongFor(level, _model.AllSongs, OriginalPathOf)) is { } song)
         {
             // The console knows a song by its eight-character id, not by the cache's own key.
             if (_model.SongIdMap.TryGetValue(song.Id, out var id)) return id;
@@ -335,11 +368,54 @@ public partial class MainWindow
     }
 
     /// <summary>
+    /// The same, for a level the game sent with its tile times. A map the game opened from a folder of its own, under other
+    /// folder and file names than the copy in the list, has no path in common with it (user report: a map put in by hand
+    /// was never loaded by link auto); the tile times the game worked out are that map's own schedule, so the song whose
+    /// hits line up with them is the one (<see cref="GameTileCheck.LinesUp"/>). An original comes before an edit, and one
+    /// with the game's file name before the rest. Public for tests.
+    /// </summary>
+    public static MapCacheEntry? SongFor(GameSyncLevel level, IEnumerable<MapCacheEntry> songs, Func<MapCacheEntry, string?> originalOf)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(songs);
+        ArgumentNullException.ThrowIfNull(originalOf);
+        var listed = songs as IReadOnlyCollection<MapCacheEntry> ?? songs.ToArray();
+        if (SongFor(level.Path, listed, originalOf) is { } byPath) return byPath;
+        var name = Path.GetFileName(level.Path.Replace('/', '\\'));
+        MapCacheEntry? original = null, edit = null;
+        foreach (var song in listed)
+        {
+            if (song.Timeline is not { } timeline || !GameTileCheck.LinesUp(level.TimesMs, timeline)) continue;
+            if (originalOf(song) is not null) { edit ??= song; continue; }
+            if (string.Equals(Path.GetFileName(song.RelativePath), name, StringComparison.OrdinalIgnoreCase)) return song;
+            original ??= song;
+        }
+        return original ?? edit;
+    }
+
+    /// <summary>
     /// Whether the game's level is this song. The game names its own copy of the map; ours is a copy under maps/, so the
     /// tail of the path is what can match. An edit lives in a slot folder of its own but plays the original's map, so it is
     /// also matched by the original's folder and file (user report: link auto never found an edit).
     /// </summary>
     private bool GamePlays(string gamePath, MapCacheEntry entry) => GamePlays(gamePath, entry.RelativePath, OriginalPathOf(entry));
+
+    /// <summary>The level and song timeline last compared by their tiles, so link auto's check each frame compares them once.</summary>
+    private (GameSyncLevel Level, ParsedTimeline Timeline, bool Same)? _tilesCompared;
+
+    /// <summary>
+    /// Whether the game's level is this song, by its path or, for a map the game opened under other names, by its tile
+    /// times (see <see cref="SongFor(GameSyncLevel, IEnumerable{MapCacheEntry}, Func{MapCacheEntry, string?})"/>).
+    /// </summary>
+    private bool GamePlays(GameSyncLevel level, MapCacheEntry entry)
+    {
+        if (GamePlays(level.Path, entry)) return true;
+        if (entry.Timeline is not { } timeline) return false;
+        if (_tilesCompared is { } seen && ReferenceEquals(seen.Level, level) && ReferenceEquals(seen.Timeline, timeline)) return seen.Same;
+        var same = GameTileCheck.LinesUp(level.TimesMs, timeline);
+        _tilesCompared = (level, timeline, same);
+        return same;
+    }
 
     /// <summary>The original's folder and file for an edit, as a path under maps/; nothing for an original.</summary>
     private string? OriginalPathOf(MapCacheEntry entry)
@@ -395,7 +471,7 @@ public partial class MainWindow
         if (_syncServer is not { Listening: true }) return [T("NotListening")];
         if (Sync.Level is not { } level) return [T("NoTileTimes")];
         if (_model.Playback.Timeline is not { } timeline) return [T("LoadGameSongFirstShort")];
-        var warning = _model.LoadedEntry is { } entry && !GamePlays(level.Path, entry) ? T("GameHasOther", level.Path, entry.RelativePath) : null;
+        var warning = _model.LoadedEntry is { } entry && !GamePlays(level, entry) ? T("GameHasOther", level.Path, entry.RelativePath) : null;
         return GameTileCheck.Lines(GameTileCheck.Compare(level.TimesMs, timeline), warning);
     }
 
@@ -485,7 +561,8 @@ public partial class MainWindow
 
     void ICmdHost.CopyText(string text) => SettingsPanel.CopyToClipboard(text);
 
-    IReadOnlyList<CmdSong> ICmdHost.Songs => !UseAppStore ? [] : _model.AllSongs
+    // Practice maps are left out here too (user rule); link and link auto look in every song.
+    IReadOnlyList<CmdSong> ICmdHost.Songs => !UseAppStore ? [] : _model.ListedSongs()
         .Where(entry => _model.SongIdMap.ContainsKey(entry.Id))
         .Select(entry => new CmdSong(_model.SongIdMap[entry.Id], _model.DisplayName(entry), Maps.KindOf(entry).ToString().ToLowerInvariant(),
             _model.IsHidden(entry), Maps.SlotOf(entry), FamilyOf(entry), entry))
@@ -579,13 +656,7 @@ public partial class MainWindow
     /// <summary>The song list window opened from the console: confirming it applies at once, as there is no settings window to wait for.</summary>
     bool ICmdHost.OpenPlaylist()
     {
-        var window = new SongListWindow(_model.AllSongs, _model.SongPreferences, _model.Settings, SongFileTimes, _model.IsHiddenByDefault,
-            _model.SongFamilies)
-        {
-            Owner = this,
-            RemoveSong = RemoveListed
-        };
-        if (window.ShowDialog() != true || window.Result is not { } result) return false;
+        if (AskSongList(_model.SongPreferences, _model.Settings) is not { } result) return false;
         _model.SongPreferences = result.Preferences;
         var settings = _model.Settings with { SongListFields = result.Fields };
         // Dragging songs into place makes the order hand-made, as it does from the settings window.

@@ -226,11 +226,11 @@ public sealed class GameSyncFollower
             return Stand(session, GameSyncFollowState.OtherRate);
         }
         _frozenMs = double.NaN;
-        // A restart may put the tile back a frame after the song position, so the first reading can still name the tile
-        // the run ended on. A lower tile afterwards shows the notes from there again instead of hiding them all attempt.
-        if (double.IsFinite(session.HideNotesBeforeMs) && (uint)reading.Floor < (uint)_tileTimes.Count)
-            session.HideNotesBeforeMs = Math.Min(session.HideNotesBeforeMs,
-                session.NoteTimeOf(_tileTimes[reading.Floor] - OffsetMs.Value));
+        // An older linker sends no restart tile, so the tile the game names is all there is. A lower one than the cut is a
+        // level loaded afresh (the tile only goes down with a new controller) and shows the notes from there again.
+        var restart = RestartFloorOf(reading);
+        if (restart is null && double.IsFinite(session.HideNotesBeforeMs) && (uint)reading.Floor < (uint)_tileTimes.Count)
+            session.HideNotesBeforeMs = Math.Min(session.HideNotesBeforeMs, CutAfter(reading.Floor, session));
 
         // A paused game, or one whose clock has stopped, is exactly where it says: nothing is carried forward, and the
         // notes wait there with it instead of running on and jumping back. One reading alone does not show a moving
@@ -245,11 +245,11 @@ public sealed class GameSyncFollower
         // The reading is as old as the time since it arrived, and the song has moved on by that much.
         var position = standing ? reading.PositionMs : reading.PositionMs + (nowMs - arrivedMs);
         var target = session.TimelineTimeOf(position - OffsetMs.Value);
-        // The tile the game names can also stay behind for good: after a practice restart that followed a game error it kept
-        // naming the tile the last run died on, seconds ahead of the song, and every note up to there stayed hidden (user
-        // report, Wont Let You Go). Once the player has control the tile being played cannot lie far ahead of the song, so
-        // such a tile is not believed and the notes from where the song is are drawn.
-        if (double.IsFinite(session.HideNotesBeforeMs) && reading.State == "PlayerControl" && !standing
+        // Without the restart tile, the tile the game names stays on the one the last run reached until the player passes
+        // it (user report, Wont Let You Go: after a practice restart it named tile 745, seconds ahead of the song, and every
+        // note up to there stayed hidden). Once the player has control the tile being played cannot lie far ahead of the
+        // song, so such a tile is not believed and the notes from where the song is are drawn.
+        if (restart is null && double.IsFinite(session.HideNotesBeforeMs) && reading.State == "PlayerControl" && !standing
             && (uint)reading.Floor < (uint)_tileTimes.Count && _tileTimes[reading.Floor] > position + AheadTileMs)
             session.HideNotesBeforeMs = Math.Min(session.HideNotesBeforeMs, session.NoteTimeOf(position - OffsetMs.Value));
         if (!playing)
@@ -260,6 +260,9 @@ public sealed class GameSyncFollower
             if (!session.Start()) return false;
             session.MoveClock(target);
             session.Presses?.ForgetAfter(session, target);
+            // A run started on a later tile (practice mode, the editor's play from here) counts down over the tiles before
+            // it, which it does not play.
+            if (restart is { } first) session.HideNotesBeforeMs = CutAfter(first, session);
             State = GameSyncFollowState.Following;
             LastErrorMs = 0;
             _lastAppliedMs = target;
@@ -280,9 +283,8 @@ public sealed class GameSyncFollower
             {
                 session.Presses?.ForgetAfter(session, target);
                 // The game rewound to the tile it will carry on from; the tiles before it are not going to be played,
-                // so they must not fall during its countdown.
-                if ((uint)reading.Floor < (uint)_tileTimes.Count)
-                    session.HideNotesBeforeMs = session.NoteTimeOf(_tileTimes[RestartFloor(reading.Floor, position, session)] - OffsetMs.Value);
+                // so they must not fall during its countdown, and every one after it must (user rule).
+                session.HideNotesBeforeMs = RestartCut(reading, restart, position, session);
             }
             _lastAppliedMs = target;
             _snaps++;
@@ -303,20 +305,43 @@ public sealed class GameSyncFollower
         return true;
     }
 
+    /// <summary>The tile the game restarts this attempt from, when the linker sends one that belongs to this level.</summary>
+    private int? RestartFloorOf(GameSyncMessage reading) =>
+        reading.RestartFloor is int floor && (uint)floor < (uint)_tileTimes.Count ? floor : null;
+
     /// <summary>
-    /// The tile a rewind carries on from. After a game over the game goes on naming the tile the run died on through the
-    /// countdown (user report: the notes to play only showed at the start); the first checkpoint respawn after the
-    /// rewound song, no later than that tile, is where it carries on.
+    /// Where the notes of a rewound attempt begin, in note time. The game says which tile it restarts from (GCS.checkpointNum),
+    /// which settles it. An older linker does not, and the tile it names is no help: the game only ever raises it, so after a
+    /// game over it still names the tile the run died on (user report: the notes to play only showed when the countdown
+    /// ended). Then a checkpoint respawning just ahead of the rewound song is taken, the latest one the run reached; failing
+    /// that, only what is already behind the song is hidden, so every note to play falls during the countdown.
     /// </summary>
-    private int RestartFloor(int floor, double position, PlaybackSession session)
+    private double RestartCut(GameSyncMessage reading, int? restart, double position, PlaybackSession session)
     {
-        if (session.Timeline is not { CheckpointsVerified: true } timeline) return floor;
-        var best = floor;
-        foreach (var checkpoint in timeline.Checkpoints)
-            if (checkpoint.RespawnFloor is int respawn && respawn < best && (uint)respawn < (uint)_tileTimes.Count
-                && _tileTimes[respawn] - position is var ahead && ahead >= -SnapMs && ahead <= LeadInMs)
-                best = respawn;
-        return best;
+        if (restart is { } floor) return CutAfter(floor, session);
+        int? best = null;
+        if (session.Timeline is { CheckpointsVerified: true } timeline)
+            foreach (var checkpoint in timeline.Checkpoints)
+                if (checkpoint.RespawnFloor is int respawn && respawn <= reading.Floor && (uint)respawn < (uint)_tileTimes.Count
+                    && respawn > (best ?? -1) && _tileTimes[respawn] - position is var ahead && ahead >= -SnapMs && ahead <= LeadInMs)
+                    best = respawn;
+        return best is { } found ? CutAfter(found, session) : session.NoteTimeOf(position - OffsetMs!.Value);
+    }
+
+    /// <summary>
+    /// The cut for an attempt that starts on <paramref name="floor"/>, in note time. The player stands on that tile through the
+    /// countdown, so its own hit is not played either (the game's checkpoint and practice starts play the first hit after
+    /// it); the cut lies halfway to the next tile that comes later, so the small difference between the game's tile times
+    /// and ours cannot put the standing tile's note on the wrong side. Tile 0 is the start: nothing is hidden.
+    /// </summary>
+    private double CutAfter(int floor, PlaybackSession session)
+    {
+        if (floor <= 0) return double.NegativeInfinity;
+        var at = _tileTimes[floor];
+        var next = floor + 1;
+        while (next < _tileTimes.Count && _tileTimes[next] - at <= GameTileCheck.Tolerance) next++;
+        var cut = next < _tileTimes.Count ? (at + _tileTimes[next]) / 2 : at + GameTileCheck.Tolerance;
+        return session.NoteTimeOf(cut - OffsetMs!.Value);
     }
 
     /// <summary>The follower's state as the console prints it, in the console's language.</summary>

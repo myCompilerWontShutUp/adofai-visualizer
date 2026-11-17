@@ -17,13 +17,15 @@
 - **적용 시점**: 숨김·이름·순서·표시 항목은 상세 창 확인 → 설정판 적용까지 눌러야 저장됩니다. 곡 제거는 파일 작업이라 다시 물은 뒤 **즉시**(수정본은 보관되어 `restore`, 기본·커스텀은 사본 삭제 — 커스텀은 다음 동기화로 돌아옴).
 - **저장**: 저장소의 `songs.json`(곡 id = 맵 경로 해시)에 숨김·표시 이름·직접 순서만, 선택이 없는 곡은 기록하지 않습니다. 설정 JSON에는 들어가지 않습니다(사람마다 곡이 다르므로).
 - 숨김은 메인 목록에서만 빠지고 상세 창에는 남으며 동기화 뒤에도 유지됩니다.
+- **연습맵 숨기기**(`HidePracticeMaps`, 설정 "곡 리스트 · 설정", 기본 활성화, 사용자 요청): 연습맵(`MapFileRules.PracticeLevels`)은 메인 목록·상세 창·콘솔 곡 목록에서 모두 빠지고 사용자의 "보이기" 선택보다 앞섭니다. 상세 창은 연습맵 행 없이 열리며, 확인해도 연습맵의 기존 선택(숨김·이름·순서)은 지우지 않고 그대로 돌려줍니다(`MainWindow.AskSongList`). `link auto`·`load link`는 전체 곡에서 찾으므로 게임이 연 연습맵도 불러옵니다.
 
 ## 한 폴더의 여러 레벨 파일
 
 | 사례 | 예 | 처리 |
 | --- | --- | --- |
 | 에디터 자동 저장 | `backup.adofai` + `main.adofai` | 목록에서 제외(`IsShadowedEditorBackup`) |
-| main 옆 변형·옛 파일 | `main.adofai` + `sub1.adofai` / `low effect.adofai` | 기본 숨김(`IsBesideMainLevel`), 상세 창에 이유, "보이기"는 저장 |
+| main 옆 변형·옛 파일·연습맵 | `main.adofai` + `sub1.adofai` / `low effect.adofai` | **연습맵 숨기기**(기본 활성화)면 모든 목록에서 뺌. 비활성화면 기본 숨김(`IsBesideMainLevel`), 상세 창에 이유, "보이기"는 저장 |
+| main 없는 폴더의 여러 맵 | `5-X.adofai` + `6-X.adofai`, 연습맵 + 본맵 | 연습맵 숨기기면 가장 긴 맵(마지막 hit가 가장 늦은 것)만 남김(사용자 규칙). 읽지 못한 맵은 길이로 판단하지 않음, 저장소 폴더 바로 아래 맵은 각자 곡 |
 | 독립된 곡 여러 개 | `5-X….adofai` + `6-X….adofai` (main 없음) | 모두 표시 |
 
 근거: 게임 곡 선택 화면(`scnCLS.DisplayLevel`)은 `main.adofai`를 재생합니다. `SongPreference.Hidden`은 `bool?`로 null = 자동 규칙, true/false = 사용자가 정함입니다.

@@ -152,7 +152,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 ### 곡 파일
 
-- **`sync [rebuild]`** — 맵 폴더의 곡을 커스텀으로 복사하고 앱의 세 폴더를 다시 읽습니다(메인 화면의 동기화와 같음, 묻지 않음). `rebuild`는 커스텀을 처음부터 다시 만들며(맵 폴더에서 빠진 곡이 목록에서 사라지는 유일한 길) 먼저 묻습니다. 둘 다 진행률 막대(8절).
+- **`sync [rebuild]`** — 맵 폴더의 곡을 커스텀으로 복사하고 앱의 세 폴더에서 새로 들어오거나 바뀐 맵만 파싱합니다(메인 화면의 동기화와 같음, 묻지 않음). `rebuild`는 커스텀을 처음부터 다시 만들고 모든 맵을 다시 파싱하며(맵 폴더에서 빠진 곡이 목록에서 사라지는 유일한 길) 먼저 묻습니다. 둘 다 진행률 막대(8절).
 - **`remove <id>`** — 수정본을 슬롯 폴더째 `maps/removed/`로 보관합니다(한 곡만 보관, 다음 `remove`가 앞의 보관본을 지움). [Y/n].
 - **`restore`** — 마지막으로 `remove`한 수정본을 되돌립니다(원래 슬롯이 비어 있으면 그 슬롯, 아니면 첫 빈 슬롯). 앱을 다시 켜도 됩니다.
 - **`delete <id>`** — 곡을 완전히 지웁니다(`restore` 불가). 수정본은 슬롯 폴더째, 커스텀 맵은 다음 동기화에 돌아옵니다. 불러온 곡이면 화면에서도 내립니다. [Y/n].
@@ -294,6 +294,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `songs.sort` | SongSortKey | 선택 |
 | `songs.high-first` | SongSortHighFirst | 토글 |
 | `songs.group` | SongGroup | 선택 (`base` · `custom` · `edited` · `base-custom` · `custom-edited` · `base-edited` · `all`) |
+| `songs.hide-practice` | HidePracticeMaps | 토글 |
 | `checkpoint.auto` | AutoCheckpointAdvance | 토글 |
 | `checkpoint.auto-on-load` | AutoCheckpointOnLoad | 토글 |
 | `keys.reset` · `keys.start` · `keys.toggle` | ResetKey · StartTriggerKey · VisualizerToggleKey | 키 |
@@ -324,6 +325,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `judgment.window` | JudgmentBarDifficulty | 선택 |
 | `judgment.average` | ShowJudgmentAverage | 토글 |
 | `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
+| `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임에 적용) |
 | `magic.notes` | MagicCircleNoteCount | 노트 수 |
 | `magic.max-interval` · `magic.fade-in` · `magic.lead` · `magic.fade-out` | MagicCircleMaxIntervalMs · …FadeInMs · …LeadMs · …FadeOutMs | ms |
 | `magic.chords` | MagicCircleChords | 토글 |

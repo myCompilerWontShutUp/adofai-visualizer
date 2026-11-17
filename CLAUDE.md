@@ -40,7 +40,7 @@ App ──► Application ──► Core        Infrastructure ──► Applica
 
 ```text
 src/Visualizer.Core/
-  Maps/            ParsedTimeline(불변 hit time·체크포인트·HitKind·Sections), RawMapDocument
+  Maps/            ParsedTimeline(불변 hit time·체크포인트·HitKind·Sections·HitTempos·HitMarginScales), RawMapDocument, HitGrading(게임 판정 경계·9단계)
   Settings/        VisualizerSettings(불변 record, Validate/EnsureValid/HasSameNoteRulesAs), DefaultSettings.jsonc(+.cs, 모든 초기값),
                    SettingsJson(내보내기·부분 병합 가져오기·예전 키·Retired), SettingsFields(이름으로 읽기·쓰기·Restore), ColorText
   Localization/    Languages.cs(+ ConsoleKeys·ConsoleGet) + Languages/*.json(파일 이름 = id, "strings" 창 문구 + "console" 콘솔 문구), ReleaseNotes,
@@ -48,10 +48,10 @@ src/Visualizer.Core/
   Visualization/   DynamicTimingSelector(간격→모드) · TilePatternCursor(전환·회전·트릴) · NoteGenerator(묶음→모드→커서→배치)
                    SimultaneousNotePlanner(동타·트릴 배치, NotePlacementException) · MagicCircleFinder · NoteLayout · NotePosition
 src/Visualizer.Application/
-  Maps/            IReadOnlyMapSource, IMapTimelineParser(ParseForced), MapSyncService(동기화·ForceAsync), MapFileRules
+  Maps/            IReadOnlyMapSource, IMapTimelineParser(ParseForced), MapSyncService(동기화: 바뀐 맵만, reparse = rebuild·ForceAsync), MapFileRules(+ PracticeLevels)
   Cache/           IMapCache, MapCacheEntry
   Library/         SongPreference·ISongPreferenceStore, SongOrdering, MapKind, SongIds, NoteEdit·NoteEditSession·NoteEditLayout
-  Sync/            GameSyncLink(모드 값 검사·측정) · GameTileCheck(타일 대조) · GameSyncFollower(재생 지점만 이동)
+  Sync/            GameSyncLink(모드 값 검사·측정) · GameTileCheck(타일 대조) · GameSyncFollower(재생 지점만 이동) · GameGrades(판정 개수 → 판정)
   Playback/        PlaybackSession(Off/NoTimeline/Waiting/Playing/Paused) · NotePressJudge(시각 전용 판정) · RulePreviewTimeline
   Input/           InputPolicy, IInputMonitor, KeyPressTracker
 src/Visualizer.Infrastructure/
@@ -70,6 +70,7 @@ src/Visualizer.Infrastructure/
                                        KeyboardInjector(link inspect 전용 SendInput, 안전 규칙 6 예외)
   Sync/NamedPipeGameSyncServer         모드의 명명 파이프를 읽기만. 게임 최대 `MaxGames`개 동시 연결, `Choose`(앞 게임 → 따라가던 게임 → 최근 소식)가 하나만 `GameSyncLink`에 넘김
   Sync/LinkerInstaller                 게임 폴더·모드 파일 찾기(plugins\linker 먼저), UMM 여부, 두 파일만 쓰기
+  Instances/SingleInstance             앱 하나만(이름 있는 뮤텍스, App.OnStartup), 이미 켜져 있으면 그 창을 앞으로
 src/Visualizer.App/
   Icon/            icon.png(원본) → icon.ico(csproj ApplicationIcon)
   Themes/          Theme.xaml(공용 스타일), ThemeCatalog(+ PrimaryBrush·ToggleOnBrush 계산) + Palettes/*.json, SpaceBackdrop
@@ -84,7 +85,7 @@ src/Visualizer.App/
   Input/           ControlBindings, KeyNames, KeyCaptureBox, PlaybackButton, LinkInspection(+InspectRun·InspectPress)
   Localization/    UiText(XAML Text[key], 코드 Format)
 tests/Visualizer.Tests/   실행형 하네스 (xUnit 없음)
-tools/GameSyncMod/        읽기 전용 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter. Info.json은 빌드가 만듦
+tools/GameSyncMod/        링커 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter · JudgmentEase(판정 완화, 유일한 Harmony 패치). Info.json은 빌드가 만듦
 plugins/linker/           빌드된 링커(커밋함)
 update.ps1                저장소 쪽 일의 유일한 스크립트: -Check · 받기 · -Force -Version · -Reinstall · -Scan · -LinkerGame · 다시 띄우기
 Install.cmd / Uninstall.cmd / uninstall.ps1   더블클릭 설치·제거 (AGENTS 안전 규칙 2)
@@ -114,7 +115,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - **입력 정책**: 전역 입력 범위를 켜면 ADOFAI 또는 이 앱이 전경일 때만, UI 입력 편집·설정판·콘솔 중엔 무시. `MainWindow.Busy`(설정판·수정 창)면 메인 창 클릭·검색창 키를 막되 `SettingsHost`·`PreviewBar` 안은 예외. Ctrl+T는 Raw Input의 `ObservedConsoleKey`, 창들은 `ConsoleKeyInWindow`로 삼키기만. 실제 키는 `KeyNames.Real`(IME).
 - **노트 영역 위**: `OverlayArea` 안 `OverlayBand`·`HideOverlayButton`, 위쪽 띠 `TopNotices`(노트 Grid의 마지막 자식: 구간 안내·inspect 띠). **`Show…` 속성은 `MainViewModel.PlaybackProperties`에 이름이 있어야 재생 상태가 바뀔 때 화면이 따라옵니다.**
 - **콘솔**: `CmdCatalog`(명령·옵션·키워드) → `CmdSession`(동작) → `ICmdHost` = `MainWindow.Console.cs`(+ `.Scan.cs`·`.Inspect.cs`·`.Log.cs`). 오래 걸리는 일은 `RunJob`. 앱이 다른 프로그램을 띄우는 곳은 `UpdateScript`(`update.ps1`) 하나.
-- **게임 동기화**: 프레임마다 `MainWindow.FollowGameSync`(앞에서 `AutoFollowGame`, 끝에서 `LogFrame`) → `GameSyncFollower`(`Prepare`·`Follow`·`Stand`·`RestartFloor`). 스위치는 `MainViewModel.FollowingGame`, 기준은 `PlaybackSession.ClockFollowsGame`, 되돌리기는 `BackToLoaded`. 파이프 `NamedPipeGameSyncServer.Choose`, inspect `LinkInspection` → `KeyboardInjector`.
+- **게임 동기화**: 프레임마다 `MainWindow.FollowGameSync`(앞에서 `AutoFollowGame`, 끝에서 `LogFrame`) → `GameSyncFollower`(`Prepare`·`Follow`·`Stand`·`RestartCut`, 재시작 타일은 링커의 `cp`). link auto의 곡 찾기는 경로, 안 되면 타일 시각(`MainWindow.SongFor(GameSyncLevel…)`·`GameTileCheck.LinesUp`). 스위치는 `MainViewModel.FollowingGame`, 기준은 `PlaybackSession.ClockFollowsGame`, 되돌리기는 `BackToLoaded`. 파이프 `NamedPipeGameSyncServer.Choose`, inspect `LinkInspection` → `KeyboardInjector`.
 - **캐시 저장 범위**: 식별자·경로·곡 이름·원문 hash·파서 버전·상태·경고·hit time·타일 번호·hit 종류·체크포인트·미니게임 구간·곡 정보·강제 로드 형식. `ParserVersion`이 다르면 재동기화를 안내합니다.
 
 ## 4. 노트 규칙 요점

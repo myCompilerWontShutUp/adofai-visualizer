@@ -70,6 +70,7 @@ public partial class SettingsPanel
             _songSortField.SelectedIndex = (int)SongOrdering.Parse(settings.SongSortKey);
             _songSortDirection.SelectedIndex = settings.SongSortHighFirst ? 0 : 1;
             UpdateSongSort();
+            _hidePractice.IsChecked = settings.HidePracticeMaps;
             _magicFixedTiles.IsChecked = settings.MagicCircleFixedTiles;
             _magicChords.IsChecked = settings.MagicCircleChords;
             _magicTiles.SelectedItem = settings.MagicCircleTileCount;
@@ -420,6 +421,7 @@ public partial class SettingsPanel
             SongSortKey = Enum.GetName((SongSortField)Math.Clamp(_songSortField.SelectedIndex, 0, Enum.GetValues<SongSortField>().Length - 1))!,
             SongSortHighFirst = _songSortDirection.SelectedIndex != 1,
             SongListFields = SongListFields,
+            HidePracticeMaps = _hidePractice.IsChecked == true,
             ShowGuideButtons = _guide.IsChecked == true,
             ShowSongInfo = _songInfo.IsChecked == true,
             ResetKey = _reset.Token ?? "",
@@ -475,6 +477,7 @@ public partial class SettingsPanel
             JudgmentBarDifficulty = JudgmentDifficulties[Math.Clamp(_judgmentDifficulty.SelectedIndex, 0, JudgmentDifficulties.Length - 1)],
             ShowJudgmentAverage = _judgmentAverage.IsChecked == true,
             JudgmentAverageCount = Whole(nameof(VisualizerSettings.JudgmentAverageCount)),
+            JudgmentEaseScale = Number(nameof(VisualizerSettings.JudgmentEaseScale)),
             MagicCircleFixedTiles = _magicFixedTiles.IsChecked == true,
             MagicCircleChords = _magicChords.IsChecked == true,
             MagicCircleTileCount = _magicTiles.SelectedItem is int magicTiles ? magicTiles : Defaults.MagicCircleTileCount,

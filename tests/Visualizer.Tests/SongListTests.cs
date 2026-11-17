@@ -324,7 +324,9 @@ internal static class SongListTests
             var first = Song("f", "First") with { RootDirectory = @"C:\maps\pack", RelativePath = "5-X.adofai" };
             var second = Song("d", "Second") with { RootDirectory = @"C:\maps\pack", RelativePath = "6-X.adofai" };
 
+            // With the practice maps shown; hidden (the default), the variant leaves every list (the next test).
             var model = new MainViewModel();
+            model.ApplySettings(model.Settings with { HidePracticeMaps = false });
             model.SetLibrary([main, sub, first, second]);
             Assert(model.IsHiddenByDefault(sub) && !model.IsHiddenByDefault(main), "Only the file beside main.adofai is automatic");
             Assert(!model.IsHiddenByDefault(first) && !model.IsHiddenByDefault(second), "A folder without main.adofai keeps both songs");
@@ -344,6 +346,57 @@ internal static class SongListTests
             Assert(window.Collect().Preferences.All(song => song.Hidden is null), "An automatic default is not a stored choice");
             FindAll<Button>(window).Single(button => Equals(button.Content, "보이기")).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Equal(window.Collect().Preferences.Single(song => song.Id == "s").Hidden, (bool?)false);
+        }),
+
+        ("Practice maps stay out of every list: beside main.adofai, or all but the longest level of a folder", () =>
+        {
+            // User request: some custom maps put practice levels in front of the real one. main.adofai is the song where
+            // there is one (the game plays it); otherwise the longest level is (user rule). Levels straight in the store's
+            // top folder are songs of their own, and a level that could not be read is not judged by length.
+            const string Root = @"C:\store\maps\custom";
+            MapCacheEntry Level(string id, string path, params double[] hits) => Song(id, id) with
+            {
+                RootDirectory = Root, RelativePath = path, Timeline = new ParsedTimeline(hits)
+            };
+            var main = Level("main", @"3004774960\main.adofai", 0, 90_000);
+            var sub = Level("sub", @"3004774960\sub1.adofai", 0, 120_000);
+            var shorter = Level("ml", @"test\ML-X.adofai", 0, 60_000);
+            var longer = Level("mo", @"test\MO-X.adofai", 0, 80_000);
+            var unread = Level("broken", @"pack\broken.adofai") with { Status = MapParseStatus.Error, Timeline = null };
+            var read = Level("ok", @"pack\ok.adofai", 0, 1000);
+            var loose1 = Level("a", "a.adofai", 0, 1000);
+            var loose2 = Level("b", "b.adofai", 0, 5000);
+            var all = new[] { main, sub, shorter, longer, unread, read, loose1, loose2 };
+
+            var model = new MainViewModel();
+            Assert(model.Settings.HidePracticeMaps, "On by default");
+            model.SetLibrary(all);
+            // main.adofai wins even over a longer level beside it; without it, the longest level is the song.
+            Assert(model.IsPractice(sub) && model.IsPractice(shorter), "The practice maps");
+            Assert(new[] { main, longer, unread, read, loose1, loose2 }.All(entry => !model.IsPractice(entry)), "The songs");
+            Sequence(model.Library.Select(entry => entry.Id).Order(StringComparer.Ordinal), "a", "b", "broken", "main", "mo", "ok");
+            Sequence(model.ListedSongs().Select(entry => entry.Id).Order(StringComparer.Ordinal), "a", "b", "broken", "main", "mo", "ok");
+            // Still there for link auto, which loads what the game plays.
+            Equal(model.AllSongs.Count, all.Length);
+            // A choice to show one does not bring it back while practice maps are hidden...
+            model.SongPreferences = [new SongPreference("sub", Hidden: false)];
+            Assert(model.Library.All(entry => entry.Id != "sub"), "Hidden practice maps stay out");
+            // ...and switched off, the lists are as they were: only the file beside main.adofai starts hidden, and the
+            // choice to show it holds.
+            model.ApplySettings(model.Settings with { HidePracticeMaps = false });
+            Equal(model.ListedSongs().Count, all.Length);
+            Assert(model.Library.Any(entry => entry.Id == "sub") && model.Library.Any(entry => entry.Id == "ml"), "Everything is back");
+            model.SongPreferences = [];
+            Assert(model.Library.All(entry => entry.Id != "sub") && model.IsHiddenByDefault(sub), "The file beside main.adofai starts hidden again");
+            // The pieces of the rule on their own: one level, a tie, the top folder and unread levels.
+            Sequence(MapFileRules.PracticeLevels([("x\\only.adofai", 10d)]).Select(index => index.ToString()));
+            Sequence(MapFileRules.PracticeLevels([("x\\a.adofai", 10d), ("x\\b.adofai", 10d)]).Select(index => index.ToString()), "1");
+            Sequence(MapFileRules.PracticeLevels([("a.adofai", 10d), ("b.adofai", 20d)], byLength: false).Select(index => index.ToString()));
+            Sequence(MapFileRules.PracticeLevels([("main.adofai", null), ("b.adofai", 20d)], byLength: false).Select(index => index.ToString()), "1");
+            Sequence(MapFileRules.PracticeLevels([("x\\a.adofai", null), ("x\\b.adofai", null)]).Select(index => index.ToString()));
+
+            static void Sequence(IEnumerable<string> actual, params string[] expected) =>
+                Assert(actual.SequenceEqual(expected), "Got: " + string.Join(" ", actual));
         }),
 
         ("A song sitting only in the store folder syncs and plays on its own", () =>

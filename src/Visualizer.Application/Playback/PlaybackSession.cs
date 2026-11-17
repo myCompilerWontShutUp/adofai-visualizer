@@ -114,6 +114,34 @@ public sealed class PlaybackSession(IMonotonicClock clock)
     /// </summary>
     public int Prepared { get; private set; }
 
+    /// <summary>
+    /// The game's difficulty (0 Lenient, 1 Normal, 2 Strict) while the linker says which it is; null leaves the judgment
+    /// bar on the one chosen in the settings. Set by the window from the latest reading.
+    /// </summary>
+    public int? GameDifficulty { get; set; }
+
+    /// <summary>
+    /// The judgment ease the linker says the game uses now (1 when it has none), or null when no game is linked and the
+    /// settings' <see cref="VisualizerSettings.JudgmentEaseScale"/> stands for it. Set by the window from the latest reading.
+    /// </summary>
+    public double? GameEase { get; set; }
+
+    /// <summary>The judgment ease the bar draws with: the linked game's, else the settings'.</summary>
+    public double JudgmentEase => GameEase is double game && double.IsFinite(game) && game >= 1 && game <= HitGrading.MaximumEase
+        ? game : Settings.JudgmentEaseScale;
+
+    /// <summary>
+    /// The game's hit windows for one prepared note, in note time: the tile's tempo at the practice speed played here
+    /// (the game's practice mode plays at that pitch), the tile's margin scale, and the game's difficulty or else
+    /// <paramref name="fallbackDifficulty"/>. Null for an invalid index or before a timeline is loaded.
+    /// </summary>
+    public HitWindows? HitWindowsOf(int noteIndex, int fallbackDifficulty)
+    {
+        if (_timeline is not { } timeline || (uint)noteIndex >= (uint)_noteHits.Length) return null;
+        var difficulty = GameDifficulty is int game && (uint)game <= 2 ? game : fallbackDifficulty;
+        return timeline.WindowsOf(_noteHits[noteIndex], difficulty, Settings.PlaybackSpeedPercent / 100.0, JudgmentEase);
+    }
+
     /// <summary>The source map floor of one prepared note, or null for a synthetic timeline or an invalid index.</summary>
     public int? SourceFloorOfNote(int index) => (uint)index < (uint)_noteHits.Length && _timeline?.HitFloors is { } floors
         ? floors[_noteHits[index]] : null;

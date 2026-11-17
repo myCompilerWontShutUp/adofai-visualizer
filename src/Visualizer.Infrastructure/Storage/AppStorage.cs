@@ -24,6 +24,25 @@ public sealed class AppStorage
     public string? LeftBehind { get; private set; }
 
     public string SettingsPath => Path.Combine(Root, "settings.json");
+
+    /// <summary>
+    /// Where the game's linker reads the judgment ease from (user request): always the shared home, beside the pointer file,
+    /// so the mod finds it without knowing a chosen folder. One number; 1 is the game's own judgment.
+    /// </summary>
+    public string JudgmentEasePath => Path.Combine(DefaultRoot, "judgment-ease.txt");
+
+    /// <summary>
+    /// Tells the linker the judgment ease to apply. Written whole and then swapped in, so the mod never reads half a
+    /// number; anything the mod cannot read as an ease between 1 and 3 counts as 1.
+    /// </summary>
+    public void WriteJudgmentEase(double scale)
+    {
+        if (!double.IsFinite(scale) || scale < 1) throw new ArgumentOutOfRangeException(nameof(scale));
+        Directory.CreateDirectory(DefaultRoot);
+        var temporary = JudgmentEasePath + ".tmp";
+        File.WriteAllText(temporary, scale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+        File.Move(temporary, JudgmentEasePath, overwrite: true);
+    }
     public string CacheDirectory => Path.Combine(Root, "map-cache");
     public bool UsesDefaultRoot => Same(Root, DefaultRoot);
 

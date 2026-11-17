@@ -69,6 +69,7 @@ public partial class MainWindow : Window, ICmdHost
         InitializeComponent();
         LoadStoredSettings();
         SpeakConsole();
+        TellLinkerEase(_model.Settings.JudgmentEaseScale);
         _model.ForgetSettingsHistory();
         _model.SettingsCommitted += SettingsCommitted;
         ApplyTheme();
@@ -135,6 +136,8 @@ public partial class MainWindow : Window, ICmdHost
             _input.KeyPressed -= HandleObservedKey;
             _input.KeyReleased -= HandleReleasedKey;
             StopGameSync();
+            // The game plays with its own judgment again once this app is gone.
+            TellLinkerEase(1);
             // Taken on this thread, so it goes back on this thread.
             _scheduling?.Dispose();
             _scheduling = null;
@@ -457,9 +460,10 @@ public partial class MainWindow : Window, ICmdHost
     }
 
     /// <summary>
-    /// Brings the Steam folder into the custom folder, then parses all three app folders into the cache. With
-    /// <paramref name="rebuild"/> the custom folder is rebuilt from scratch instead, which is how unsubscribed songs go.
-    /// The map folder is only read; a map folder that cannot be read still leaves the app's own folders syncing.
+    /// Brings the Steam folder into the custom folder, then brings the cache up to date with all three app folders: only
+    /// the levels that came in or changed are parsed. With <paramref name="rebuild"/> the custom folder is rebuilt from
+    /// scratch and every level parsed again, which is how unsubscribed songs go. The map folder is only read; a map folder
+    /// that cannot be read still leaves the app's own folders syncing.
     /// </summary>
     private async Task CopyAndScanAsync(bool rebuild, IProgress<double>? overall = null, CancellationToken cancellationToken = default)
     {
@@ -497,7 +501,8 @@ public partial class MainWindow : Window, ICmdHost
             var from = CopyShare + (1 - CopyShare) * index / roots.Length;
             var span = (1 - CopyShare) / roots.Length;
             var scan = new Progress<MapScanProgress>(step => Step(from + (step.Total == 0 ? span : span * step.Parsed / step.Total)));
-            reports.Add(await _model.SyncAsync(service, new ReadOnlyDirectoryMapSource(root), scan));
+            // A sync parses only the songs that came in or changed; the rebuild reads every one again (user rule).
+            reports.Add(await _model.SyncAsync(service, new ReadOnlyDirectoryMapSource(root), scan, reparse: rebuild));
         }
         Step(1);
         await DropForeignEntriesAsync(cancellationToken);
@@ -1083,15 +1088,25 @@ public partial class MainWindow : Window, ICmdHost
     /// Opens the song list over the window (modal, so the settings behind it cannot be used meanwhile). The result is only
     /// pending: it is written when the settings are applied.
     /// </summary>
-    private SongListResult? ShowSongList(IReadOnlyList<SongPreference> pending)
+    private SongListResult? ShowSongList(IReadOnlyList<SongPreference> pending) =>
+        AskSongList(pending, _settingsPanel?.BuildSettings() ?? _model.Settings);
+
+    /// <summary>
+    /// The song list window over the songs the lists show: the practice maps <paramref name="settings"/> leave out are not
+    /// in it (user rule). The choices kept for those are handed back with the window's own, so confirming it drops none.
+    /// </summary>
+    private SongListResult? AskSongList(IReadOnlyList<SongPreference> pending, VisualizerSettings settings)
     {
-        var settings = _settingsPanel?.BuildSettings() ?? _model.Settings;
-        var window = new SongListWindow(_model.AllSongs, pending, settings, SongFileTimes, _model.IsHiddenByDefault, _model.SongFamilies)
+        var listed = _model.ListedSongs(settings);
+        var window = new SongListWindow(listed, pending, settings, SongFileTimes, _model.IsHiddenByDefault, _model.SongFamilies)
         {
             Owner = this,
             RemoveSong = RemoveListed
         };
-        return window.ShowDialog() == true ? window.Result : null;
+        if (window.ShowDialog() != true || window.Result is not { } result) return null;
+        var shown = listed.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        var left = _model.AllSongs.Select(entry => entry.Id).Where(id => !shown.Contains(id)).ToHashSet(StringComparer.Ordinal);
+        return result with { Preferences = [.. result.Preferences, .. pending.Where(song => left.Contains(song.Id))] };
     }
 
     private void ApplyFromDialog(VisualizerSettings settings)
@@ -1115,7 +1130,20 @@ public partial class MainWindow : Window, ICmdHost
         SpeakConsole();
         UpdateBindings();
         SaveSettings(_model.Settings);
+        TellLinkerEase(_model.Settings.JudgmentEaseScale);
         PrepareSettings();
+    }
+
+    /// <summary>
+    /// Tells the game's linker the judgment ease (user request), whether or not settings are saved: it applies only while
+    /// this app runs, so closing puts the game's own judgment back (<see cref="AppStorage.WriteJudgmentEase"/>).
+    /// </summary>
+    private void TellLinkerEase(double scale)
+    {
+        if (!UseAppStore) return;
+        try { Storage.WriteJudgmentEase(scale); }
+        catch (Exception error) when (IsExpectedError(error) || error is ArgumentOutOfRangeException)
+            { _model.SetMessage(_model.Text.Format("SettingsWriteFailed", error.Message)); }
     }
 
     /// <summary>

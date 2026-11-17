@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 using Visualizer.Core.Localization;
+using Visualizer.Core.Maps;
 using static Visualizer.Core.Settings.DefaultSettings;
 
 namespace Visualizer.Core.Settings;
@@ -45,6 +46,11 @@ public sealed record VisualizerSettings
     /// <see cref="SongListFieldNames"/>. Switched in that window; an empty value leaves the names alone.
     /// </summary>
     public string SongListFields { get; init; } = Text(nameof(SongListFields));
+    /// <summary>
+    /// Leaves the practice maps out of the song lists (user rule): the levels beside a folder's main.adofai, or in a folder
+    /// without one every level but the longest. link auto still loads one the game plays.
+    /// </summary>
+    public bool HidePracticeMaps { get; init; } = Flag(nameof(HidePracticeMaps));
     /// <summary>Guide, rule preview and example buttons above the song panel.</summary>
     public bool ShowGuideButtons { get; init; } = Flag(nameof(ShowGuideButtons));
     /// <summary>Song title, song info, start point and tile count over the note field while paused or reset.</summary>
@@ -292,6 +298,13 @@ public sealed record VisualizerSettings
 
     /// <summary>How many recent presses the average arrow under the bar is made of.</summary>
     public int JudgmentAverageCount { get; init; } = Integer(nameof(JudgmentAverageCount));
+
+    /// <summary>
+    /// The judgment ease for practice (user request): the game's minimum hit times (scrMisc.GetMinimumTimes) multiplied by
+    /// this, 1 to 3. 1 leaves the game's judgment alone. The linker applies it in the game while this app runs, and the
+    /// judgment bar draws with it.
+    /// </summary>
+    public double JudgmentEaseScale { get; init; } = Number(nameof(JudgmentEaseScale));
 
     public bool ShowJudgmentAverage { get; init; } = Flag(nameof(ShowJudgmentAverage));
 
@@ -594,6 +607,8 @@ public sealed record VisualizerSettings
         if (JudgmentBarMode.Trim() is not ("Off" or "MagicCircle" or "Always")) Add(L("Error.JudgmentBarMode"), nameof(JudgmentBarMode));
         if (JudgmentBarDifficulty.Trim() is not ("Lenient" or "Normal" or "Strict")) Add(L("Error.JudgmentDifficulty"), nameof(JudgmentBarDifficulty));
         if (JudgmentAverageCount is < 1 or > 50) Add(L("Error.JudgmentAverage"), nameof(JudgmentAverageCount));
+        if (!double.IsFinite(JudgmentEaseScale) || JudgmentEaseScale < 1 || JudgmentEaseScale > HitGrading.MaximumEase)
+            Add(L("Error.JudgmentEase"), nameof(JudgmentEaseScale));
         if (!double.IsFinite(GlobalDisplayOffsetMs)) Add(L("Error.DisplayOffset"), nameof(GlobalDisplayOffsetMs));
         if (string.IsNullOrWhiteSpace(AdofaiProcessName) || AdofaiProcessName.IndexOfAny(['/', '\\', ':']) >= 0) Add(L("Error.ProcessName"), nameof(AdofaiProcessName));
 
