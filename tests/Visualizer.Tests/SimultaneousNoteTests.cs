@@ -729,7 +729,8 @@ internal static class SimultaneousNoteTests
                 OnTable(notes, name);
             }
 
-            // Trills: two notes on 3-4 or 5-6, three on 2-3-4 or 5-6-7, four on one hand's lanes.
+            // Trills: two notes on 3-4 or 5-6, three on 2-3-4 or 5-6-7, four on one hand's lanes. A trill on eight lanes is the
+            // notes within the trill window of its first one (user rule), so these all fit in 40 ms.
             IReadOnlyList<int[]> Trills(double[] shape, VisualizerSettings rules)
             {
                 var run = Enumerable.Range(0, 12).SelectMany(k => shape.Select(offset => k * 600 + offset)).ToArray();
@@ -737,8 +738,8 @@ internal static class SimultaneousNoteTests
                 return Enumerable.Range(0, 12).Select(k => notes.Skip(k * shape.Length).Take(shape.Length)
                     .Select(n => visible.IndexOf(n.Tile) + 1).Order().ToArray()).ToArray();
             }
-            foreach (var (shape, places) in new[] { (new[] { 0d, 30 }, new[] { "3 4", "5 6" }), (new[] { 0d, 25, 50 }, new[] { "2 3 4", "5 6 7" }),
-                         (new[] { 0d, 20, 40, 60 }, new[] { "1 2 3 4", "5 6 7 8" }) })
+            foreach (var (shape, places) in new[] { (new[] { 0d, 30 }, new[] { "3 4", "5 6" }), (new[] { 0d, 20, 40 }, new[] { "2 3 4", "5 6 7" }),
+                         (new[] { 0d, 12, 24, 36 }, new[] { "1 2 3 4", "5 6 7 8" }) })
             {
                 var laid = Trills(shape, eight);
                 Assert(laid.All(lanes => places.Contains(string.Join(" ", lanes))), $"{shape.Length}-note trills: " + string.Join(" | ", laid.Select(l => string.Join(" ", l))));
@@ -753,9 +754,9 @@ internal static class SimultaneousNoteTests
             // Enhanced 4/8 keys (experimental, user rule): a trill rolls past four keys, over a chord's places, while singles
             // keep to four keys, in one hand. Off, a roll stays in one hand.
             var enhanced = eight with { ExperimentalFeatures = true, EnhancedFourEightKeys = true };
-            var six = Trills([0d, 25, 50, 75, 100, 125], enhanced);
+            var six = Trills([0d, 8, 16, 24, 32, 40], enhanced);
             Assert(six.All(lanes => string.Join(" ", lanes) is "2 3 4 5 6 7" or "1 2 3 4 5 6" or "3 4 5 6 7 8"), "Six-note trills: " + string.Join(" | ", six.Select(l => string.Join(" ", l))));
-            var chain = Enumerable.Range(0, 12).SelectMany(k => new[] { 0d, 25, 50, 75, 100, 125 }.Select(offset => k * 600 + offset)).ToArray();
+            var chain = Enumerable.Range(0, 12).SelectMany(k => new[] { 0d, 8, 16, 24, 32, 40 }.Select(offset => k * 600 + offset)).ToArray();
             var rolled = generator.Generate(chain, eight).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
             for (var k = 0; k < 12; k++)
             {
@@ -771,6 +772,28 @@ internal static class SimultaneousNoteTests
             Assert(generator.Generate(times, four).SequenceEqual(generator.Generate(times, four with { ExperimentalFeatures = true, EnhancedFourEightKeys = true })),
                 "Nothing changes on four lanes");
             Assert(!eight.HasSameNoteRulesAs(enhanced), "It is a note rule");
+        });
+        yield return ("Eight lanes: a stream within the trill window note to note is cut into trills of the window, 6-5-4-3 6-5-4-3", () =>
+        {
+            // User report (S3RL - play it loud at 61%, 33 notes 39.5 ms apart, trill window 40 ms, enhanced 4/8 keys): the stream
+            // rolled over all eight lanes. A trill is only the notes within the trill window of its first one (user rule), so it
+            // is two-note trills, on 5-6 and 3-4 in turn, the pattern's way: 6-5-4-3 again and again, as the user's own edit has it.
+            var generator = new NoteGenerator();
+            var rules = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 2, EightKeyBoundaryMs = 55, SixKeyBoundaryMs = 55,
+                FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, ChordsOnlyAboveFourKeys = true,
+                ExperimentalFeatures = true, EnhancedFourEightKeys = true };
+            var times = new[] { 0d, 300, 600, 900, 1200 }.Concat(Enumerable.Range(0, 33).Select(i => 1500 + i * 39.5)).ToArray();
+            foreach (var settings in new[] { rules, rules with { EnhancedFourEightKeys = false } })
+            {
+                var lanes = generator.Generate(times, settings).Skip(5).Select(n => n.Tile).ToArray();
+                var text = string.Join(" ", lanes);
+                var pairs = Enumerable.Range(0, 16).Select(k => (lanes[2 * k], lanes[2 * k + 1])).ToArray();
+                Assert(pairs.All(pair => pair is (6, 5) or (4, 3)) && pairs.Zip(pairs.Skip(1)).All(two => two.First != two.Second),
+                    $"Enhanced {settings.UseEnhancedFourEightKeys}: two-note trills 6-5 and 4-3 in turn: " + text);
+            }
+            // Four lanes keep the chain as one roll whatever its span (user rule), so nothing changes there.
+            var four = rules with { MaximumTileCount = 4 };
+            Assert(generator.Generate(times, four).Skip(5).Select(n => n.Tile).Distinct().Count() == 4, "Four lanes roll over all four");
         });
         yield return ("Enhanced 4/8 keys: singles keep to the four-key lanes themselves (d f j k), whatever is around them", () =>
         {
@@ -834,10 +857,12 @@ internal static class SimultaneousNoteTests
                 Assert(part.All(n => Hand(n) == Hand(part[0])), $"Run {run + 1} in one hand: " + string.Join(" ", part.Select(n => visible.IndexOf(n.Tile) + 1)));
                 if (run > 0) Assert(Hand(part[0]) != Hand(notes[(run - 1) * 8]), "Each new run takes the other hand");
             }
-            // A 39ms stream: rolls of the hand's four lanes, the pattern's own walk.
+            // A 39ms stream: a trill on eight lanes is only the notes within the trill window of its first one (user rule), so it
+            // is two-note trills on the table's pairs, 6-5 and 4-3 in turn (user report, S3RL - play it loud).
             var stream = generator.Generate(Enumerable.Range(0, 24).Select(i => i * 39d).ToArray(), hands).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
-            Assert(stream.All(lane => lane <= 4) || stream.All(lane => lane >= 5), "The stream stays in one hand: " + string.Join(" ", stream));
-            Assert(stream.Zip(stream.Skip(1)).All(p => p.Second == p.First - 1 || p.Second == p.First + 3), "It walks 4 3 2 1: " + string.Join(" ", stream));
+            var twos = stream.Chunk(2).ToArray();
+            Assert(twos.All(pair => pair.SequenceEqual([6, 5]) || pair.SequenceEqual([4, 3])) && twos.Zip(twos.Skip(1)).All(two => two.First[0] != two.Second[0]),
+                "Two-note trills 6-5 and 4-3 in turn: " + string.Join(" ", stream));
         });
         yield return ("On six and eight lanes too, a trill takes the pair between the hands only as a last resort", () =>
         {
@@ -918,8 +943,11 @@ internal static class SimultaneousNoteTests
                 var notes = generator.Generate(times.ToArray(), settings);
                 bool Tap(int i) => i >= 0 && i < notes.Count && !notes[i].StartsChord && (i == 0 || !notes[i - 1].StartsChord);
                 bool Close(int i) => notes[i + 1].HitTimeMs - notes[i].HitTimeMs <= settings.TrillWindowMs;
+                // On eight lanes a trill is only the notes within the trill window of its first one (user rule): a longer chain
+                // of three is a two-note trill and a single there, so it is not counted as a three-note trill.
+                bool Within(int from, int to) => shown.Count != 8 || notes[to].HitTimeMs - notes[from].HitTimeMs <= settings.TrillWindowMs;
                 bool Three(int i) => i >= 0 && i + 2 < notes.Count && Tap(i) && Tap(i + 1) && Tap(i + 2) && Close(i) && Close(i + 1)
-                    && !(Tap(i - 1) && Close(i - 1)) && !(i + 3 < notes.Count && Tap(i + 3) && Close(i + 2));
+                    && !(Tap(i - 1) && Close(i - 1)) && !(i + 3 < notes.Count && Tap(i + 3) && Close(i + 2)) && Within(i, i + 2);
                 var span = settings.PlaysByHand ? 4 : shown.Count;
                 for (var i = 0; i + 2 < notes.Count; i++)
                 {
@@ -927,7 +955,7 @@ internal static class SimultaneousNoteTests
                     if (!Tap(i) || (Tap(i - 1) && Close(i - 1))) continue;
                     var end = i;
                     while (end + 1 < notes.Count && Tap(end + 1) && Close(end)) end++;
-                    if (end - i + 1 is < 3 or > 4) continue;
+                    if (end - i + 1 is < 3 or > 4 || !Within(i, end)) continue;
                     var lanes = Enumerable.Range(i, end - i + 1).Select(k => shown.IndexOf(notes[k].Tile)).ToArray();
                     if (Three(i)) rolls++;
                     Assert(!(lanes.Zip(lanes.Skip(1)).All(pair => pair.Second - pair.First == 1) && lanes[0] % span != 0),

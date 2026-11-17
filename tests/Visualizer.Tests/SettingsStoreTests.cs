@@ -214,6 +214,31 @@ internal static class SettingsStoreTests
             Throws<ArgumentOutOfRangeException>(() => storage.WriteJudgmentEase(0.5));
         }),
 
+        ("The game's key limiter is told this app's lane keys for the maximum tile count and its reset key, as Unity names", () =>
+        {
+            // User request: while the visualizer runs, the game counts only its keys: four on four lanes, eight on eight, and
+            // the reset key (Enter). The linker reads Unity key names from the store's home, as it reads the judgment ease.
+            var four = new VisualizerSettings { MaximumTileCount = 4, LaneKeys = "A S D F J K L ;", ResetKey = "Enter" };
+            Equal(string.Join(" ", Visualizer.App.Input.GameKeys.For(four)), "D F J K Return");
+            Equal(string.Join(" ", Visualizer.App.Input.GameKeys.For(four with { MaximumTileCount = 8 })), "A S D F J K L Semicolon Return");
+            Equal(string.Join(" ", Visualizer.App.Input.GameKeys.For(four with { MaximumTileCount = 6 })), "S D F J K L Return");
+            Equal(string.Join(" ", Visualizer.App.Input.GameKeys.For(four with { LaneKeys = "1 2 3 4 5 6 7 8", ResetKey = "Space" })), "Alpha3 Alpha4 Alpha5 Alpha6 Space");
+            // A lane key Unity has no name for leaves the game's own list: better that than a lane key that never counts.
+            Equal(Visualizer.App.Input.GameKeys.For(four with { LaneKeys = "A S PrintScreen F J K L ;" }).Count, 0);
+            Equal(Visualizer.App.Input.GameKeys.UnityName(System.Windows.Input.Key.OemQuotes), "Quote");
+            Equal(Visualizer.App.Input.GameKeys.UnityName(System.Windows.Input.Key.PrintScreen), null);
+
+            var home = Path.Combine(artifactRoot, "keys-home");
+            if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
+            var storage = AppStorage.At(home);
+            storage.WriteKeyLimiter(Visualizer.App.Input.GameKeys.For(four));
+            Equal(File.ReadAllText(Path.Combine(home, "key-limiter.txt")), "D F J K Return");
+            storage.WriteKeyLimiter([]);
+            Equal(File.ReadAllText(storage.KeyLimiterPath), "");
+            Assert(!File.Exists(storage.KeyLimiterPath + ".tmp"), "Nothing half written is left");
+            Throws<ArgumentException>(() => storage.WriteKeyLimiter(["D", "F J"]));
+        }),
+
         ("Redirects are kept in redirects.json by song family, and a file this version cannot read is refused", () =>
         {
             // User request: the songs link auto loads in place of others stay across runs, as pins do.

@@ -43,6 +43,24 @@ public sealed class AppStorage
         File.WriteAllText(temporary, scale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
         File.Move(temporary, JudgmentEasePath, overwrite: true);
     }
+    /// <summary>The keys the linker gives the game's key limiter while this app runs, in the store's home as the ease is.</summary>
+    public string KeyLimiterPath => Path.Combine(DefaultRoot, "key-limiter.txt");
+
+    /// <summary>
+    /// Tells the linker the keys for the game's key limiter (user request): Unity key names on one line, none to leave the
+    /// game's own list. Written whole and then swapped in, so the mod never reads half a list.
+    /// </summary>
+    public void WriteKeyLimiter(IEnumerable<string> unityKeyNames)
+    {
+        ArgumentNullException.ThrowIfNull(unityKeyNames);
+        var names = unityKeyNames.ToArray();
+        if (names.Any(name => name.Length == 0 || !name.All(char.IsAsciiLetterOrDigit))) throw new ArgumentException("Unity key names only.", nameof(unityKeyNames));
+        Directory.CreateDirectory(DefaultRoot);
+        var temporary = KeyLimiterPath + ".tmp";
+        File.WriteAllText(temporary, string.Join(" ", names));
+        File.Move(temporary, KeyLimiterPath, overwrite: true);
+    }
+
     public string CacheDirectory => Path.Combine(Root, "map-cache");
     public bool UsesDefaultRoot => Same(Root, DefaultRoot);
 

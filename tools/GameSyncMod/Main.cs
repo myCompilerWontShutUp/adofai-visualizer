@@ -7,8 +7,9 @@ namespace AdofaiVisualizerSync
     /// <summary>
     /// Unity Mod Manager entry point. The mod reads the game's own playback state and sends it to the visualizer; it writes
     /// no game field and synthesises no input (AGENTS.md rule 6, docs/game-sync-plan.md). Its one change to the game is the
-    /// judgment ease the user asked for (<see cref="JudgmentEase"/>), which is 1, the game's own judgment, unless set, and the
-    /// error meter's ticks put in the zones of their grades (<see cref="ErrorMeterTicks"/>, display only).
+    /// judgment ease the user asked for (<see cref="JudgmentEase"/>), which is 1, the game's own judgment, unless set, the
+    /// error meter's ticks put in the zones of their grades (<see cref="ErrorMeterTicks"/>, display only), and the key
+    /// limiter answered with the visualizer's keys while it runs (<see cref="KeyLimiter"/>, never saved).
     /// </summary>
     public static class Main
     {
@@ -49,6 +50,7 @@ namespace AdofaiVisualizerSync
                 Started();
                 JudgmentEase.Start(line => modEntry.Logger.Log(line));
                 ErrorMeterTicks.Start(line => modEntry.Logger.Log(line));
+                KeyLimiter.Start(line => modEntry.Logger.Log(line));
             }
             else
             {
@@ -57,6 +59,7 @@ namespace AdofaiVisualizerSync
                 KeyViewer.Release();
                 JudgmentEase.Stop();
                 ErrorMeterTicks.Stop();
+                KeyLimiter.Stop();
             }
             return true;
         }
@@ -68,6 +71,7 @@ namespace AdofaiVisualizerSync
             KeyViewer.Release();
             JudgmentEase.Stop();
             ErrorMeterTicks.Stop();
+            KeyLimiter.Stop();
             return true;
         }
 
@@ -92,6 +96,7 @@ namespace AdofaiVisualizerSync
                 // Independent of the sync: it follows the window, not the song, so a game update that moves a field and
                 // stops the reading below leaves this working.
                 KeyViewer.Follow();
+                KeyLimiter.Frame();
             }
             catch (Exception error)
             {

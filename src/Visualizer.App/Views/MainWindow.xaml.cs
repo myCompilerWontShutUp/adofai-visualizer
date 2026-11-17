@@ -70,6 +70,7 @@ public partial class MainWindow : Window, ICmdHost
         LoadStoredSettings();
         SpeakConsole();
         TellLinkerEase(_model.Settings.JudgmentEaseScale);
+        TellLinkerKeys(_model.Settings);
         _model.ForgetSettingsHistory();
         _model.SettingsCommitted += SettingsCommitted;
         ApplyTheme();
@@ -136,8 +137,9 @@ public partial class MainWindow : Window, ICmdHost
             _input.KeyPressed -= HandleObservedKey;
             _input.KeyReleased -= HandleReleasedKey;
             StopGameSync();
-            // The game plays with its own judgment again once this app is gone.
+            // The game plays with its own judgment and its own key limiter again once this app is gone.
             TellLinkerEase(1);
+            TellLinkerKeys(null);
             // Taken on this thread, so it goes back on this thread.
             _scheduling?.Dispose();
             _scheduling = null;
@@ -1136,6 +1138,7 @@ public partial class MainWindow : Window, ICmdHost
         UpdateBindings();
         SaveSettings(_model.Settings);
         TellLinkerEase(_model.Settings.JudgmentEaseScale);
+        TellLinkerKeys(_model.Settings);
         PrepareSettings();
     }
 
@@ -1148,6 +1151,18 @@ public partial class MainWindow : Window, ICmdHost
         if (!UseAppStore) return;
         try { Storage.WriteJudgmentEase(scale); }
         catch (Exception error) when (IsExpectedError(error) || error is ArgumentOutOfRangeException)
+            { _model.SetMessage(_model.Text.Format("SettingsWriteFailed", error.Message)); }
+    }
+
+    /// <summary>
+    /// Tells the linker the keys for the game's key limiter (user request): this app's lane keys for the maximum tile count
+    /// and its reset key while it runs, none once it closes (<see cref="GameKeys.For"/>, <see cref="AppStorage.WriteKeyLimiter"/>).
+    /// </summary>
+    private void TellLinkerKeys(VisualizerSettings? settings)
+    {
+        if (!UseAppStore) return;
+        try { Storage.WriteKeyLimiter(settings is null ? [] : GameKeys.For(settings)); }
+        catch (Exception error) when (IsExpectedError(error) || error is ArgumentException)
             { _model.SetMessage(_model.Text.Format("SettingsWriteFailed", error.Message)); }
     }
 

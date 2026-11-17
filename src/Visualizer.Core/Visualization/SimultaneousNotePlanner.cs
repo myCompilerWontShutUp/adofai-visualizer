@@ -90,7 +90,7 @@ internal static class SimultaneousNotePlanner
             while (end + 1 < groups.Count && Tap(end + 1) && Close(end)) end++;
             var first = i;
             var at = i;
-            foreach (var piece in ChainPieces(end - i + 1, k => groups[first + k + 1].TimeMs - groups[first + k].TimeMs, cap))
+            foreach (var piece in RollPieces(end - i + 1, k => groups[first + k + 1].TimeMs - groups[first + k].TimeMs, settings))
             {
                 if (piece >= 2)
                 {
@@ -119,6 +119,34 @@ internal static class SimultaneousNotePlanner
     /// followed by a sixteenth is half again as long).
     /// </summary>
     internal const double RollBreakFactor = 1.25;
+
+    /// <summary>
+    /// The rolls a chain of <paramref name="count"/> notes is played as, in order. On eight lanes a trill is only the notes
+    /// within the trill window of its first one (user rule; user report, S3RL - play it loud: a 39.5 ms stream rolled over
+    /// all eight lanes where it reads 6-5-4-3 6-5-4-3): the chain is cut greedily from its first note where the span would
+    /// pass the window, and each piece is a trill of its own, on a chord's places. Elsewhere a chain is one roll whatever its
+    /// span (user rule: a b c is a three-note trill), cut by <see cref="ChainPieces"/>; each eight-lane piece is cut so too.
+    /// </summary>
+    internal static List<int> RollPieces(int count, Func<int, double> gapAfter, VisualizerSettings settings)
+    {
+        var cap = RollLanes(settings);
+        if (settings.GetVisibleTiles().Count != 8 || !(settings.TrillWindowMs > 0)) return ChainPieces(count, gapAfter, cap);
+        var pieces = new List<int>();
+        for (var start = 0; start < count;)
+        {
+            var length = 1;
+            var span = 0.0;
+            while (start + length < count && span + gapAfter(start + length - 1) <= settings.TrillWindowMs)
+            {
+                span += gapAfter(start + length - 1);
+                length++;
+            }
+            var from = start;
+            pieces.AddRange(ChainPieces(length, k => gapAfter(from + k), cap));
+            start += length;
+        }
+        return pieces;
+    }
 
     internal static List<int> ChainPieces(int count, Func<int, double> gapAfter, int cap)
     {
@@ -268,7 +296,7 @@ internal static class SimultaneousNotePlanner
             while (end + 1 < result.Count && Tap(end + 1) && Trill(end)) end++;
             var first = start;
             var at = start;
-            foreach (var piece in ChainPieces(end - start + 1, k => result[first + k + 1].HitTimeMs - result[first + k].HitTimeMs, RollLanes(settings)))
+            foreach (var piece in RollPieces(end - start + 1, k => result[first + k + 1].HitTimeMs - result[first + k].HitTimeMs, settings))
             {
                 rollFrom[at] = piece;
                 at += piece;

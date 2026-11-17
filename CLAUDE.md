@@ -57,7 +57,7 @@ src/Visualizer.Application/
 src/Visualizer.Infrastructure/
   Maps/ReadOnlyDirectoryMapSource      .adofai 열거·읽기만, 루트 탈출·reparse point 거부
   Cache/WorkspaceMapCache              <저장소>/map-cache/library.json, tmp → 원자 교체, FindRepositoryRoot
-  Storage/AppStorage                   저장소 결정(%LOCALAPPDATA%\AdofaiVisualizer · 지정 폴더), settings.json, data-root.txt, last-version.txt
+  Storage/AppStorage                   저장소 결정(%LOCALAPPDATA%\AdofaiVisualizer · 지정 폴더), settings.json, data-root.txt, last-version.txt, 링커용 judgment-ease.txt·key-limiter.txt(`GameKeys.For`가 레인·리셋 키를 Unity 이름으로)
   Storage/StoreMove                    옛 .local/app-data를 공유 저장소로 한 번 복사하며 곡 id(경로 해시)를 새 경로로 다시 씀
   Storage/MapLibrary                   maps/{base,custom,edited,removed}
   Storage/NoteEditStore                maps/edited/<곡>/<슬롯>/{원본.adofai, edit.json}
@@ -86,7 +86,7 @@ src/Visualizer.App/
   Input/           ControlBindings, KeyNames, KeyCaptureBox, PlaybackButton, LinkInspection(+InspectRun·InspectPress)
   Localization/    UiText(XAML Text[key], 코드 Format)
 tests/Visualizer.Tests/   실행형 하네스 (xUnit 없음)
-tools/GameSyncMod/        링커 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter · JudgmentEase(판정 완화) · ErrorMeterTicks + MeterUnits(게임 판정 막대 눈금, 표시만) — Harmony 패치는 이 둘뿐. Info.json은 빌드가 만듦
+tools/GameSyncMod/        링커 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter · JudgmentEase(판정 완화) · ErrorMeterTicks + MeterUnits(게임 판정 막대 눈금, 표시만) · KeyLimiter(게임 키 제한을 비주얼라이저 키로, 실행 중일 때만) — Harmony 패치는 이 셋뿐. Info.json은 빌드가 만듦
 plugins/linker/           빌드된 링커(커밋함)
 update.ps1                저장소 쪽 일의 유일한 스크립트: -Check · 받기 · -Force -Version · -Reinstall · -Scan · -LinkerGame · 다시 띄우기
 Install.cmd / Uninstall.cmd / uninstall.ps1   더블클릭 설치·제거 (AGENTS 안전 규칙 2)
@@ -130,7 +130,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - 실험적 기능은 `ExperimentalFeatures`가 켜져야 적용: `UseChordAvoidBefore`(`Place`가 앞 단타를 옮김), `UseRestartOnRun`(`TilePatternCursor.RestartCycle`). `NextIntervalTiles`는 고급 설정. `UseChordSectionLanes`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일 읽기용. 향상된 4/8키(`UseEnhancedFourEightKeys`): 단타 상한은 `SinglesUpToFourKeys`(4키 초과는 동타만과 공유, 마법진 고정 타일 수도), 단타 레인은 `GetSingleTiles`(1·2·4키 패턴 타일; 이때 `PlaysByHand`는 꺼지고 4동타 손 번갈아는 `Place`의 `hand`가 따로), 트릴은 `RollLanes`가 화면 레인 수.
 - **배치 코드**: `NoteGenerator`(묶음·키 수 `unit`·`crowded`·`QuickReturnMs`·`busyUntil`) → `TilePatternCursor`(`FreshStart`·`OpenTrill`·`OpenRoll`·`RollHead`·`BesideTrill`·`RestartCycle`) → `SimultaneousNotePlanner.Place`(`Assign`+`Flow`·`Shift`·`LockChords`·`SplitTrills`/`LayRoll`). 트릴 묶음 `TrillRuns`, 롱노트 레인 `HeldUntil`. 함수별 역할은 `docs/code-map.md`.
 - 묶음은 `SimultaneousNotePlanner.Group`이 만들고 화면 + 여분 레인 수에서 자릅니다(나머지는 다음 묶음). 트릴 판정으로 이어진 체인이 동타 판정을 넘으면 같은 시각(`SameInstantMs`)끼리만 묶음(`loose`).
-- 굴림의 패턴 걸음은 `WalksPattern`(패턴 3레인 이상·굴림 길이 이상), 굴림 레인 수 `RollLanes`(한 손이면 4, 향상된 4/8키면 화면 전부). 8레인 트릴은 표의 자리 먼저: 2노트는 `SplitTrills`의 `pairs`·`anywhere`, 3노트 이상은 `LayRoll`의 `InTable`, 표가 막히면 `TableFree`로 판정 간격 안 노트만 표에 두고 나머지는 따로(`LayRoll(…, table: false)`가 예전 규칙). 가운데 쌍은 `IsTrillPair`(짝수 4레인 이상), 트릴의 가운데 쌍 설정은 `TrillCenterPair`(계산 값 `TrillCenterLast`·`TrillCenterNever`). 트릴 뒤 단타가 트릴 레인으로 돌아오지 않게 하는 곳은 커서 `BesideTrill`(굴림 전체 `_lastRoll`)·`Shift`의 `KeepsTrills`·`SplitTrills`의 `ClearsSingle`과 단타 옮기기. 긴 트릴 체인은 `ChainPieces`가 리듬으로 자르고, 이어지는 같은 길이 굴림은 같은 레인(`OpenRoll`·`LayRoll`의 `Again`·`rollRun`), 반대 굴림은 끝 레인에서만(`AtEdge`). 동타 구간 단타는 `Assign`의 `WalksOn`(실제 친 레인에서 이어 감)·`WalksAround`(연타 속도로 한 바퀴 지난 걸음 레인은 쉰 레인보다 먼저)·`ChordWalk`(동타 뒤 패턴 쪽, 끝 쌍이면 돌아감)·쉰 동타 레인 재사용(`RestedChordLane`), `Flow.Walk`는 블록 패턴.
+- 굴림의 패턴 걸음은 `WalksPattern`(패턴 3레인 이상·굴림 길이 이상), 굴림 레인 수 `RollLanes`(한 손이면 4, 향상된 4/8키면 화면 전부). 8레인 트릴은 표의 자리 먼저: 2노트는 `SplitTrills`의 `pairs`·`anywhere`, 3노트 이상은 `LayRoll`의 `InTable`, 표가 막히면 `TableFree`로 판정 간격 안 노트만 표에 두고 나머지는 따로(`LayRoll(…, table: false)`가 예전 규칙). 가운데 쌍은 `IsTrillPair`(짝수 4레인 이상), 트릴의 가운데 쌍 설정은 `TrillCenterPair`(계산 값 `TrillCenterLast`·`TrillCenterNever`). 트릴 뒤 단타가 트릴 레인으로 돌아오지 않게 하는 곳은 커서 `BesideTrill`(굴림 전체 `_lastRoll`)·`Shift`의 `KeepsTrills`·`SplitTrills`의 `ClearsSingle`과 단타 옮기기. 긴 트릴 체인은 `RollPieces`(8레인은 먼저 첫 노트에서 트릴 판정 안까지씩) → `ChainPieces`가 리듬으로 자르고, 이어지는 같은 길이 굴림은 같은 레인(`OpenRoll`·`LayRoll`의 `Again`·`rollRun`), 반대 굴림은 끝 레인에서만(`AtEdge`). 동타 구간 단타는 `Assign`의 `WalksOn`(실제 친 레인에서 이어 감)·`WalksAround`(연타 속도로 한 바퀴 지난 걸음 레인은 쉰 레인보다 먼저)·`ChordWalk`(동타 뒤 패턴 쪽, 끝 쌍이면 돌아감)·쉰 동타 레인 재사용(`RestedChordLane`), `Flow.Walk`는 블록 패턴.
 - 8레인 한 손(`PlaysByHand`, 8레인이면 언제나): `VisualizerSettings.GetPattern(mode, hand)`·`HandOf`·`GetPatternFor`, 커서 `_hand`·`SwitchHand`(새 연타, `NoteGenerator`의 `RunGapFactor`)·`Neighbour`가 손을 넘지 않음, 플래너 `blockPreferred`·`Flow.ByHand`·`LayRoll`의 `byHand`.
 - 4키 초과는 동타만(`ChordsOnlyAboveFourKeys`): `NoteGenerator`의 `gapCap`·`Pick`(간격 모드 상한)과 넓은 동타의 `mode`(그 노트만, 커서는 그대로). 8레인 4동타 한 손: `Place`의 `oneHand`·`lastHand` → `Assign(hand)`가 첫 멤버를 레인 1·5 순으로 정렬(후보에 화면 레인 전부).
 - 트릴 색은 저장된 표시 없이 그릴 때 `TrillNotes.IsTrill`(`NoteField.BrushOf`·`NoteEditField`)로 정합니다(동타 아래 순위).
