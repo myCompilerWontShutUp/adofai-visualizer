@@ -63,6 +63,7 @@ public partial class SettingsPanel
             _judgmentMode.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentModes, settings.JudgmentBarMode.Trim()));
             _judgmentDifficulty.SelectedIndex = Math.Max(0, Array.IndexOf(JudgmentDifficulties, settings.JudgmentBarDifficulty.Trim()));
             _judgmentAverage.IsChecked = settings.ShowJudgmentAverage;
+            _fixedBar.IsChecked = settings.FixedJudgmentBar;
             // Not a row of its own: the song list window edits it, so the dialog only carries the value through Apply.
             SongListFields = string.Join(' ', settings.GetSongListFields());
             _songGroup.SelectedIndex = Enum.TryParse<SongGroupField>(settings.SongGroup, ignoreCase: true, out var group) ? (int)group : (int)SongGroupField.All;
@@ -474,6 +475,7 @@ public partial class SettingsPanel
             JudgmentBarMode = JudgmentModes[Math.Clamp(_judgmentMode.SelectedIndex, 0, JudgmentModes.Length - 1)],
             JudgmentBarDifficulty = JudgmentDifficulties[Math.Clamp(_judgmentDifficulty.SelectedIndex, 0, JudgmentDifficulties.Length - 1)],
             ShowJudgmentAverage = _judgmentAverage.IsChecked == true,
+            FixedJudgmentBar = _fixedBar.IsChecked == true,
             JudgmentAverageCount = Whole(nameof(VisualizerSettings.JudgmentAverageCount)),
             JudgmentEaseScale = Number(nameof(VisualizerSettings.JudgmentEaseScale)),
             MagicCircleFixedTiles = _magicFixedTiles.IsChecked == true,

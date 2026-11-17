@@ -102,6 +102,8 @@
   // Practice only: the game's minimum hit times times this (1 to 3); 1 keeps the game's own judgment. The linker applies it.
   "JudgmentEaseScale": 1,
   "ShowJudgmentAverage": true,
+  // The judgment bar at the game's fixed proportions with the counted window's time at its ends; off draws it to scale.
+  "FixedJudgmentBar": true,
   "EnableTilePreference": false,
   "TwoKeyOrder": "2 1",
   "FourKeyOrder": "4 3 2 1",

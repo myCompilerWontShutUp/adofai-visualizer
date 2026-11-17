@@ -60,7 +60,7 @@ internal static class SettingsStoreTests
             SixKeyOrder = "1 2 3 4 5 6", EightKeyOrder = "1 2 3 4 5 6 7 8", InitialTile = 3,
             AutoCheckpointAdvance = false, AutoCheckpointOnLoad = false, JudgmentLineHeightDip = 100, KeyPressWindowMs = 120,
             ShowInputEffect = false, ShowMissEffect = false,
-            JudgmentBarMode = "Always", JudgmentBarDifficulty = "Strict", JudgmentAverageCount = 5, ShowJudgmentAverage = false, JudgmentEaseScale = 1.5,
+            JudgmentBarMode = "Always", JudgmentBarDifficulty = "Strict", JudgmentAverageCount = 5, ShowJudgmentAverage = false, FixedJudgmentBar = false, JudgmentEaseScale = 1.5,
             MagicCircleJudgmentLine = true, MagicCircleNoteCount = 30, MagicCircleMaxIntervalMs = 150,
             MagicCircleFadeInMs = 300, MagicCircleLeadMs = 400, MagicCircleFadeOutMs = 200,
             MagicCircleFixedTiles = false, MagicCircleTileCount = 2, MagicCircleChords = false,

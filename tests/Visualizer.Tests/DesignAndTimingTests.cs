@@ -252,7 +252,8 @@ internal static class DesignAndTimingTests
             // paints it, so 30 ms late lands in yellow. Bar 280 px wide in a 400 px field: centre 200, 140 px a side.
             var barClock = new Clock();
             var barSession = new PlaybackSession(barClock);
-            var barSettings = settings with { JudgmentBarMode = "Always", ShowJudgmentAverage = false };
+            // Drawn to scale (the fixed bar switched off).
+            var barSettings = settings with { JudgmentBarMode = "Always", ShowJudgmentAverage = false, FixedJudgmentBar = false };
             barSession.LoadParsedTimeline(new ParsedTimeline([0, 150, 300, 450], hitFloors: [1, 2, 3, 4], hitTempos: [400, 400, 400, 400]), barSettings);
             barSession.Toggle();
             var barJudge = new NotePressJudge();
@@ -285,6 +286,35 @@ internal static class DesignAndTimingTests
             Assert(Yellow(At(200 + 64)), $"Late perfect at 30 ms, inside the half the game paints green: {At(264)}");
             Assert(Red(At(200 + 100)), $"Very late at 46 ms: {At(300)}");
             Assert(Yellow(At(200 - 64)), $"The same on the early side: {At(136)}");
+
+            // Fixed (user request, on by default): the game's picture whatever the tile, 12.5 / 30 / 45 / 60 of a 140 px side,
+            // and the ends say the tile's counted window, early negative.
+            var fixedClock = new Clock();
+            var fixedSession = new PlaybackSession(fixedClock);
+            fixedSession.LoadParsedTimeline(new ParsedTimeline([0, 150, 300, 450], hitFloors: [1, 2, 3, 4], hitTempos: [400, 400, 400, 400]),
+                barSettings with { FixedJudgmentBar = true });
+            fixedSession.Toggle();
+            var fixedJudge = new NotePressJudge();
+            fixedSession.Presses = fixedJudge;
+            fixedSession.Start();
+            fixedClock.NowMs = 140;
+            fixedJudge.Press(fixedSession, fixedSession.Notes[1].Tile, 150);
+            field.Session = fixedSession;
+            field.Judge = fixedJudge;
+            field.Tick();
+            field.InvalidateVisual();
+            field.UpdateLayout();
+            var fixedBitmap = new RenderTargetBitmap(400, 600, 96, 96, PixelFormats.Pbgra32);
+            fixedBitmap.Render(field);
+            fixedBitmap.CopyPixels(pixels, 400 * 4, 0);
+            Assert(Green(At(200 + 50)) && Green(At(200 - 50)), $"Perfect to half a side: {At(250)} {At(150)}");
+            Assert(Yellow(At(200 + 90)) && Yellow(At(200 - 90)), $"Early/late perfect to three quarters: {At(290)} {At(110)}");
+            Assert(Red(At(200 + 125)) && Red(At(200 - 125)), $"Early/late past that: {At(325)} {At(75)}");
+            var english = barSettings with { FixedJudgmentBar = true, Language = "english" };
+            Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 1)), ("Early -65ms", "Late +65ms"));
+            Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 0, 1.4)), ("Early -127ms", "Late +127ms"));
+            Equal(NoteField.BarLabels(english with { FixedJudgmentBar = false }, HitGrading.Windows(400, 1, 1)), ("Early", "Late"));
+            Equal(NoteField.BarLabels(english with { Language = "korean" }, HitGrading.Windows(400, 1, 2)), ("빠름 -50ms", "느림 +50ms")); // 60 degrees at 400 BPM, past Strict's 40 ms
         });
 
         yield return ("The judgment ease widens the game's minimum times only, and the bar draws what the game applies", () =>

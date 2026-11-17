@@ -101,6 +101,7 @@ public static class SettingPaths
             new("judgment", "bar", nameof(VisualizerSettings.JudgmentBarMode), Choice),
             new("judgment", "window", nameof(VisualizerSettings.JudgmentBarDifficulty), Choice),
             new("judgment", "average", nameof(VisualizerSettings.ShowJudgmentAverage), Toggle),
+            new("judgment", "fixed", nameof(VisualizerSettings.FixedJudgmentBar), Toggle),
             new("judgment", "average-notes", nameof(VisualizerSettings.JudgmentAverageCount), Whole, "notes"),
             new("judgment", "ease", nameof(VisualizerSettings.JudgmentEaseScale), Number, "x"),
             new("timing", "start-delay", nameof(VisualizerSettings.StartDelayMs), Number, "ms"),

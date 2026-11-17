@@ -230,6 +230,7 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.AutoCheckpointOnLoad)] = ("StateAutoOnLoadOn", "StateAutoOnLoadOff"),
         [nameof(VisualizerSettings.AutoSaveSettings)] = ("StateAutoSaveOn", "StateAutoSaveOff"),
         [nameof(VisualizerSettings.ShowJudgmentAverage)] = ("StateAverageOn", "StateAverageOff"),
+        [nameof(VisualizerSettings.FixedJudgmentBar)] = ("StateFixedBarOn", "StateFixedBarOff"),
         [nameof(VisualizerSettings.ChordAvoidBeforeLanes)] = ("StateChordBeforeOn", "StateChordBeforeOff"),
         [nameof(VisualizerSettings.RestartPatternOnRun)] = ("StateRunRestartOn", "StateRunRestartOff"),
         [nameof(VisualizerSettings.EnhancedChordRules)] = ("StateEnhancedChordsOn", "StateEnhancedChordsOff"),

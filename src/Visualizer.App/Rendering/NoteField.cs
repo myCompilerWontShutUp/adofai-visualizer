@@ -460,13 +460,15 @@ public sealed class NoteField : FrameworkElement
             ?? (NextNoteAt(session.Notes, timeline) is int next ? session.HitWindowsOf(next, difficulty) : null)
             ?? HitGrading.Fallback(session.GameDifficulty ?? difficulty, session.JudgmentEase);
         var half = barWidth / 2;
-        double Inner(double ms) => half * Math.Clamp(ms / zones.CountedMs, 0, 1);
+        // Fixed (user request): the zones keep the game's picture whatever the tile, and the ends say the real times.
+        var layout = settings.FixedJudgmentBar ? FixedBar : zones;
+        double Inner(double ms) => half * Math.Clamp(ms / layout.CountedMs, 0, 1);
         var plate = new Rect(rect.X - 6, rect.Y - 5, rect.Width + 12, rect.Height + 20);
         dc.DrawRoundedRectangle(JudgmentPlateBrush, JudgmentPlatePen, plate, 7, 7);
         dc.DrawRoundedRectangle(JudgmentCountedBrush, null, rect, 5, 5);
-        dc.DrawRectangle(JudgmentPerfectBrush, null, new Rect(centerX - Inner(zones.PerfectMs), rect.Top, 2 * Inner(zones.PerfectMs), MagicBarHeight));
-        dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - Inner(zones.PureMs), rect.Top, 2 * Inner(zones.PureMs), MagicBarHeight));
-        dc.DrawRectangle(JudgmentExactBrush, null, new Rect(centerX - Inner(zones.XPerfectMs), rect.Top, 2 * Inner(zones.XPerfectMs), MagicBarHeight));
+        dc.DrawRectangle(JudgmentPerfectBrush, null, new Rect(centerX - Inner(layout.PerfectMs), rect.Top, 2 * Inner(layout.PerfectMs), MagicBarHeight));
+        dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - Inner(layout.PureMs), rect.Top, 2 * Inner(layout.PureMs), MagicBarHeight));
+        dc.DrawRectangle(JudgmentExactBrush, null, new Rect(centerX - Inner(layout.XPerfectMs), rect.Top, 2 * Inner(layout.XPerfectMs), MagicBarHeight));
         dc.DrawLine(palette.MagicCenter, new Point(centerX, rect.Top + 2), new Point(centerX, rect.Bottom - 2));
         // Each press is placed by its own tile's edges onto the zones drawn (HitWindows.Place), so it always sits in the zone
         // of its grade even when the bar shows another tempo's windows (user report: red marks inside the green on a mixed
@@ -477,7 +479,7 @@ public sealed class NoteField : FrameworkElement
             var age = timeline - mark.DisplayTimeMs;
             if (age < 0 || age > MagicMarkMs) continue;
             var windows = WindowsOf(mark);
-            var x = centerX + windows.Place(mark.DeviationMs, zones) * (half - 3);
+            var x = centerX + windows.Place(mark.DeviationMs, layout) * (half - 3);
             dc.PushOpacity(1 - age / MagicMarkMs);
             // Taller than the bar and outlined, so a press is visible wherever it lands.
             dc.DrawRoundedRectangle(GradeBrush(mark.GameGrade ?? windows.Grade(mark.DeviationMs)), JudgmentMarkPen,
@@ -490,7 +492,7 @@ public sealed class NoteField : FrameworkElement
             var taken = Math.Min(settings.JudgmentAverageCount, recent.Count);
             var average = 0d;
             for (var i = recent.Count - taken; i < recent.Count; i++)
-                average += WindowsOf(recent[i]).Place(recent[i].DeviationMs, zones);
+                average += WindowsOf(recent[i]).Place(recent[i].DeviationMs, layout);
             average /= taken;
             var target = centerX + average * (half - 3);
             // Eased towards the average instead of snapping: a jumping arrow is harder to read than a moving one.
@@ -507,11 +509,29 @@ public sealed class NoteField : FrameworkElement
             dc.DrawGeometry(JudgmentArrowBrush, JudgmentMarkPen, arrow);
         }
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var fast = Label(Languages.Get(settings.Language, "MagicCircleFast"), held: false, pixelsPerDip);
-        var late = Label(Languages.Get(settings.Language, "MagicCircleSlow"), held: false, pixelsPerDip);
+        var (early, lateText) = BarLabels(settings, zones);
+        var fast = Label(early, held: false, pixelsPerDip);
+        var late = Label(lateText, held: false, pixelsPerDip);
         dc.DrawText(fast, new Point(rect.Left, rect.Bottom + 2));
         dc.DrawText(late, new Point(rect.Right - late.Width, rect.Bottom + 2));
         dc.Pop();
+    }
+
+    /// <summary>The game's own bar picture, a side of 60: middle band 12.5, perfect 30, early/late perfect 45 (user request).</summary>
+    private static readonly HitWindows FixedBar = new(60, 45, 30, 12.5);
+
+    /// <summary>
+    /// The words under the bar's ends: early and late, and with the fixed bar the counted window of the tile drawn, early
+    /// negative (user request: early -91ms, late +91ms). Public for tests.
+    /// </summary>
+    public static (string Early, string Late) BarLabels(VisualizerSettings settings, HitWindows windows)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(windows);
+        if (!settings.FixedJudgmentBar)
+            return (Languages.Get(settings.Language, "MagicCircleFast"), Languages.Get(settings.Language, "MagicCircleSlow"));
+        var ms = Math.Round(windows.CountedMs).ToString("0", CultureInfo.InvariantCulture);
+        return (Languages.Format(settings.Language, "MagicCircleFastMs", ms), Languages.Format(settings.Language, "MagicCircleSlowMs", ms));
     }
 
     /// <summary>Magic circle sections of a prepared note list, found once per note list and settings snapshot.</summary>

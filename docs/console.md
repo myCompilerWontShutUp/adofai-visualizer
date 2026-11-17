@@ -326,6 +326,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `judgment.bar` | JudgmentBarMode | 선택 |
 | `judgment.window` | JudgmentBarDifficulty | 선택 |
 | `judgment.average` | ShowJudgmentAverage | 토글 |
+| `judgment.fixed` | FixedJudgmentBar | 토글 (판정선 모양 고정: 게임 막대 비율 + 양 끝 판정 시간) |
 | `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
 | `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임에 적용; 설정판은 0.1 간격 슬라이더) |
 | `magic.notes` | MagicCircleNoteCount | 노트 수 |

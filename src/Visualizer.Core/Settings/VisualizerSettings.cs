@@ -312,6 +312,12 @@ public sealed record VisualizerSettings
     public double JudgmentEaseScale { get; init; } = Number(nameof(JudgmentEaseScale));
 
     public bool ShowJudgmentAverage { get; init; } = Flag(nameof(ShowJudgmentAverage));
+    /// <summary>
+    /// The judgment bar's zones at one fixed length, the game's own picture (user request): middle band 12.5, perfect 30,
+    /// early/late perfect 45, the end 60 of 60 a side. Each press still lands in the zone of its own grade, and the ends say
+    /// how long the counted window of the tile really is (early -91 ms, late +91 ms). Off, the zones are drawn to scale.
+    /// </summary>
+    public bool FixedJudgmentBar { get; init; } = Flag(nameof(FixedJudgmentBar));
 
     /// <summary>The bar's half window in milliseconds, from the difficulty (the game's counted floor).</summary>
     [JsonIgnore]

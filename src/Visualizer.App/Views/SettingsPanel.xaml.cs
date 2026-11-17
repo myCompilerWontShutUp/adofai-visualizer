@@ -107,6 +107,7 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _enhancedChords = new();
     private readonly CheckBox _enhancedKeys = new();
     private readonly CheckBox _judgmentAverage = new();
+    private readonly CheckBox _fixedBar = new();
     private readonly ComboBox _judgmentMode = new();
     private readonly ComboBox _judgmentDifficulty = new();
     private bool _loading = true;
@@ -280,6 +281,7 @@ public partial class SettingsPanel : UserControl
         AddSection("SectionJudgmentBar", "JudgmentBarHelp");
         AddField("Judgment bar", _judgmentMode, nameof(settings.JudgmentBarMode));
         AddField("Judgment window", _judgmentDifficulty, nameof(settings.JudgmentBarDifficulty), "JudgmentDifficultyHelp");
+        AddField("Fixed judgment bar", _fixedBar, nameof(settings.FixedJudgmentBar), "FixedBarHelp");
         AddField("Average arrow", _judgmentAverage, nameof(settings.ShowJudgmentAverage));
         AddText("Average of notes", nameof(settings.JudgmentAverageCount));
         // A slider in steps of 0.1, as the note scales are (user rule).
@@ -379,7 +381,7 @@ public partial class SettingsPanel : UserControl
         _immediateDownshift.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Checked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
-        foreach (var box in new[] { _chordLanes, _trillOne, _chordsAboveFour, _enhancedKeys })
+        foreach (var box in new[] { _chordLanes, _trillOne, _chordsAboveFour, _enhancedKeys, _fixedBar })
         {
             box.Checked += (_, _) => FormChanged();
             box.Unchecked += (_, _) => FormChanged();
