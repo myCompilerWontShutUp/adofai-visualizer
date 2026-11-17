@@ -10,7 +10,7 @@
   maps/edited/<원곡>/<슬롯>/   원본 사본 + edit.json
   maps/removed/                remove로 보관한 수정본 하나
   map-cache/library.json       파싱 결과
-  settings.json, songs.json, song-ids.json, song-marks.json, pins.json, reports/
+  settings.json, songs.json, song-ids.json, song-marks.json, pins.json, redirects.json, reports/
 ```
 
 ## 흐름

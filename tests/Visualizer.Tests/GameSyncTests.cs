@@ -911,6 +911,139 @@ internal static class GameSyncTests
             }
         });
 
+        yield return ("link auto loads the song a redirect puts in place of the game's, follows it, and goes back when it is erased", () =>
+        {
+            // User request: with a redirect on the game's song, link auto loads the other song, and when the loaded song is the
+            // one redirected it moves on at once. Its tiles are matched as the game's own are, and a refusal says so (user
+            // decision). A song picked by hand stays; changing the redirect of the game's song is acted on at once.
+            Visualizer.Application.Cache.MapCacheEntry Song(string id, string path) => new(id, @"C:\maps", path, id,
+                Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline(new[] { 0d, 500, 1000 }), Array.Empty<string>(), "", "test");
+            var original = Song("a", @"3011005213\main.adofai");
+            var other = Song("b", @"2924697157\main.adofai");
+            var name = "adofai-visualizer-sync-test-" + Guid.NewGuid().ToString("N");
+            MainWindow.GameSyncPipeName = name;
+            var window = EnglishWindow();
+            try
+            {
+                var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                var host = (ICmdHost)window;
+                window.Show();
+                Pump();
+                model.SetLibrary([original, other]);
+                model.SongIdMap = new Dictionary<string, string> { ["a"] = "10000001", ["b"] = "10000002" };
+                // The family the window keeps redirects by, as the app store would give it: the song's folder and file.
+                model.SongFamily = entry => entry.RelativePath.Split('\\')[0] + "/main.adofai";
+                Equal(host.SetRedirects(new Dictionary<string, string> { ["3011005213/main.adofai"] = "10000002" }), null);
+                model.LoadChosen(original, null);
+                host.GameSync(true, false, false);
+                host.GameSyncAuto(true);
+                using var client = new NamedPipeClientStream(".", name, PipeDirection.Out);
+                client.Connect(5000);
+                void Send(string line)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(line + "\n");
+                    client.Write(bytes, 0, bytes.Length);
+                    client.Flush();
+                }
+                void Level(string folder) =>
+                    Send("{\"v\":2,\"lvl\":\"C:\\\\Steam\\\\" + folder + "\\\\main.adofai\",\"times\":[0,500,1000,1500]}");
+                bool Frames(Func<bool> until, int ms = 5000)
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    while (watch.ElapsedMilliseconds < ms)
+                    {
+                        Pump();
+                        if (until()) return true;
+                        Thread.Sleep(10);
+                    }
+                    return false;
+                }
+                string Status() => string.Join(" ", host.GameSync(false, false, false));
+
+                // The loaded song is the one redirected: the game opening it loads the other in its place.
+                Level("3011005213");
+                Assert(Frames(() => model.LoadedEntry?.Id == "b"), "The redirect is loaded: " + model.LoadedEntry?.Id + " " + Status());
+                // link says so while it lasts; what the load itself said is in the log, as each attempt is.
+                Assert(Status().Contains("Redirect b is loaded in place of the game's song", StringComparison.Ordinal), Status());
+                Assert(host.LogLines().Any(line => line.Contains("loaded b in place of a", StringComparison.Ordinal)),
+                    string.Join(" | ", host.LogLines().TakeLast(8)));
+                // It is followed as the game's own would be: its tiles cannot match here, and the refusal shows.
+                Assert(Frames(() => model.Message == model.Text["GameAutoRefused"]), "The refusal shows: " + model.Message);
+                // Picked by hand while the game stays on that song: it stays.
+                model.LoadChosen(original, null);
+                Frames(() => false, 300);
+                Equal(model.LoadedEntry?.Id, "a");
+                // Erased while the game is on it: the game's own is what link auto wants, and it is loaded already.
+                Equal(host.SetRedirects(new Dictionary<string, string>()), null);
+                Frames(() => false, 300);
+                Equal(model.LoadedEntry?.Id, "a");
+                // Set again while the game is on it: acted on at once.
+                host.SetRedirects(new Dictionary<string, string> { ["3011005213/main.adofai"] = "10000002" });
+                Assert(Frames(() => model.LoadedEntry?.Id == "b"), "A new redirect is acted on: " + model.LoadedEntry?.Id);
+                // Erased with the redirect loaded: back to the game's own.
+                host.SetRedirects(new Dictionary<string, string>());
+                Assert(Frames(() => model.LoadedEntry?.Id == "a"), "Erasing it brings the game's song back: " + model.LoadedEntry?.Id);
+                Assert(!Status().Contains("Redirect ", StringComparison.Ordinal), "Nothing stands in now: " + Status());
+                // A redirect to a song no longer in the list loads the game's own and says why.
+                host.SetRedirects(new Dictionary<string, string> { ["3011005213/main.adofai"] = "19999999" });
+                Level("2924697157");
+                Assert(Frames(() => model.LoadedEntry?.Id == "b"), "Another song of the game is loaded: " + model.LoadedEntry?.Id);
+                Level("3011005213");
+                Assert(Frames(() => model.LoadedEntry?.Id == "a"), "The game's own is loaded: " + model.LoadedEntry?.Id);
+                Assert(host.LogLines().Any(line => line.Contains("(19999999) is not in the song list", StringComparison.Ordinal)),
+                    "A missing redirect says so: " + string.Join(" | ", host.LogLines().TakeLast(8)));
+            }
+            finally
+            {
+                window.Close();
+                MainWindow.GameSyncPipeName = NamedPipeGameSyncServer.PipeName;
+            }
+        });
+
+        yield return ("link auto raises the maximum tile count to what the game's song needs, at once and never down", () =>
+        {
+            // User rule: a song with an eight-note chord moved to by link auto plays on eight lanes, not cut onto six with spare
+            // lanes, straight from four; a song that needs fewer leaves the count alone. Each raise is a settings step of its own.
+            Visualizer.Application.Cache.MapCacheEntry Song(string id, double[] times) => new(id, @"C:\maps", id + @"\main.adofai", id,
+                Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline(times), Array.Empty<string>(), "", "test");
+            var octet = Song("eight", [0, 1, 2, 3, 4, 5, 6, 7, 600, 1200]);
+            var quintet = Song("five", [0, 1, 2, 3, 4, 600, 1200]);
+            var pair = Song("two", [0, 1, 600, 1200]);
+            var window = EnglishWindow();
+            try
+            {
+                var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
+                model.SetLibrary([octet, quintet, pair]);
+                model.ApplySettings(model.Settings with { MaximumTileCount = 4, ExtraLanes = true, SimultaneousWindowMs = 25 });
+                model.LoadForGame(octet);
+                Equal(model.Settings.MaximumTileCount, 8);
+                Equal(model.LoadedEntry?.Id, "eight");
+                Equal(model.Playback.Notes.Count, 10);
+                Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 8);
+                Equal(model.Message, model.Text.Format("AutoWiderLanes", 8));
+                // Never down: a two-note song keeps eight.
+                model.LoadForGame(pair);
+                Equal(model.Settings.MaximumTileCount, 8);
+                // Rollback takes the raise back.
+                model.RollBack();
+                Equal(model.Settings.MaximumTileCount, 4);
+                // Five notes at once need six lanes.
+                model.LoadForGame(quintet);
+                Equal(model.Settings.MaximumTileCount, 6);
+                Equal(model.Playback.Notes.Count, 7);
+                // Loading by hand never raises it: the song box's load asks as before.
+                model.ApplySettings(model.Settings with { MaximumTileCount = 4 });
+                model.LoadChosen(octet, null);
+                Equal(model.Settings.MaximumTileCount, 4);
+                // Found loaded so when link auto comes on, it gets the lanes as well, and only once.
+                Assert(model.WidenLoadedForGame(), "The song loaded by hand widens");
+                Equal(model.Settings.MaximumTileCount, 8);
+                Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 8);
+                Assert(!model.WidenLoadedForGame(), "Nothing more to do");
+            }
+            finally { window.Close(); }
+        });
+
         yield return ("link auto shows a refused cache on the main screen once, and clears it when matching succeeds", () =>
         {
             foreach (var language in new[] { "korean", "english" })
@@ -1089,6 +1222,63 @@ internal static class GameSyncTests
             Assert(!Visualizer.Infrastructure.Instances.SingleInstance.Name.Contains(':', StringComparison.Ordinal)
                 && Visualizer.Infrastructure.Instances.SingleInstance.Name.StartsWith(@"Local\", StringComparison.Ordinal),
                 "One name for the session: " + Visualizer.Infrastructure.Instances.SingleInstance.Name);
+        });
+
+        yield return ("The linker puts each tick of the game's error meter in the zone of its own grade", () =>
+        {
+            // User request: the game's meter scales a tick by the counted window alone onto a fixed picture (green to 45
+            // units, orange to 60, red past it, measured on the game's bar), so on fast tiles a late perfect sat in the middle
+            // of the green. The linker moves each tick so its own edges land on the picture's (MeterUnits, display only).
+            static void Near(double actual, double expected, string what) =>
+                Assert(Math.Abs(actual - expected) < 1e-9, $"{what}: {actual} instead of {expected}");
+            static double Units(double degrees, double x, double pure, double perfect, double counted) =>
+                AdofaiVisualizerSync.MeterUnits.Units(degrees, x, pure, perfect, counted);
+            // The angles' own ratios are the picture already: nothing moves.
+            foreach (var degrees in new[] { 0, 5, 12.5, 20, 30, 40, 45, 52, 60, -7, -33 })
+                Near(Units(degrees, 12.5, 30, 45, 60), degrees, "Already the picture's ratios");
+            // A fast tile at 400 BPM (Normal): counted 65 ms is 78 degrees, early/late perfect 30 ms is 36, perfect 25 ms
+            // is 30, the middle 1/60 s is 20. Late perfect starts past 30 degrees, which the game drew at 23 units.
+            Near(Units(30.01, 20, 30, 36, 78), 30 + 0.01 / 6 * 15, "Just past perfect is just past the picture's 30");
+            Near(Units(36, 20, 30, 36, 78), 45, "The early/late perfect edge on the green's edge");
+            Near(Units(-78, 20, 30, 36, 78), -60, "The counted edge on the orange's end");
+            Near(Units(20, 20, 30, 36, 78), 12.5, "The middle band's edge");
+            Assert(Units(90, 20, 30, 36, 78) > 60, "Past the counted window it stays past the end, where the game clamps it");
+            // A margin scale small enough to put the middle band past perfect keeps the edges in order.
+            Near(Units(25, 40, 25, 30, 60), 25.0 / 40 * 12.5, "Graded as the middle band (it comes first), so drawn in it");
+            Near(Units(50, 40, 25, 30, 60), 52.5, "And past it straight into early/late");
+            Equal(Units(10, 12.5, 30, 45, 0), 10d);
+
+            // With the judgment ease on as well (user rule): the linker takes the edges from the game's own
+            // GetAdjustedAngleBoundaryInDeg, which calls the GetMinimumTimes the ease patches (IL_0001; 192 bytes of IL, too
+            // big to be inlined past the patch), so the eased edges are the ones it places by. Every grade, at every ease,
+            // tempo, difficulty and margin scale, lands in its own zone of the picture.
+            foreach (var ease in new[] { 1, 1.5, 2.22, HitGrading.MaximumEase })
+                foreach (var bpm in new[] { 100.0, 180, 300, 600 })
+                    foreach (var scale in new[] { 0.5, 1, 2 })
+                        for (var difficulty = 0; difficulty < 3; difficulty++)
+                        {
+                            var windows = HitGrading.Windows(bpm, scale, difficulty, ease);
+                            double Degrees(double ms) => ms * 180 / (60000 / bpm);
+                            double[] edges = [windows.XPerfectMs, windows.PureMs, windows.PerfectMs, windows.CountedMs];
+                            for (var ms = -1.2 * windows.CountedMs; ms <= 1.2 * windows.CountedMs; ms += windows.CountedMs / 97.3)
+                            {
+                                // Exactly on an edge the game's open and closed sides decide; the picture has one line there.
+                                if (edges.Any(edge => Math.Abs(Math.Abs(ms) - edge) < 1e-6)) continue;
+                                var units = Units(Degrees(ms), Degrees(windows.XPerfectMs), Degrees(windows.PureMs),
+                                    Degrees(windows.PerfectMs), Degrees(windows.CountedMs));
+                                var size = Math.Abs(units);
+                                var (low, high) = windows.Grade(ms) switch
+                                {
+                                    HitGrade.XPerfect => (0.0, 12.5),
+                                    HitGrade.PerfectMinus or HitGrade.PerfectPlus => (12.5, 30.0),
+                                    HitGrade.EarlyPerfect or HitGrade.LatePerfect => (30.0, 45.0),
+                                    HitGrade.VeryEarly or HitGrade.VeryLate => (45.0, 60.0),
+                                    _ => (60.0, double.PositiveInfinity)
+                                };
+                                Assert(size >= low - 1e-9 && size <= high + 1e-9 && (ms == 0 || Math.Sign(units) == Math.Sign(ms)),
+                                    $"ease {ease}, {bpm} BPM, scale {scale}, difficulty {difficulty}: {ms:0.###} ms, {windows.Grade(ms)}, drawn at {units:0.###}");
+                            }
+                        }
         });
 
         yield return ("The game's judgment counts become the grades of the presses, by name or by the known orders", () =>

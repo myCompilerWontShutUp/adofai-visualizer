@@ -32,8 +32,11 @@ internal static class SixKeyTests
             var end = i;
             while (end + 1 < notes.Count && notes[end].StartsChord) end++;
             var lanes = Enumerable.Range(i, end - i + 1).Select(k => visible.IndexOf(notes[k].Tile)).Order().ToArray();
+            // Never the pair across the center on four and six lanes; on eight lanes only the table's places (user rule).
+            int[] table = lanes.Length switch { 2 => [2, 4], 3 => [1, 4], 4 => [0, 4], 5 => [1, 2], 6 => [0, 1, 2], 7 => [0, 1], _ => [0] };
             Assert(Enumerable.Range(i, end - i + 1).All(k => notes[k].HitTimeMs == notes[i].HitTimeMs) && lanes[^1] - lanes[0] == lanes.Length - 1
-                && (lanes.Length > 2 || !(visible.Count == 4 && lanes[0] == 1)),
+                && (lanes.Length > 2 || !((visible.Count is 4 or 6) && lanes[0] == visible.Count / 2 - 1))
+                && (visible.Count != 8 || table.Contains(lanes[0])),
                 $"Chord on lanes {string.Join("-", lanes.Select(lane => lane + 1))} (mode {notes[i].Mode}): " + string.Join(" ", notes.Select(n => n.Tile)));
             i = end;
         }
@@ -135,7 +138,7 @@ internal static class SixKeyTests
             Assert(mixed.Take(6).All(n => n.Mode == 6) && mixed.Skip(6).Take(4).All(n => n.Mode == 4), "Cycle boundary: " + string.Join(" ", mixed.Select(n => n.Mode)));
         });
 
-        yield return ("6K chords use the pattern's lane pairs; 4- and 6-lane screens never chord across pairs", () =>
+        yield return ("6K chords sit side by side, never on the center pair of four or six lanes, and eight lanes keep to the table", () =>
         {
             var generator = new NoteGenerator();
             var six = new VisualizerSettings { MaximumTileCount = 6, DynamicTiming = false };
@@ -148,8 +151,11 @@ internal static class SixKeyTests
             Equal(three.Count(n => n.StartsChord), 5);
             Sequence(three.Select(n => n.Tile).Order(), 2, 3, 4, 5, 6, 7);
             AssertPairs(three, six);
-            // Two chords and two singles in one 6K cycle: the chords take the preferred pairs, tiles 2-3 and 4-5.
-            AssertPreferred(generator.Generate(new[] { 0d, 1, 100, 101, 200, 300 }, six), six);
+            // Two chords and two singles in one 6K cycle: the first takes the preferred pair 1-2 (tiles 2-3), and neither the
+            // center pair 3-4 (user rule: no chord there any more, though the default preference names it).
+            var cycle = generator.Generate(new[] { 0d, 1, 100, 101, 200, 300 }, six);
+            AssertPairs(cycle, six);
+            AssertFirstChordPreferred(cycle, six);
             // Seven at once are more than the six lanes: six of them are the chord, the seventh comes at its own time.
             var seven = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, six);
             Equal(seven.Count(n => n.HitTimeMs == 0), 6); Equal(seven.Count(n => n.HitTimeMs == 6), 1);
@@ -159,10 +165,10 @@ internal static class SixKeyTests
             var slowNotes = generator.Generate(new[] { 0d, 600, 601, 1200, 1800, 1801, 2400, 2700, 2701, 3000, 3300, 3301 }, slow);
             AssertPairs(slowNotes, slow);
             AssertFirstChordPreferred(slowNotes, slow);
-            // Eight lanes keep chords on the left-hand pairs 1-2 and 3-4 (the default preference).
+            // Eight lanes keep chords to the table (user rule): two notes only on 3-4 or 5-6, whatever the preference names.
             var eightSlow = new VisualizerSettings { MaximumTileCount = 8 };
-            AssertPreferred(generator.Generate(new[] { 0d, 600, 601, 1200, 1800, 1801, 2400, 2700, 2701, 3000, 3300, 3301 }, eightSlow), eightSlow);
-            AssertFirstChordPreferred(generator.Generate(new[] { 0d, 45, 46, 90, 135, 136, 180, 225, 270, 271 }, eightSlow), eightSlow);
+            AssertPairs(generator.Generate(new[] { 0d, 600, 601, 1200, 1800, 1801, 2400, 2700, 2701, 3000, 3300, 3301 }, eightSlow), eightSlow);
+            AssertPairs(generator.Generate(new[] { 0d, 45, 46, 90, 135, 136, 180, 225, 270, 271 }, eightSlow), eightSlow);
             Assert(slowNotes.Count(n => n.StartsChord) == 4, "Every chord was placed: " + string.Join(" ", slowNotes.Select(n => n.Tile)));
 
             // The 4-lane rule is unchanged: pairs 1-2 and 3-4 only, which is also what the default preference names there.
@@ -175,7 +181,9 @@ internal static class SixKeyTests
             var sixExtra = six with { ExtraLanes = true };
             Sequence(sixExtra.GetExtraTiles(), 1, 8);
             var overflow = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, sixExtra);
-            Assert(overflow.Count(n => n.Tile is 1 or 8) == 1 && overflow.Count(n => n.StartsChord) == 3, "One spare single: " + string.Join(" ", overflow.Select(n => n.Tile)));
+            // One spare single, and no chord on the center pair even then (user rule).
+            Assert(overflow.Count(n => n.Tile is 1 or 8) == 1, "One spare single: " + string.Join(" ", overflow.Select(n => n.Tile)));
+            AssertPairs(overflow, sixExtra);
         });
 
         yield return ("Unplaceable 4-lane chords offer the smallest wider maximum that places the song", () =>

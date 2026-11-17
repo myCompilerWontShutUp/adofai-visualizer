@@ -46,8 +46,9 @@ public static class SettingsJson
         [nameof(VisualizerSettings.MapRootDirectory), nameof(VisualizerSettings.DataRootDirectory)];
 
     /// <summary>
-    /// The name <see cref="VisualizerSettings.NoChordCenterPair"/> had before app 0.6.1, with the opposite meaning. A file that
-    /// carries it was written while the chord rules were experiments, which did nothing unless experiments were on.
+    /// The name the chord center pair setting had before app 0.6.1, with the opposite meaning. A file that carries it was
+    /// written while the chord rules were experiments, which did nothing unless experiments were on. The setting itself is
+    /// gone (a chord never takes the center pair now), but the other rules of such a file still carry over by it.
     /// </summary>
     private const string LegacyCenterPair = "ChordCenterPair";
 
@@ -64,6 +65,10 @@ public static class SettingsJson
     private static readonly HashSet<string> Retired = new(StringComparer.OrdinalIgnoreCase)
     {
         "SongSearch", // typing in the song box is always on (user rule)
+        "NoChordCenterPair", // a two-note chord never takes the center pair (user rule)
+        "OneHandFourChords", // eight lanes are always played by hand (user rule)
+        "UseChordCenterPair", // the worked-out values of those two, which files from 0.4.6 and earlier carry
+        "UseOneHandFourChords",
     };
 
     /// <summary>Every setting, for the app's own settings file.</summary>
@@ -228,10 +233,10 @@ public static class SettingsJson
         }
         var named = input.FirstOrDefault(pair => string.Equals(pair.Key, nameof(VisualizerSettings.ExperimentalFeatures), StringComparison.OrdinalIgnoreCase));
         var experiments = ReadFlag(named.Value, nameof(VisualizerSettings.ExperimentalFeatures)) ?? current.ExperimentalFeatures;
-        var allowed = ReadFlag(legacyCenter, LegacyCenterPair) ?? false;
+        // Still read, so a value of the wrong type is refused as before; the center pair it named is no setting any more.
+        _ = ReadFlag(legacyCenter, LegacyCenterPair);
         // What these rules did while the file was written, not today's defaults: back then the chord rules only applied with
         // experiments on, so with them off a file's values did nothing and these are the rules that were in effect.
-        merged[nameof(VisualizerSettings.NoChordCenterPair)] = experiments ? !allowed : true;
         if (experiments) return;
         merged[nameof(VisualizerSettings.ChordSectionLanes)] = false;
         merged[nameof(VisualizerSettings.ChordLanePreference)] = "None";

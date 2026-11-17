@@ -53,7 +53,6 @@ public partial class SettingsPanel
             _immediateDownshift.IsChecked = settings.ImmediateDownshift;
             _experimental.IsChecked = settings.ExperimentalFeatures;
             _chordLanes.IsChecked = settings.ChordSectionLanes;
-            _chordCenter.IsChecked = settings.NoChordCenterPair;
             _pauseAlign.SelectedIndex = settings.AlignNextNoteOnPause ? 0 : 1;
             _keepSpeed.IsChecked = settings.KeepSpeedOnLoad;
             _chordLane.SelectedIndex = Math.Max(0, Array.IndexOf(ChordLanes, settings.ChordLanePreference.Trim()));
@@ -82,7 +81,7 @@ public partial class SettingsPanel
             _chordBefore.IsChecked = settings.ChordAvoidBeforeLanes;
             _runRestart.IsChecked = settings.RestartPatternOnRun;
             _enhancedChords.IsChecked = settings.EnhancedChordRules;
-            _oneHandChords.IsChecked = settings.OneHandFourChords;
+            _enhancedKeys.IsChecked = settings.EnhancedFourEightKeys;
             foreach (var (name, box) in _textFields) box.Text = ValueText(settings, name);
             foreach (var (name, box) in _orderBoxes)
             {
@@ -442,7 +441,7 @@ public partial class SettingsPanel
             ChordAvoidBeforeLanes = _chordBefore.IsChecked == true,
             RestartPatternOnRun = _runRestart.IsChecked == true,
             EnhancedChordRules = _enhancedChords.IsChecked == true,
-            OneHandFourChords = _oneHandChords.IsChecked == true,
+            EnhancedFourEightKeys = _enhancedKeys.IsChecked == true,
             MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum : 0,
             MinimumTileCount = _minimum.SelectedItem is int minimum ? minimum : 0,
             DisplayLaneCount = _displayLanes.SelectedIndex <= 0 ? 0 : VisualizerSettings.Modes[_displayLanes.SelectedIndex - 1],
@@ -465,7 +464,6 @@ public partial class SettingsPanel
             MagicCircleJudgmentLine = _judgmentMode.SelectedIndex != 0,
             ExperimentalFeatures = _experimental.IsChecked == true,
             ChordSectionLanes = _chordLanes.IsChecked == true,
-            NoChordCenterPair = _chordCenter.IsChecked == true,
             KeepSpeedOnLoad = _keepSpeed.IsChecked == true,
             AlignNextNoteOnPause = _pauseAlign.SelectedIndex != 1,
             ChordLanePreference = ChordLanes[Math.Clamp(_chordLane.SelectedIndex, 0, ChordLanes.Length - 1)],

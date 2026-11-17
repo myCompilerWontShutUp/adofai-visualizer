@@ -72,7 +72,6 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _immediateDownshift = new();
     private readonly CheckBox _experimental = new();
     private readonly CheckBox _chordLanes = new();
-    private readonly CheckBox _chordCenter = new();
     private readonly ComboBox _pauseAlign = new();
     private readonly CheckBox _keepSpeed = new();
     private readonly ComboBox _chordLane = new();
@@ -106,7 +105,7 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _chordBefore = new();
     private readonly CheckBox _runRestart = new();
     private readonly CheckBox _enhancedChords = new();
-    private readonly CheckBox _oneHandChords = new();
+    private readonly CheckBox _enhancedKeys = new();
     private readonly CheckBox _judgmentAverage = new();
     private readonly ComboBox _judgmentMode = new();
     private readonly ComboBox _judgmentDifficulty = new();
@@ -267,7 +266,6 @@ public partial class SettingsPanel : UserControl
         AddText("Playback speed (%)", nameof(settings.PlaybackSpeedPercent));
         AddText("Simultaneous window (ms)", nameof(settings.SimultaneousWindowMs), "SimultaneousHelp");
         // The chord rules sit under the chord window.
-        AddField("No chord center pair", _chordCenter, nameof(settings.NoChordCenterPair), "NoChordCenterHelp");
         AddField("Chord lane preference", _chordLane, nameof(settings.ChordLanePreference), "ChordLaneHelp");
         AddField("Above four keys only for chords", _chordsAboveFour, nameof(settings.ChordsOnlyAboveFourKeys), "ChordsAboveFourHelp");
         // Trills are worked out after the chords and have the same two rules of their own (user request).
@@ -284,7 +282,8 @@ public partial class SettingsPanel : UserControl
         AddField("Judgment window", _judgmentDifficulty, nameof(settings.JudgmentBarDifficulty), "JudgmentDifficultyHelp");
         AddField("Average arrow", _judgmentAverage, nameof(settings.ShowJudgmentAverage));
         AddText("Average of notes", nameof(settings.JudgmentAverageCount));
-        AddText("Judgment ease", nameof(settings.JudgmentEaseScale), "JudgmentEaseHelp");
+        // A slider in steps of 0.1, as the note scales are (user rule).
+        AddScale("Judgment ease", nameof(settings.JudgmentEaseScale), "JudgmentEaseHelp", 1, Visualizer.Core.Maps.HitGrading.MaximumEase);
 
         // The magic circle has its own card; its switch at the top disables every row below it.
         AddSection("SectionMagic", "MagicCircleHelp");
@@ -334,7 +333,7 @@ public partial class SettingsPanel : UserControl
         AddField("Chord keeps the lane before it", _chordBefore, nameof(settings.ChordAvoidBeforeLanes), "ChordBeforeHelp");
         AddField("Restart the pattern each run", _runRestart, nameof(settings.RestartPatternOnRun), "RunRestartHelp");
         AddField("Enhanced chord and trill rules", _enhancedChords, nameof(settings.EnhancedChordRules), "EnhancedChordsHelp");
-        AddField("Four-note chords on one hand", _oneHandChords, nameof(settings.OneHandFourChords), "OneHandChordsHelp");
+        AddField("Enhanced 4/8-key rules", _enhancedKeys, nameof(settings.EnhancedFourEightKeys), "EnhancedKeysHelp");
         // Parked here while the field makes room for the slot picker (user rule): the editor is reached from the console
         // as well, so this is a way in, not the only one.
         AddField("Note editor", _editSongButton);
@@ -380,7 +379,7 @@ public partial class SettingsPanel : UserControl
         _immediateDownshift.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Checked += (_, _) => { UpdateEnabled(); FormChanged(); };
         _experimental.Unchecked += (_, _) => { UpdateEnabled(); FormChanged(); };
-        foreach (var box in new[] { _chordLanes, _chordCenter, _trillOne, _chordsAboveFour, _oneHandChords })
+        foreach (var box in new[] { _chordLanes, _trillOne, _chordsAboveFour, _enhancedKeys })
         {
             box.Checked += (_, _) => FormChanged();
             box.Unchecked += (_, _) => FormChanged();

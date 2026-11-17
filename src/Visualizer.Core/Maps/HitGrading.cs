@@ -41,6 +41,39 @@ public sealed record HitWindows(double CountedMs, double PerfectMs, double PureM
         if (d > CountedMs) grade = HitGrade.TooLate;
         return grade;
     }
+
+    /// <summary>
+    /// Where a press <paramref name="deviationMs"/> late sits on a bar drawn with <paramref name="layout"/>'s zones, from -1
+    /// (the early end) to 1 (the late end): each of this hit's own edges lands on the same edge of the bar, and in between it
+    /// moves evenly. So a press always sits in the zone of its grade, also when the bar shows another tile's windows (a
+    /// different tempo or margin scale); with the same windows it is simply the deviation over the counted window.
+    /// </summary>
+    public double Place(double deviationMs, HitWindows layout)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        var d = Math.Abs(deviationMs);
+        var sign = Math.Sign(deviationMs);
+        if (d >= CountedMs) return sign;
+        // Kept in order, as a tiny margin scale can put the middle band past the perfect edge.
+        double[] own = Ordered(XPerfectMs, PureMs, PerfectMs, CountedMs);
+        double[] bar = Ordered(layout.XPerfectMs / layout.CountedMs, layout.PureMs / layout.CountedMs,
+            layout.PerfectMs / layout.CountedMs, 1);
+        for (var edge = 1; edge < own.Length; edge++)
+        {
+            if (d > own[edge]) continue;
+            var span = own[edge] - own[edge - 1];
+            var along = span > 0 ? (d - own[edge - 1]) / span : 1;
+            return sign * Math.Min(1, bar[edge - 1] + along * (bar[edge] - bar[edge - 1]));
+        }
+        return sign;
+
+        static double[] Ordered(double middle, double pure, double perfect, double counted)
+        {
+            double[] edges = [0, middle, pure, perfect, counted];
+            for (var i = 1; i < edges.Length; i++) edges[i] = Math.Max(edges[i], edges[i - 1]);
+            return edges;
+        }
+    }
 }
 
 /// <summary>

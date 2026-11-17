@@ -200,6 +200,13 @@ public interface ICmdHost
     IReadOnlyList<int> PinsOf(string family) => [];
     /// <summary>Keeps a family's pins; null when kept, otherwise why not.</summary>
     string? SetPins(string family, IReadOnlyList<int> tiles) => T("PinsNotHere");
+    /// <summary>
+    /// The redirects link auto follows (user request): song family → the id of the song it loads in place of that family's
+    /// song when the game plays it.
+    /// </summary>
+    IReadOnlyDictionary<string, string> Redirects => new Dictionary<string, string>();
+    /// <summary>Keeps these redirects in place of every one kept so far; null when kept, otherwise why not.</summary>
+    string? SetRedirects(IReadOnlyDictionary<string, string> redirects) => T("RedirectsNotHere");
 
     /// <summary>Every synced song, hidden ones included.</summary>
     IReadOnlyList<CmdSong> Songs { get; }
@@ -688,6 +695,9 @@ public sealed class CmdSession
                 break;
             case "unpin":
                 Pin(line, copy, add: false);
+                break;
+            case "redirect":
+                Redirect(line, copy, yes);
                 break;
             case "hide" or "show":
                 SetHidden(line, line.Command.Name == "hide");
@@ -1383,6 +1393,125 @@ public sealed class CmdSession
         return song is null ? [] : _host.PinsOf(song.Family).Select(tile => tile.ToString(CultureInfo.InvariantCulture));
     }
 
+    /// <summary>
+    /// redirect (user request): the song link auto loads in place of the one the game plays. Two ids name the song and the
+    /// one put in its place; one id puts it in place of the loaded song (there is no now: ids only). A redirect belongs to
+    /// the song's family, as a pin does, since the game plays an original's map for every edit of it (user decision); the
+    /// song put in its place is that one song, an edit's slot included. list (the default) lists them all with the loaded
+    /// song's marked, go loads the loaded song's, erase takes the loaded song's away (another song's by its id, all of
+    /// them with all). Only link auto follows them: nothing else loads differently.
+    /// </summary>
+    private void Redirect(CmdLine line, bool copy, bool yes)
+    {
+        var words = line.Arguments;
+        var first = words.Count == 0 ? "list" : words[0].ToLowerInvariant();
+        if (first is "list" or "go" or "erase" or "all" or "*")
+        {
+            var most = first == "erase" ? 2 : 1;
+            if (first is "all" or "*" || words.Count > most)
+            {
+                Write(T("RedirectTakes"), T("Usage", line.Command.Usage));
+                return;
+            }
+            if (first == "list") ListRedirects(copy);
+            else if (first == "go") GoRedirect();
+            else EraseRedirect(words.Count > 1 ? words[1] : null, yes);
+            return;
+        }
+        if (words.Count > 2)
+        {
+            Write(T("RedirectTakes"), T("Usage", line.Command.Usage));
+            return;
+        }
+        if (words.Any(IsSongWord)) { Write(T("RedirectIdsOnly")); return; }
+        CmdSong? from;
+        if (words.Count == 1) from = LoadedSong();
+        else if ((from = Song(words[0])) is null) Write(T("NoSongWithId", words[0]));
+        if (from is null) return;
+        if (Song(words[^1]) is not { } to)
+        {
+            Write(T("NoSongWithId", words[^1]));
+            return;
+        }
+        var title = FamilyTitle(from.Family);
+        // Its own original is what link auto loads for it anyway; an edit of it is a song of its own to put in its place.
+        if (to.Family == from.Family && to.Slot is null) { Write(T("RedirectToItself", title)); return; }
+        if (to.Entry.Status != MapParseStatus.Supported) { Write(T("RedirectUnsupported", to.Title)); return; }
+        var redirects = new Dictionary<string, string>(_host.Redirects, StringComparer.Ordinal);
+        var before = redirects.TryGetValue(from.Family, out var was) ? was : null;
+        if (string.Equals(before, to.Id, StringComparison.OrdinalIgnoreCase)) { Write(T("RedirectAlready", title, to.Id, to.Title)); return; }
+        redirects[from.Family] = to.Id;
+        if (_host.SetRedirects(redirects) is { } reason) { Write(reason); return; }
+        Write(T("RedirectSet", title, to.Id, to.Title));
+        if (before is not null) Write(T("RedirectReplaced", SongText(before)));
+    }
+
+    /// <summary>now and link name songs elsewhere; redirect takes ids only (user rule).</summary>
+    private static bool IsSongWord(string word) => word.Equals("now", StringComparison.OrdinalIgnoreCase)
+        || word.Equals("link", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>redirect list: every redirect, the loaded song's marked as checkpoint list marks the one in use.</summary>
+    private void ListRedirects(bool copy)
+    {
+        var redirects = _host.Redirects;
+        if (redirects.Count == 0) { Write(T("NoRedirects")); return; }
+        var loaded = _host.LoadedId is { } id ? Song(id)?.Family : null;
+        Show(redirects.Select(pair => (pair.Key, From: FamilySong(pair.Key), To: pair.Value))
+            .OrderBy(each => each.From is { } song ? BaseTitle(song) : each.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(each => (each.Key == loaded ? "> " : "  ")
+                + T("RedirectLine", each.From is { } song ? $"{song.Id} {BaseTitle(song)}" : each.Key, SongText(each.To)))
+            .ToArray(), copy);
+    }
+
+    /// <summary>redirect go: loads the song the loaded song's redirect names, when it has one; otherwise nothing moves.</summary>
+    private void GoRedirect()
+    {
+        // It loads a song, which the open note editor would lose its ground to.
+        if (_host.EditorOpen) { Write(T("EditorBlocks", "redirect go")); return; }
+        if (LoadedSong() is not { } loaded) return;
+        if (!_host.Redirects.TryGetValue(loaded.Family, out var id)) { Write(T("NoRedirect", FamilyTitle(loaded.Family))); return; }
+        if (Song(id) is not { } to) { Write(T("RedirectTargetGone", FamilyTitle(loaded.Family), id)); return; }
+        if (to.Id.Equals(loaded.Id, StringComparison.OrdinalIgnoreCase)) { Write(T("RedirectLoadedAlready", to.Title)); return; }
+        LoadOne(to, null);
+    }
+
+    /// <summary>redirect erase [&lt;id&gt; | all]: the loaded song's redirect, another song's by its id, or every one after a [Y/n].</summary>
+    private void EraseRedirect(string? named, bool yes)
+    {
+        var redirects = new Dictionary<string, string>(_host.Redirects, StringComparer.Ordinal);
+        if (named is not null && (named.Equals("all", StringComparison.OrdinalIgnoreCase) || named == "*"))
+        {
+            if (redirects.Count == 0) { Write(T("NoRedirects")); return; }
+            var count = redirects.Count;
+            Confirm(yes, T("AskEraseRedirects", count), answer =>
+            {
+                if (!answer) { Write(T("Cancelled")); return; }
+                if (_host.SetRedirects(new Dictionary<string, string>(StringComparer.Ordinal)) is { } failed) { Write(failed); return; }
+                Write(T("RedirectsErased", count));
+            });
+            return;
+        }
+        if (named is not null && IsSongWord(named)) { Write(T("RedirectIdsOnly")); return; }
+        CmdSong? song;
+        if (named is null) song = LoadedSong();
+        else if ((song = Song(named)) is null) Write(T("NoSongWithId", named));
+        if (song is null) return;
+        var title = FamilyTitle(song.Family);
+        if (!redirects.Remove(song.Family)) { Write(T("NoRedirect", title)); return; }
+        if (_host.SetRedirects(redirects) is { } reason) { Write(reason); return; }
+        Write(T("RedirectErased", title));
+    }
+
+    /// <summary>The original of a family, else its first edit; null when the list has none of it any more.</summary>
+    private CmdSong? FamilySong(string family) => _host.Songs.Where(song => song.Family == family)
+        .OrderBy(song => song.Slot ?? 0).ThenBy(song => song.Id, StringComparer.Ordinal).FirstOrDefault();
+
+    /// <summary>A family by its song's title, as pins name it.</summary>
+    private string FamilyTitle(string family) => FamilySong(family) is { } song ? BaseTitle(song) : family;
+
+    /// <summary>A redirected song as id and title, or the id and that the list no longer has it.</summary>
+    private string SongText(string id) => Song(id) is { } song ? $"{song.Id} {song.Title}" : T("RedirectGone", id);
+
     /// <summary>go: the practice start, by tile number. Whole tiles only, and only ones this song presses.</summary>
     private void Go(CmdLine line)
     {
@@ -1450,8 +1579,10 @@ public sealed class CmdSession
                     // the code is written in gets a new build only this way (user request), the way install -reinstall app does.
                     if (_host.StaleBuild() is not { } stale) { done([T("AlreadyLatest", check.Mine)]); return; }
                     done([T("LatestButStale", check.Mine, stale)]);
-                    var place = _host.FindLinker();
-                    var withLinker = place.Installed is { } installed && place.SourceVersion is { Length: > 0 } made && installed != made;
+                    // An installed linker is written again from this copy's plugins\linker, as the plain update does. The copy
+                    // found beside the running app belongs to that older build, so comparing with it said "the same version"
+                    // and left the game on the old linker (user report: the game kept linker 1.1.2 after the rebuild to 1.1.3).
+                    var withLinker = _host.FindLinker().Installed is not null;
                     Confirm(yes, T("AskRebuildApp", check.Changed + check.Unpublished > 0 ? T("RebuildOwnChanges", Own(check)) : "",
                         withLinker ? T("LinkerAlong") : ""), answer =>
                     {
@@ -3366,6 +3497,19 @@ public sealed class CmdSession
                     .Where(each => each.StartsWith(name, StringComparison.OrdinalIgnoreCase)).Distinct().ToArray();
             }
             else if (command.Argument == CmdArgument.Text) return [];
+            else if (command.Argument == CmdArgument.Redirect)
+            {
+                // A word or the ids first; after erase, all or an id; after an id, the id of the song to put in its place.
+                var ids = _host.Songs.Select(song => song.Id).Order(StringComparer.Ordinal);
+                var first = options + 1 < index ? words[options + 1].Word : "";
+                pool = (index - options - 1) switch
+                {
+                    0 => command.KeywordNames.Where(word => word != "all").Concat(ids),
+                    1 when first.Equals("erase", StringComparison.OrdinalIgnoreCase) => new[] { "all" }.Concat(ids),
+                    1 when !command.KeywordNames.Contains(first.ToLowerInvariant(), StringComparer.Ordinal) => ids,
+                    _ => []
+                };
+            }
             else if (command.Argument == CmdArgument.Title)
             {
                 // A title may have spaces, so everything after the options is the title, matched anywhere in it (user rule).

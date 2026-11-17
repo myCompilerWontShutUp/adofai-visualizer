@@ -215,23 +215,22 @@ public sealed record VisualizerSettings
     [JsonIgnore]
     public bool UseEnhancedChordRules => ExperimentalFeatures && EnhancedChordRules;
     /// <summary>
-    /// Experimental (user rule, from S3RL - play it loud): eight lanes are two hands, 1-4 and 5-8. Four keys or fewer stay in
-    /// one hand (see <see cref="GetPattern(int, int)"/>) and each new run takes the other one; four-note chords take the hands
-    /// in turn. Six and eight keys use every lane.
+    /// Experimental (user rule): above four keys only for trills and chords. Singles keep to the patterns of four keys or fewer,
+    /// as <see cref="ChordsOnlyAboveFourKeys"/> keeps them, so no single ever reaches a lane of a wider pattern; a trill may roll
+    /// over as many lanes as the screen has (on eight lanes over both hands), as a chord may take them. A screen of four lanes
+    /// or fewer plays the same either way.
     /// </summary>
-    public bool OneHandFourChords { get; init; } = Flag(nameof(OneHandFourChords));
+    public bool EnhancedFourEightKeys { get; init; } = Flag(nameof(EnhancedFourEightKeys));
     [JsonIgnore]
-    public bool UseOneHandFourChords => ExperimentalFeatures && OneHandFourChords;
+    public bool UseEnhancedFourEightKeys => ExperimentalFeatures && EnhancedFourEightKeys;
+    /// <summary>Whether singles keep to four keys or fewer: the chord card's setting, or the enhanced 4/8-key rules.</summary>
+    [JsonIgnore]
+    public bool SinglesUpToFourKeys => ChordsOnlyAboveFourKeys || UseEnhancedFourEightKeys;
     /// <summary>
     /// Which lane pair a chord takes first, as screen lanes: "1-2" (the left hand), "3-4", or "None" for the pattern order.
     /// Only a preference: a taken pair still moves the chord elsewhere.
     /// </summary>
     public string ChordLanePreference { get; init; } = Text(nameof(ChordLanePreference));
-    /// <summary>
-    /// Keeps a chord off the pair that crosses the screen center on four lanes (lanes 2-3); on by default. Older settings files
-    /// name it the other way round, ChordCenterPair, which SettingsJson still reads.
-    /// </summary>
-    public bool NoChordCenterPair { get; init; } = Flag(nameof(NoChordCenterPair));
     /// <summary>The 0-based lane the preferred pair starts on, or -1 without a preference.</summary>
     [JsonIgnore]
     public int PreferredChordLane => ChordLanePreference.Trim() switch { "1-2" => 0, "3-4" => 2, _ => -1 };
@@ -250,8 +249,6 @@ public sealed record VisualizerSettings
         "1-2" => [0], "3-4" => [2], "1-2,3-4" => [0, 2], _ => []
     };
     /// <summary>Whether a chord may cross the screen center on four lanes.</summary>
-    [JsonIgnore]
-    public bool UseChordCenterPair => !NoChordCenterPair;
     /// <summary>When disabled (default), every mode cycles its tiles in the default order and the order texts are ignored (but kept).</summary>
     public bool EnableTilePreference { get; init; } = Flag(nameof(EnableTilePreference));
     /// <summary>
@@ -413,13 +410,13 @@ public sealed record VisualizerSettings
         && SortTiles(FourKeyPattern) == SortTiles(other.FourKeyPattern) && SortTiles(TwoKeyPattern) == SortTiles(other.TwoKeyPattern)
         && (ExtraLanes && CanUseExtraLanes) == (other.ExtraLanes && other.CanUseExtraLanes)
         && UseChordSectionLanes == other.UseChordSectionLanes && ChordLanePreference.Trim() == other.ChordLanePreference.Trim()
-        && UseChordCenterPair == other.UseChordCenterPair && UseMagicCircleTiles == other.UseMagicCircleTiles
+        && UseMagicCircleTiles == other.UseMagicCircleTiles
         && (!UseMagicCircleTiles || (MagicCircleTiles == other.MagicCircleTiles
             && MagicCircleNoteCount == other.MagicCircleNoteCount && MagicCircleMaxIntervalMs == other.MagicCircleMaxIntervalMs
             && MagicCircleChords == other.MagicCircleChords))
         && NextIntervalTiles == other.NextIntervalTiles && BothIntervalTiles == other.BothIntervalTiles
         && UseChordAvoidBefore == other.UseChordAvoidBefore && UseRestartOnRun == other.UseRestartOnRun
-        && UseEnhancedChordRules == other.UseEnhancedChordRules && UseOneHandFourChords == other.UseOneHandFourChords
+        && UseEnhancedChordRules == other.UseEnhancedChordRules && UseEnhancedFourEightKeys == other.UseEnhancedFourEightKeys
         && EnableTilePreference == other.EnableTilePreference
         && (!EnableTilePreference || (TwoKeyOrder == other.TwoKeyOrder && FourKeyOrder == other.FourKeyOrder
             && SixKeyOrder == other.SixKeyOrder && EightKeyOrder == other.EightKeyOrder));
@@ -458,9 +455,12 @@ public sealed record VisualizerSettings
     /// <summary>The tiles of the maximum-mode pattern, ascending. Patterns and chords use only these lanes.</summary>
     public IReadOnlyList<int> GetVisibleTiles() => GetPattern(MaximumTileCount).Order().ToArray();
 
-    /// <summary>Whether eight lanes are played as two hands of four (experimental, user rule): four keys or fewer stay in one hand.</summary>
+    /// <summary>
+    /// Whether eight lanes are played as two hands of four (user rule, from S3RL - play it loud; always, no longer a setting):
+    /// four keys or fewer stay in one hand (see <see cref="GetPattern(int, int)"/>) and each new run takes the other one.
+    /// </summary>
     [JsonIgnore]
-    public bool PlaysByHand => UseOneHandFourChords && MaximumTileCount == 8;
+    public bool PlaysByHand => MaximumTileCount == 8;
 
     /// <summary>
     /// The pattern of <paramref name="mode"/> inside one hand of eight lanes (0 the left lanes 1-4, 1 the right lanes 5-8): the

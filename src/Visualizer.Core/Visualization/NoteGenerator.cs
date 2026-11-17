@@ -95,6 +95,19 @@ public sealed class NoteGenerator
     public IReadOnlyList<VisualizerNote> Generate(IEnumerable<double> hitTimesMs, VisualizerSettings settings) =>
         Generate(hitTimesMs, null, settings);
 
+    /// <summary>
+    /// The most notes any chord of these hits has, grouped as the chord window groups them on eight lanes (user rule, for link
+    /// auto: a song with an eight-note chord needs eight lanes, not the chord cut onto fewer). 0 without hits.
+    /// </summary>
+    public static int WidestChord(IReadOnlyList<double> hitTimesMs, IReadOnlyList<double?>? holdEndsMs, VisualizerSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(hitTimesMs);
+        ArgumentNullException.ThrowIfNull(settings);
+        if (hitTimesMs.Count == 0) return 0;
+        var eight = settings with { MaximumTileCount = VisualizerSettings.LaneKeyCount, ExtraLanes = false };
+        return SimultaneousNotePlanner.Group(hitTimesMs.ToArray(), eight, holdEndsMs).Max(group => group.Count);
+    }
+
     /// <param name="holdEndsMs">Per hit, the end of its long note, or null for a tap. Null means every hit is a tap.</param>
     public IReadOnlyList<VisualizerNote> Generate(IEnumerable<double> hitTimesMs, IReadOnlyList<double?>? holdEndsMs, VisualizerSettings settings)
     {
@@ -133,7 +146,7 @@ public sealed class NoteGenerator
         var busyUntil = SimultaneousNotePlanner.NewBusyLanes();
         var selector = new DynamicTimingSelector(settings);
         // Above four keys only for chords (user rule): the gaps pick 4K at most, and a chord wider than that asks for more below.
-        var gapCap = settings.ChordsOnlyAboveFourKeys ? Math.Max(4, settings.MinimumTileCount) : VisualizerSettings.LaneKeyCount;
+        var gapCap = settings.SinglesUpToFourKeys ? Math.Max(4, settings.MinimumTileCount) : VisualizerSettings.LaneKeyCount;
         int Pick(double gap) => Math.Min(selector.Select(gap), gapCap);
         // No interval exists for a single note: dynamic mode uses the slowest (1K) case.
         var initialMode = Pick(unitTimes.Count > 1 ? unitTimes[1] - unitTimes[0] : double.MaxValue);
@@ -237,7 +250,7 @@ public sealed class NoteGenerator
             var holdEnd = holdEndsMs?[groups[i].SourceIndex];
             // A chord the gaps' tile count cannot hold takes the count it needs for itself alone (user rule); the pattern goes
             // on as it was, and the planner lays the chord on that count's lanes.
-            var mode = settings.ChordsOnlyAboveFourKeys && groups[i].Count > gapCap
+            var mode = settings.SinglesUpToFourKeys && groups[i].Count > gapCap
                 ? Math.Max(cursor.CurrentMode, VisualizerSettings.Modes.Where(count => count > gapCap && count <= settings.MaximumTileCount)
                     .DefaultIfEmpty(settings.MaximumTileCount).FirstOrDefault(count => count >= groups[i].Count, settings.MaximumTileCount))
                 : cursor.CurrentMode;

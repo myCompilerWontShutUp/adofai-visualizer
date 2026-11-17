@@ -102,6 +102,17 @@ internal static class CmdConsoleTests
             return null;
         }
 
+        /// <summary>Redirects by song family, kept in memory as the app keeps them in redirects.json.</summary>
+        public Dictionary<string, string> RedirectMap { get; } = [];
+        public IReadOnlyDictionary<string, string> Redirects => RedirectMap;
+        public string? SetRedirects(IReadOnlyDictionary<string, string> redirects)
+        {
+            var next = redirects.ToArray();
+            RedirectMap.Clear();
+            foreach (var (family, id) in next) RedirectMap[family] = id;
+            return null;
+        }
+
         /// <summary>The main window's list for list main and playlist.</summary>
         public List<string> Current { get; } = [];
         public IReadOnlyList<string> CurrentIds => Current;
@@ -2159,6 +2170,18 @@ internal static class CmdConsoleTests
             Assert(host.Reinstalled is ["app,linker"] && LastOutput(log)[^1] == "Closing to build it again. The app comes back when it is done.",
                 string.Join(" | ", host.Reinstalled));
             host.Reinstalled.Clear();
+            // User report: the copy beside the running app is that older build's own, so it can name the very version the
+            // game has; the copy's plugins\linker is newer all the same, and the game kept the old linker.
+            host.Place = new(@"C:\Game", @"C:\copy\src\Visualizer.App\bin\Release\net9.0-windows\plugins\linker", "1.0.4", "1.0.4",
+                @"C:\Game\Mods\AdofaiVisualizerSync");
+            session.Submit("update -p");
+            Assert(host.Reinstalled is ["app,linker"], "The linker goes along even when the old build's copy matches: " + string.Join(" | ", host.Reinstalled));
+            host.Reinstalled.Clear();
+            // No linker in the game, nothing is written there.
+            host.Place = new(@"C:\Game", @"C:\copy\plugins\linker", "1.0.5", null, @"C:\Game\Mods\AdofaiVisualizerSync");
+            session.Submit("update -p");
+            Assert(host.Reinstalled is ["app"], "No linker, no linker: " + string.Join(" | ", host.Reinstalled));
+            host.Reinstalled.Clear();
             host.Stale = null;
             host.Place = new(null, null, null, null, "");
             host.Check = new("1.0.0", "1.0.0", true, 0, true, 0, 0, []);
@@ -2489,6 +2512,91 @@ internal static class CmdConsoleTests
             Assert(LastOutput(log)[0].Contains("note editor is open", StringComparison.Ordinal), Output(log));
         });
 
+        yield return ("redirect puts a song in place of another for link auto, by family and by id, and lists, loads and erases them", () =>
+        {
+            // User request: redirect <id> <id> makes link auto load the second song when the game plays the first, and redirect
+            // <id> does it for the loaded song; ids only, no now. A redirect belongs to the family, as a pin does (user
+            // decision), and list, go and erase are words of the command, not options (user decision, console rules).
+            var host = Library();
+            var log = new CmdLog();
+            var session = new CmdSession(host, log);
+            session.Submit("redirect");
+            Equal(LastOutput(log)[0], "No song is redirected. redirect <id> puts a song in place of the loaded one.");
+            session.Submit("redirect 20000004");
+            Equal(LastOutput(log)[0], "No song is loaded.");
+            host.LoadedId = "10000002";
+            host.LoadedSongName = "Plum - R";
+            session.Submit("redirect now 20000004");
+            Equal(LastOutput(log)[0], "redirect names songs by their ids only. With one id, that song is put in place of the loaded one.");
+            session.Submit("redirect 10000002");
+            Equal(LastOutput(log)[0], "Plum - R is what link auto loads for it already.");
+            session.Submit("redirect 99999999");
+            Equal(LastOutput(log)[0], "No song has the id 99999999. playlist shows the ids.");
+
+            // An edit of the loaded song may take its place; named by an edit's id, the family is the same.
+            session.Submit("redirect 20000004");
+            Equal(LastOutput(log)[0], "When the game plays Plum - R, link auto loads 20000004 2*Plum - R in its place.");
+            Equal(host.RedirectMap["1234/main.adofai"], "20000004");
+            session.Submit("redirect 20000005 00000001");
+            Lines(LastOutput(log), "When the game plays Plum - R, link auto loads 00000001 Built in in its place.",
+                "It was 20000004 2*Plum - R before.");
+            session.Submit("redirect 10000002 00000001");
+            Equal(LastOutput(log)[0], "Plum - R is redirected to 00000001 Built in already.");
+            session.Submit("redirect 00000001 20000005");
+            Equal(host.RedirectMap.Count, 2);
+            // list is the default; the loaded song's is marked.
+            session.Submit("redirect list");
+            Lines(LastOutput(log), "  00000001 Built in → 20000005 5*Plum - R", "> 10000002 Plum - R → 00000001 Built in");
+            session.Submit("redirect");
+            Lines(LastOutput(log), "  00000001 Built in → 20000005 5*Plum - R", "> 10000002 Plum - R → 00000001 Built in");
+
+            // A song that cannot be loaded cannot take another's place.
+            host.SongList[2] = host.SongList[2] with { Entry = host.SongList[2].Entry with { Status = MapParseStatus.Unsupported } };
+            session.Submit("redirect 00000001 10000003");
+            Equal(LastOutput(log)[0], "Hidden song cannot be loaded, so it cannot be put in place of another song.");
+
+            // go loads the loaded song's, and only when it has one.
+            session.Submit("redirect go");
+            Equal(host.Loaded[^1].Id, "00000001");
+            Equal(host.LoadedId, "00000001");
+            host.LoadedId = "10000003";
+            host.LoadedSongName = "Hidden song";
+            var loads = host.Loaded.Count;
+            session.Submit("redirect go");
+            Equal(LastOutput(log)[0], "Hidden song is not redirected.");
+            Equal(host.Loaded.Count, loads);
+            session.Submit("redirect go 10000002");
+            Equal(LastOutput(log)[0], "redirect takes song ids, or list, go or erase, as in redirect 10000002 20000004.");
+
+            // Tab: its words and the ids first, all or an id after erase, an id after an id.
+            Assert(session.Complete("redirect ", out _).Take(4).SequenceEqual(["list", "go", "erase", "00000001"]),
+                string.Join(" ", session.Complete("redirect ", out _)));
+            Lines(session.Complete("redirect erase a", out _), "all");
+            var after = session.Complete("redirect 10000002 ", out _);
+            Assert(after.Count > 0 && after.All(word => char.IsDigit(word[0])), string.Join(" ", after));
+
+            // erase: another song's by its id, the loaded song's, or all after a question.
+            session.Submit("redirect erase 20000004");
+            Equal(LastOutput(log)[0], "Plum - R is no longer redirected: link auto loads it as it is.");
+            session.Submit("redirect erase");
+            Equal(LastOutput(log)[0], "Hidden song is not redirected.");
+            session.Submit("redirect erase all");
+            Assert(session.IsAsking && log.Lines[^1].StartsWith("Erase every redirect (1)?", StringComparison.Ordinal), Output(log));
+            session.Submit("n");
+            Equal(host.RedirectMap.Count, 1);
+            session.Submit("redirect -proceed erase all");
+            Equal(LastOutput(log)[^1], "Erased every redirect (1): link auto loads the game's own songs again.");
+            Equal(host.RedirectMap.Count, 0);
+
+            // Setting one does not prepare notes, so it works while the note editor is open; go loads a song, so it does not.
+            host.LoadedId = "10000002";
+            host.EditorOpen = true;
+            session.Submit("redirect 20000004");
+            Equal(LastOutput(log)[0], "When the game plays Plum - R, link auto loads 20000004 2*Plum - R in its place.");
+            session.Submit("redirect go");
+            Assert(LastOutput(log)[0].Contains("note editor is open", StringComparison.Ordinal), Output(log));
+        });
+
         yield return ("Console song files: remove only edits and restore the last one, delete any song, sync rebuild with -p", () =>
         {
             var host = Library();
@@ -2640,11 +2748,11 @@ internal static class CmdConsoleTests
             // The chord rules moved to timing and advanced; the experimental section has nothing in it.
             session.Submit("set timing.chord-side 1-2");
             Equal(host.Settings.ChordLanePreference, "1-2");
-            session.Submit("set timing.no-center-pair false");
-            Equal(host.Settings.NoChordCenterPair, false);
             session.Submit("set advanced.chord-lanes true");
             Equal(host.Settings.ChordSectionLanes, true);
             session.Submit("set advanced.experimental true");
+            session.Submit("set experimental.enhanced-keys true");
+            Equal(host.Settings.EnhancedFourEightKeys, true);
             session.Submit("property experimental");
             Assert(LastOutput(log).Any(line => line.Contains("chord-before", StringComparison.Ordinal))
                 && LastOutput(log).Any(line => line.Contains("run-restart", StringComparison.Ordinal)),

@@ -76,6 +76,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | | `go <tile>` | | | 타일 번호로 시작 위치 옮기기(Tab = 핀) |
 | | `pin [<id>] <tile>` | -copy | `[now]`, all | 타일에 핀 꽂기·핀 목록 |
 | | `unpin [<id>] <tile>` | | `[now]` | 핀 빼기(Tab = 핀) |
+| | `redirect [<id>] [<id>]` | -proceed / -copy | `[list]`, go, erase, all | link auto가 곡 대신 불러올 곡 |
 | | `hide <id>` | | now | 곡 숨기기 |
 | | `show <id>` | | now | 숨긴 곡 다시 보이기 |
 | 수정 | `edit [<id>]` | -proceed | `[now]` | 수정 창 열기 |
@@ -141,6 +142,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`go <tile>`** — 불러온 곡을 그 타일부터 준비합니다(구간 칸과 같은 규칙: 그 타일 이후 첫 노트부터, 배치는 곡 처음부터 만든 것을 잘라 씀). 1 이상의 정수만 받고, 그 곡에 없는 타일·중간 회전 타일·롱노트 도중이면 거절합니다(파서의 예외 대신 콘솔이 같은 검사를 콘솔 문구로). **Tab은 그 곡의 핀 타일**을 내놓습니다. 처음으로 돌아가려면 `checkpoint first`.
 - **`pin [<id>] <tile>`** — 곡의 타일에 핀을 꽂아 `go`의 Tab 후보로 둡니다. **핀은 곡 묶음(family)에 속합니다**: 원곡에 꽂든 수정본에 꽂든 원곡과 모든 수정본이 같은 핀을 봅니다(사용자 규칙). 타일 순서로 정렬되고, `go`가 받을 수 있는 타일만 꽂힙니다. 기본 `now`. `pin all`(또는 `pin <id> all`)은 `pin 1 · tile 120`처럼 번호를 붙여 나열합니다. 이미 있는 타일이면 그렇다고만. 앱 데이터 폴더의 `pins.json`에 저장되며 수정 창이 열려 있어도 됩니다(노트를 준비하지 않으므로).
 - **`unpin [<id>] <tile>`** — 그 곡 묶음에서 핀을 뺍니다. 기본 `now`. Tab은 그 곡의 핀(곡 id를 앞에 주면 그 곡의 핀).
+- **`redirect [<id>] [<id>]`**(사용자 요청) — link auto가 게임의 곡 대신 다른 곡을 불러오게 합니다. `redirect 11111111 22222222`는 게임이 11111111을 플레이할 때 22222222를, `redirect 22222222`는 불러온 곡 대신 22222222를 불러옵니다(`now`·`link`는 받지 않음, id만). **리다이렉트는 곡 묶음에 걸립니다**(사용자 결정): 게임은 수정본도 원곡 맵으로 플레이하므로 원곡·수정본 어느 id로 걸어도 같은 곡 묶음이고, 대신 불러올 곡은 수정본 슬롯이어도 됩니다(자기 원곡은 이미 link auto가 불러오는 곡이라 거절, 불러올 수 없는 곡도 거절). 연결은 이어지지 않습니다(A→B, B→C여도 A는 B). **link auto에서만** 따릅니다: 불러온 뒤 그 곡의 타일이 게임과 맞을 때만 따라가고, 맞지 않으면 불러오기만 하고 따라가지 않는 이유를 알립니다(사용자 결정). 게임이 그 곡에 있는 동안 리다이렉트를 걸거나 지우면 link auto가 바로 다시 고릅니다. `link`의 `Redirect` 줄이 지금 대신 불러온 곡을 보여 줍니다. 키워드는 콘솔 규칙대로(사용자 결정, 옵션 아님): `list`(기본)는 모든 리다이렉트를 `id 제목 → id 제목`으로 나열하고 불러온 곡의 것에 `>`, `go`는 불러온 곡에 리다이렉트가 있을 때만 그 곡을 불러오고(수정 창이 열려 있으면 거절), `erase`는 불러온 곡의 것, `erase <id>`는 그 곡의 것, `erase all`(`*`)은 [Y/n] 뒤 전부(`-proceed`로 건너뜀). `go`는 명령 이름과 같은 낱말이지만 `go` 명령처럼 그 자리로 옮긴다는 뜻이라 `link`처럼 예외로 둡니다(`CmdCatalog.SharedNames`). 앱 데이터 폴더의 `redirects.json`에 저장되고 수정 창이 열려 있어도 걸고 지울 수 있습니다.
 - **`hide <id>`·`show <id>`** — 곡 목록에서 숨기기·되돌리기(`songs.json`에 저장).
 
 ### 수정
@@ -226,7 +228,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **설정판 먼저 닫기**: `load` `checkpoint` `go` `hide` `show` `edit` `set` `speed` `autosave` `import` `rollback` `reset` `do`는 설정판이 열려 있으면 닫고 실행합니다. 적용하지 않은 변경이 있으면 [Y/n](Y 적용, n 버림, `-proceed`는 Y). 읽기만 하는 명령은 설정판을 건드리지 않습니다.
 - **수정 창이 열려 있을 때**: 콘솔은 그대로 쓸 수 있지만 `load` `set` `speed` `autosave` `import` `reset` `rollback` `do` `sync` `remove` `restore` `delete` `retitle` `checkpoint` `go`는 "The note editor is open, so <명령> cannot run. Save or close the editor first."로 거절합니다(노트나 곡을 바꾸기 때문). `note`는 수정 중인 레인을 찍고, `edit`은 열린 창을 앞으로 가져옵니다(다른 곡이면 거절). `pin`·`unpin`은 노트를 바꾸지 않아 됩니다.
 - **곡 id**: 첫 자리 폴더(0 기본 · 1 커스텀 · 2 수정본) + 소문자·숫자 7자리(글자 최소 하나). `song-ids.json`에 짝지어 두고, 형식이 맞지 않는 id는 다음 실행·동기화 때 새로 발급합니다. 내부 식별은 맵 경로 해시입니다.
-- **저장되는 것**: 설정(`settings.json`, `autosave`가 켜져 있을 때), 곡 목록 선택(`songs.json`), id(`song-ids.json`), 표시와 마지막 곡(`song-marks.json`), 핀(`pins.json`), 메모(`reports/`). 콘솔 기록과 키 입력은 저장하지 않습니다.
+- **저장되는 것**: 설정(`settings.json`, `autosave`가 켜져 있을 때), 곡 목록 선택(`songs.json`), id(`song-ids.json`), 표시와 마지막 곡(`song-marks.json`), 핀(`pins.json`), 리다이렉트(`redirects.json`), 메모(`reports/`). 콘솔 기록과 키 입력은 저장하지 않습니다.
 
 ## 10. 옵션 표
 
@@ -264,9 +266,9 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 
 | 키워드 | 뜻 (명령) |
 | --- | --- |
-| `list` | 나열 (help·option·keyword: 전부 · prompt: 제목 · checkpoint: 체크포인트, 지금 자리에 `>` · report: 메모, 뒤 글자로 거름 · log: 최근 40줄) |
+| `list` | 나열 (help·option·keyword: 전부 · prompt: 제목 · checkpoint: 체크포인트, 지금 자리에 `>` · report: 메모, 뒤 글자로 거름 · log: 최근 40줄 · redirect: 모든 리다이렉트, 불러온 곡에 `>`) |
 | `last` | 바로 앞 명령 (help·option·keyword) · 마지막 체크포인트 (checkpoint) |
-| `all` | 전부 (playlist·id·title: 모든 곡 · note: 모든 노트 · scannow: 모든 영역 · install: 이 버전 전체(`-reinstall`) · log: 남은 모든 줄) · 핀 목록 (pin) |
+| `all` | 전부 (playlist·id·title: 모든 곡 · note: 모든 노트 · scannow: 모든 영역 · install: 이 버전 전체(`-reinstall`) · log: 남은 모든 줄 · redirect: `erase all`로 모든 리다이렉트) · 핀 목록 (pin) |
 | `now` | 불러온 곡 (info·id·title·playlist·hide·show·edit·remove·delete·pin·unpin) · 지금 화면, 수정 중이면 수정 중인 레인 (note) |
 | `base` · `custom` · `edited` · `main` · `family` · `origin` | 곡 묶음 (id·title·playlist) — 기본 맵 · 커스텀 · 수정본 · 메인 화면 목록 · 원곡과 모든 수정본 · 원곡 |
 | `origin` · `edited` | 불러온 수정본의 원곡 · 불러온 원곡의 수정본 (load) |
@@ -274,9 +276,10 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `start` · `stop` · `tiles` · `follow` · `unfollow` · `again` · `auto` · `manual` | 게임 링크 (link), start·stop은 측정 시작·종료 (inspect) |
 | `app` · `source` · `linker` · `maps` · `edits` · `data` | 영역 (scannow·install) |
 | `rebuild` | 커스텀 맵을 처음부터 (sync) |
+| `go` | 불러온 곡의 리다이렉트 곡을 불러오기 (redirect, 명령 이름과 같은 낱말의 예외) |
 | `result` | 측정 결과 (inspect) |
 | `on` · `off` | 켜기 · 끄기 (autosave) |
-| `create` · `write` · `print` · `done` · `undone` · `ask` · `state` · `erase` · `sweep` · `rename` · `colon` | 메모 동작 (report) · `erase`는 기록 비우기 (log) |
+| `create` · `write` · `print` · `done` · `undone` · `ask` · `state` · `erase` · `sweep` · `rename` · `colon` | 메모 동작 (report) · `erase`는 기록 비우기 (log) · 리다이렉트 지우기 (redirect) |
 | `clear-previous-checkpoint-key` · `clear-next-checkpoint-key` · `clear-settings-key` · `map-folder` · `data-folder` · `view-playlist-details` | 설정판 동작 (do) |
 
 ## 12. 설정 이름 (`구역.설정`)
@@ -311,7 +314,6 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `tiles.order-8k` · `-6k` · `-4k` · `-2k` | EightKeyOrder … TwoKeyOrder | 타일 목록 |
 | `timing.speed` | PlaybackSpeedPercent | % |
 | `timing.chord-window` | SimultaneousWindowMs | ms |
-| `timing.no-center-pair` | NoChordCenterPair | 토글 |
 | `timing.chord-side` | ChordLanePreference | 선택 (`none` · `1-2` · `3-4` · `1-2,3-4`) |
 | `timing.chords-above-four` | ChordsOnlyAboveFourKeys | 토글 (5키 이상은 5노트 이상 동타에만, 기본 꺼짐) |
 | `timing.trill-window` | TrillWindowMs | ms (0이면 트릴 없음) |
@@ -325,7 +327,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `judgment.window` | JudgmentBarDifficulty | 선택 |
 | `judgment.average` | ShowJudgmentAverage | 토글 |
 | `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
-| `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임에 적용) |
+| `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임에 적용; 설정판은 0.1 간격 슬라이더) |
 | `magic.notes` | MagicCircleNoteCount | 노트 수 |
 | `magic.max-interval` · `magic.fade-in` · `magic.lead` · `magic.fade-out` | MagicCircleMaxIntervalMs · …FadeInMs · …LeadMs · …FadeOutMs | ms |
 | `magic.chords` | MagicCircleChords | 토글 |
@@ -353,7 +355,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `experimental.chord-before` | ChordAvoidBeforeLanes | 토글 |
 | `experimental.run-restart` | RestartPatternOnRun | 토글 |
 | `experimental.enhanced-chords` | EnhancedChordRules | 토글 |
-| `experimental.one-hand-chords` | OneHandFourChords | 토글 (8레인은 한 손씩: 4키 이하는 한 손 안, 새 연타마다 손 바꿈, 4동타는 손 번갈아) |
+| `experimental.enhanced-keys` | EnhancedFourEightKeys | 토글 (향상된 4/8키 규칙: 단타는 언제나 4키 이하, 4키 초과 레인은 트릴과 동타만) |
 
 새 설정을 추가하면 `SettingPaths`에 이름을 넣어야 `CmdConsoleTests`의 "every setting has a name" 검사를 통과합니다.
 

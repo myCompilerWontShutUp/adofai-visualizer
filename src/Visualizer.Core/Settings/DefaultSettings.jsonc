@@ -32,8 +32,8 @@
   "ChordAvoidBeforeLanes": false,
   "RestartPatternOnRun": false,
   "EnhancedChordRules": false,
-  // Experimental, on eight lanes: a four-note chord on one hand (lanes 1-4 or 5-8), the hands in turn.
-  "OneHandFourChords": false,
+  // Experimental: above four keys only for trills and chords; singles keep to four keys or fewer.
+  "EnhancedFourEightKeys": false,
   "ResetKey": "Enter",
   "StartTriggerKey": "J",
   "VisualizerToggleKey": "F8",
@@ -102,8 +102,6 @@
   // Practice only: the game's minimum hit times times this (1 to 3); 1 keeps the game's own judgment. The linker applies it.
   "JudgmentEaseScale": 1,
   "ShowJudgmentAverage": true,
-  // On keeps chords off the pair across the center (lanes 2-3) on four lanes.
-  "NoChordCenterPair": true,
   "EnableTilePreference": false,
   "TwoKeyOrder": "2 1",
   "FourKeyOrder": "4 3 2 1",

@@ -527,6 +527,25 @@ internal static class AdvancedFeatureTests
             Equal(silent.Settings.MaximumTileCount, 4);
         });
 
+        yield return ("The judgment ease is a slider from 1 to 3 in steps of 0.1, as the note scales are", () =>
+        {
+            // User rule: dragged like the note thickness, 1 to 3, 0.1 a step, 1 by default.
+            var panel = new SettingsPanel(new VisualizerSettings(), new MemorySettingsLayoutStore());
+            var row = (Grid)panel.InputFor(nameof(VisualizerSettings.JudgmentEaseScale))!;
+            var box = row.Children.OfType<TextBox>().Single();
+            var slider = row.Children.OfType<Slider>().Single();
+            Equal(slider.Minimum, 1d);
+            Equal(slider.Maximum, 3d);
+            Equal(slider.TickFrequency, 0.1);
+            Assert(slider.IsSnapToTickEnabled, "It snaps to the steps");
+            Equal(new VisualizerSettings().JudgmentEaseScale, 1d);
+            Equal(slider.Value, 1d);
+            slider.Value = 2.2;
+            Equal(box.Text, "2.2");
+            box.Text = "1.4";
+            Equal(Math.Round(slider.Value, 6), 1.4);
+        });
+
         yield return ("Settings window: collapsible sections, help marks, colors, merged 1K tile, preference lock, blank defaults, JSON and reset", () =>
         {
             var start = new VisualizerSettings { NoteTravelTimeMs = 650 };

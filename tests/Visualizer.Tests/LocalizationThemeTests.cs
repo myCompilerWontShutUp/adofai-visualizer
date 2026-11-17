@@ -560,11 +560,13 @@ internal static class LocalizationThemeTests
             // The other chord rules sit right under the chord window in the timing card.
             var timing = Labels(expanders.Single(expander => Labels(expander).Contains("동타 판정 간격 (ms↓)")));
             int Timing(string label) => timing.IndexOf(label);
-            Assert(Timing("동타 판정 간격 (ms↓)") < Timing("동타 중앙배치 불가") && Timing("동타 중앙배치 불가") < Timing("동타 우선 배치 라인")
+            // The center pair is no setting any more (user rule: a chord never takes it).
+            Assert(Timing("동타 판정 간격 (ms↓)") < Timing("동타 우선 배치 라인") && Timing("동타 중앙배치 불가") < 0
                 && Timing("동타 우선 배치 라인") < Timing("시작 대기 시간 (ms)"), "Timing order: " + string.Join(" / ", timing));
             // The chord rules left the experimental card; the two placement rules being tried out took their place.
             var experiments = Labels(expanders[^1]);
             Assert(experiments.Contains("동타 앞 단타 레인 분리") && experiments.Contains("연타 시 패턴 재시작")
+                && experiments.Contains("향상된 4/8키 규칙") && !experiments.Contains("8레인은 한 손씩")
                 && advanced.Contains("동타 구간 레인 분리"), "The experimental card: " + string.Join(" / ", experiments));
             Assert(window.FindName("PreviousThemeButton") is null && window.FindName("NextThemeButton") is null, "No theme arrows");
             Assert(FindAll<TextBlock>(window).Any(t => t.Text == "타일 순서 선호도"), "Renamed column caption");

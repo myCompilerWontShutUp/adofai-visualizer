@@ -5,7 +5,7 @@ using static Visualizer.Core.Localization.ConsoleText;
 namespace Visualizer.App.Commands;
 
 /// <summary>What a command takes after its options; it also decides what Tab offers there.</summary>
-public enum CmdArgument { None, Id, Command, Songs, Title, Range, Setting, SettingValue, SettingOrSection, Action, Json, Note, Prompt, Text, Areas, Tile, Pin }
+public enum CmdArgument { None, Id, Command, Songs, Title, Range, Setting, SettingValue, SettingOrSection, Action, Json, Note, Prompt, Text, Areas, Tile, Pin, Redirect }
 
 /// <summary>
 /// One console command. <see cref="Options"/> lists option groups split by "/"; the options of one group, split by commas,
@@ -127,6 +127,7 @@ public static class CmdCatalog
         new("go", "Songs", "go <tile>", "", CmdArgument.Tile),
         new("pin", "Songs", "pin [<id>] <tile>", "-copy", CmdArgument.Pin, "now*, all"),
         new("unpin", "Songs", "unpin [<id>] <tile>", "", CmdArgument.Pin, "now*"),
+        new("redirect", "Songs", "redirect [<id>] [<id>]", "-proceed / -copy", CmdArgument.Redirect, "list*, go, erase, all"),
         new("hide", "Songs", "hide <id>", "", CmdArgument.Id, "now"),
         new("show", "Songs", "show <id>", "", CmdArgument.Id, "now"),
 
@@ -376,6 +377,10 @@ public static class CmdCatalog
         "note now",
         "checkpoint list",
         "pin all",
+        "redirect list",
+        "redirect go",
+        "redirect erase",
+        "redirect all",
         "report erase",
         "report sweep",
         "report rename",
@@ -447,10 +452,11 @@ public static class CmdCatalog
             .FirstOrDefault(name => Visible.Any(command => command.KeywordNames.Contains(name, StringComparer.Ordinal)));
 
     /// <summary>
-    /// The one word a keyword may share with a command (user rule): load link, title link and the like name the song the
-    /// link is playing, which is what the link command is about.
+    /// The words a keyword may share with a command (user rule): load link, title link and the like name the song the link
+    /// is playing, which is what the link command is about; redirect go goes to the redirected song as go goes to a tile
+    /// (user decision).
     /// </summary>
-    private static readonly string[] SharedNames = ["link"];
+    private static readonly string[] SharedNames = ["link", "go"];
 
     public static CmdCommand? Find(string? name) =>
         All.FirstOrDefault(command => string.Equals(command.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));

@@ -443,7 +443,7 @@ public sealed class InspectRun
                 Bool(settings.ImmediateDownshift), settings.DownshiftNoteCount, Bool(settings.UseRestartOnRun),
                 Bool(settings.UseEnhancedChordRules), settings.TrillCenterPair.Trim(), Bool(settings.ExtraLanes && settings.CanUseExtraLanes)));
             lines.Add(T("InspectPlacement", Bool(settings.DynamicTiming), Bool(settings.UseChordSectionLanes), Bool(settings.UseChordAvoidBefore),
-                Bool(settings.UseChordCenterPair), settings.ChordLanePreference, settings.TrillLanePreference, Bool(settings.TrillAsOneNote)));
+                Bool(settings.UseEnhancedFourEightKeys), settings.ChordLanePreference, settings.TrillLanePreference, Bool(settings.TrillAsOneNote)));
             lines.Add(T("InspectTiming", settings.PlaybackSpeedPercent, Ms(settings.StartDelayMs), Ms(settings.GlobalDisplayOffsetMs)));
             if (settings.UseMagicCircleTiles)
                 lines.Add(T("InspectMagicCircle", settings.MagicCircleTiles, settings.MagicCircleNoteCount,

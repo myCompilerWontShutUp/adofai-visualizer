@@ -26,8 +26,12 @@ internal static class SimultaneousNotePlanner
     /// </summary>
     internal static bool WalksPattern(int length, int patternLanes) => patternLanes >= 3 && length >= patternLanes;
 
-    /// <summary>How many lanes a roll may run over: the screen's, or one hand's four when eight lanes are played by hand.</summary>
-    internal static int RollLanes(VisualizerSettings settings) => settings.PlaysByHand ? 4 : Math.Max(2, settings.GetVisibleTiles().Count);
+    /// <summary>
+    /// How many lanes a roll may run over: the screen's, or one hand's four when eight lanes are played by hand, except under
+    /// the enhanced 4/8-key rules, which let a trill take as many lanes as a chord may (user rule).
+    /// </summary>
+    internal static int RollLanes(VisualizerSettings settings) => settings.PlaysByHand && !settings.UseEnhancedFourEightKeys
+        ? 4 : Math.Max(2, settings.GetVisibleTiles().Count);
 
     internal static IReadOnlyList<GroupedHit> Group(double[] times, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds = null)
     {
@@ -144,6 +148,31 @@ internal static class SimultaneousNotePlanner
         a >= 0 && b >= 0 && a < laneCount && b < laneCount && Math.Abs(a - b) == 1
         && !(laneCount >= 4 && laneCount % 2 == 0 && Math.Min(a, b) == laneCount / 2 - 1 && noCenter);
 
+    /// <summary>
+    /// Where a chord of <paramref name="size"/> notes may sit on eight lanes (user rule), as the 0-based lane it starts on, in
+    /// the order the rule lists them: 3-4 and 5-6, 2-3-4 and 5-6-7, 1-2-3-4 and 5-6-7-8, 2-6 and 3-7, 2-7, 1-6 and 3-8, 1-7 and
+    /// 2-8, all eight. Nothing else, so no chord ever takes the pair across the center. A trill takes these places first too.
+    /// </summary>
+    internal static IReadOnlyList<int> EightLaneStarts(int size) => size switch
+    {
+        2 => [2, 4],
+        3 => [1, 4],
+        4 => [0, 4],
+        5 => [1, 2],
+        6 => [1, 0, 2],
+        7 => [0, 1],
+        8 => [0],
+        _ => []
+    };
+
+    /// <summary>
+    /// Whether a chord of <paramref name="size"/> notes may take the lanes from <paramref name="low"/> (0-based) on: on eight
+    /// lanes only the places of <see cref="EightLaneStarts"/>, on four and six lanes anything but a two-note chord on the
+    /// pair across the center (user rule: no setting turns that on any more), on fewer anything.
+    /// </summary>
+    internal static bool ChordFits(int laneCount, int low, int size) => laneCount == 8 ? EightLaneStarts(size).Contains(low)
+        : !(size == 2 && (laneCount is 4 or 6) && low == laneCount / 2 - 1);
+
     /// <summary>Per logical tile (1..8), the end of the long note occupying it; negative infinity when free.</summary>
     /// <summary>
     /// Until when a long note keeps its lane: through its end and the first note that comes at or after it (user rule: no
@@ -189,6 +218,10 @@ internal static class SimultaneousNotePlanner
         var holds = result.Where(note => note.HoldEndMs is not null)
             .Select(note => (note.Tile, Start: note.HitTimeMs, Until: HeldUntil(noteTimes, note.HoldEndMs!.Value))).ToArray();
         bool Free(int tile, double time) => !holds.Any(hold => hold.Tile == tile && hold.Start < time && time <= hold.Until);
+        // Whether some place on the eight-lane table is free for the notes from at on, laid either way.
+        bool TableFree(int at, int count) => EightLaneStarts(count).Any(low =>
+            Enumerable.Range(0, count).All(k => Free(visible[low + k], result[at + k].HitTimeMs))
+            || Enumerable.Range(0, count).All(k => Free(visible[low + count - 1 - k], result[at + k].HitTimeMs)));
         var preferred = settings.GetPreferredTrillLanes();
         var half = visible.Count / 2;
         // Pair starts a trill may take, best first: the preference, then any other adjacent pair, then the one across the
@@ -196,7 +229,16 @@ internal static class SimultaneousNotePlanner
         // trill there only where every other pair breaks the run, and such a trill is kept as it is. Set to never, the center
         // is no pair at all, as for a two-note chord on four lanes.
         bool Center(int low) => low == half - 1 && visible.Count >= 4 && visible.Count % 2 == 0;
+        // On eight lanes a trill takes a two-note chord's places first (user rule: 3-4 and 5-6), and the center pair as the
+        // trill setting says: like any other, the last resort, or never.
+        var eight = visible.Count == 8;
         var pairs = Enumerable.Range(0, Math.Max(0, visible.Count - 1))
+            .Where(low => !eight || EightLaneStarts(2).Contains(low) || Center(low))
+            .Where(low => !(Center(low) && settings.TrillCenterNever))
+            .OrderBy(low => Center(low) && settings.TrillCenterLast ? 3 : preferred.Contains(low) ? 0 : low == half - 1 ? 2 : 1)
+            .ToArray();
+        // Off the table, where no place on it is free: the trill rules as on any other lane count.
+        var offTable = Enumerable.Range(0, Math.Max(0, visible.Count - 1))
             .Where(low => !(Center(low) && settings.TrillCenterNever))
             .OrderBy(low => Center(low) && settings.TrillCenterLast ? 3 : preferred.Contains(low) ? 0 : low == half - 1 ? 2 : 1)
             .ToArray();
@@ -272,29 +314,54 @@ internal static class SimultaneousNotePlanner
                 // that way; else the pair one step on (2K sits on the center pair, which four lanes refuse); else the second
                 // on the other side, as before. Keeping the first note comes first, then the preferred pair.
                 // After a trill on the same pair, the pair one further on or one back comes in as well.
-                var options = new[] { (lane, lane + step), (lane - step, lane), (lane + step, lane + 2 * step),
-                        (lane + 2 * step, lane + 3 * step), (lane - 2 * step, lane - step), (lane, lane - step) }
-                    .Where(option => option.Item1 >= 0 && option.Item2 >= 0 && option.Item1 < visible.Count && option.Item2 < visible.Count
-                        && pairs.Contains(Math.Min(option.Item1, option.Item2))
-                        && Free(visible[option.Item1], result[i].HitTimeMs) && Free(visible[option.Item2], result[i + 1].HitTimeMs))
-                    .OrderBy(option => option.Item1 == lane ? 0 : 1)
-                    .ThenBy(option => Array.IndexOf(pairs, Math.Min(option.Item1, option.Item2)))
-                    .ToArray();
+                // On eight lanes every pair the trill may take is an option, the pattern's way first: the ones near it may all
+                // be off the table.
+                (int, int)[] Options(int[] allowed, bool everywhere)
+                {
+                    var anywhere = everywhere ? allowed.SelectMany(low => new[] { step < 0 ? (low + 1, low) : (low, low + 1), step < 0 ? (low, low + 1) : (low + 1, low) })
+                        : Enumerable.Empty<(int, int)>();
+                    return new[] { (lane, lane + step), (lane - step, lane), (lane + step, lane + 2 * step),
+                            (lane + 2 * step, lane + 3 * step), (lane - 2 * step, lane - step), (lane, lane - step) }
+                        .Concat(anywhere).Distinct()
+                        .Where(option => option.Item1 >= 0 && option.Item2 >= 0 && option.Item1 < visible.Count && option.Item2 < visible.Count
+                            && allowed.Contains(Math.Min(option.Item1, option.Item2))
+                            && Free(visible[option.Item1], result[i].HitTimeMs) && Free(visible[option.Item2], result[i + 1].HitTimeMs))
+                        .OrderBy(option => option.Item1 == lane ? 0 : 1)
+                        .ThenBy(option => Array.IndexOf(allowed, Math.Min(option.Item1, option.Item2)))
+                        .ThenBy(option => Math.Abs(option.Item1 - lane))
+                        .ToArray();
+                }
                 // Lanes around the trill are kept free; past that the first note stays and nothing moves onto the next note's lane
                 // (a trill next is turned in its own turn, and keeps off this one's lanes then).
-                var running = options.Where(option => option.Item2 - option.Item1 == step
-                    && !before.Contains(visible[option.Item1]) && !ahead.Contains(visible[option.Item2])).ToArray();
                 // A trill that is fine but for the single after it moves only to a pair that is fine and clears the single too.
-                var chosen = (fine ? running.Where(option => !Repeats(option) && ClearsSingle(option))
-                        : running.Where(option => !Repeats(option) && ClearsSingle(option)).Concat(running.Where(ClearsSingle)).Concat(running)
-                            .Concat(options.Where(option => option.Item1 == lane && !ahead.Contains(visible[option.Item2]))))
-                    .Select(option => ((int, int)?)option).FirstOrDefault();
+                (int, int)? Choose((int, int)[] options)
+                {
+                    var running = options.Where(option => option.Item2 - option.Item1 == step
+                        && !before.Contains(visible[option.Item1]) && !ahead.Contains(visible[option.Item2])).ToArray();
+                    return (fine ? running.Where(option => !Repeats(option) && ClearsSingle(option))
+                            : running.Where(option => !Repeats(option) && ClearsSingle(option)).Concat(running.Where(ClearsSingle)).Concat(running)
+                                .Concat(options.Where(option => option.Item1 == lane && !ahead.Contains(visible[option.Item2]))))
+                        .Select(option => ((int, int)?)option).FirstOrDefault();
+                }
+                int Touches((int, int) option) => (before.Contains(visible[option.Item1]) ? 1 : 0)
+                    + (ahead.Contains(visible[option.Item2]) ? 1 : 0) + (ClearsSingle(option) ? 0 : 1);
+                var options = Options(pairs, eight);
+                var chosen = Choose(options);
+                if (eight && chosen is null && !fine)
+                {
+                    // The table comes first (user rule): where each of its places breaks the flow, the one that touches the
+                    // notes around it least. Where none is free at all (long notes hold them), the trill rules off the table.
+                    chosen = options.OrderBy(Touches).Select(option => ((int, int)?)option).FirstOrDefault();
+                    if (chosen is null && !(other >= 0 && Math.Abs(other - lane) == 1 && pairs.Contains(Math.Min(lane, other))))
+                    {
+                        options = Options(offTable, false);
+                        chosen = Choose(options);
+                    }
+                }
                 // Set to never, a trill is never left on the center pair, as a two-note chord never is (user rule): failing
                 // all else it takes the pair that touches the notes around it least (3-4 2-3 1-2 reads 3-4 2-1 1-2).
                 if (chosen is null && settings.TrillCenterNever && other >= 0 && Math.Abs(other - lane) == 1 && Center(Math.Min(lane, other)))
-                    chosen = options.OrderBy(option => (before.Contains(visible[option.Item1]) ? 1 : 0)
-                            + (ahead.Contains(visible[option.Item2]) ? 1 : 0) + (ClearsSingle(option) ? 0 : 1))
-                        .Select(option => ((int, int)?)option).FirstOrDefault();
+                    chosen = options.OrderBy(Touches).Select(option => ((int, int)?)option).FirstOrDefault();
                 if (chosen is { } pick)
                 {
                     result[i] = result[i] with { Tile = visible[pick.Item1] };
@@ -323,6 +390,8 @@ internal static class SimultaneousNotePlanner
             }
             (lastEnd, lastLow) = (i + 1, Math.Min(visible.IndexOf(result[i].Tile), visible.IndexOf(result[i + 1].Tile)));
             lastRoll = [visible.IndexOf(result[i].Tile), visible.IndexOf(result[i + 1].Tile)];
+            // A two-note trill ends any row of longer rolls: a roll after it never lays the ones before it again.
+            rollRun.Clear();
             i++;
         }
 
@@ -332,12 +401,19 @@ internal static class SimultaneousNotePlanner
         // lanes (user rule: 4-3-2 4-3-2). One already laid out so stays; else the lanes keep off the event before and the event
         // after, the first note stays where it can, and nothing moves onto a lane a long note holds. The center rule is the
         // two-note trill's own, so it does not apply here. A roll with nowhere to go stays as it is.
-        void LayRoll(int at, int length)
+        void LayRoll(int at, int length, bool table = true)
         {
             var step = Direction(settings, Enumerable.Range(at, length).Max(k => result[k].Mode));
             var lanes = Enumerable.Range(at, length).Select(k => visible.IndexOf(result[k].Tile)).ToArray();
-            // A roll the pattern walks is kept as the cursor laid it (see WalksPattern).
-            if (WalksPattern(length, Enumerable.Range(at, length).Min(k => Math.Min(result[k].Mode, visible.Count))))
+            var way = lanes.All(lane => lane >= 0) && Enumerable.Range(1, length - 1).All(k => lanes[k] - lanes[k - 1] == lanes[1] - lanes[0])
+                && Math.Abs(lanes[1] - lanes[0]) == 1 ? lanes[1] - lanes[0] : 0;
+            // On eight lanes a roll takes the places a chord of as many notes may take (user rule: a trill is laid out as a
+            // chord first). Where none is free, see the end of the choice below.
+            var onTable = table && eight;
+            bool InTable(int first, int way) => !onTable || EightLaneStarts(length).Contains(Math.Min(first, first + (length - 1) * way));
+            // A roll the pattern walks is kept as the cursor laid it (see WalksPattern), on eight lanes when it is on the table.
+            if (WalksPattern(length, Enumerable.Range(at, length).Min(k => Math.Min(result[k].Mode, visible.Count)))
+                && (!onTable || (way != 0 && InTable(lanes[0], way))))
             {
                 (lastEnd, lastRoll, lastLow) = (at + length - 1, lanes, Math.Min(lanes[^2], lanes[^1]));
                 rollRun.Clear();
@@ -345,8 +421,9 @@ internal static class SimultaneousNotePlanner
             }
             var before = LanesAround(result, at - 1, backward: true);
             var ahead = LanesAround(result, at + length, backward: false);
-            // Played by hand, a roll of four keys or fewer stays in one hand (user rule).
-            var byHand = settings.PlaysByHand && Enumerable.Range(at, length).Max(k => result[k].Mode) <= 4;
+            // Played by hand, a roll of four keys or fewer stays in one hand (user rule); a longer one (the enhanced 4/8-key
+            // rules) needs both.
+            var byHand = settings.PlaysByHand && length <= 4 && Enumerable.Range(at, length).Max(k => result[k].Mode) <= 4;
             bool Fits(int first, int way) => first >= 0 && first < visible.Count
                 && first + (length - 1) * way >= 0 && first + (length - 1) * way < visible.Count
                 && (!byHand || first / 4 == (first + (length - 1) * way) / 4);
@@ -354,11 +431,14 @@ internal static class SimultaneousNotePlanner
             bool AtEdge(int first) => first + step < 0 || first + step >= visible.Count || (byHand && (first + step) / 4 != first / 4);
             bool Allowed(int first, int way) => Fits(first, way) && (way == step || AtEdge(first));
             int LaneAt(int first, int way, int k) => first + k * way;
-            bool Usable(int first, int way) => Allowed(first, way)
+            bool Usable(int first, int way) => Allowed(first, way) && InTable(first, way)
                 && Enumerable.Range(0, length).All(k => Free(visible[LaneAt(first, way, k)], result[at + k].HitTimeMs));
             bool Clear(int first, int way) => !before.Contains(visible[first]) && !ahead.Contains(visible[LaneAt(first, way, length - 1)]);
-            // The roll right before, when it is as long and nothing comes between them.
-            (int First, int Way)? last = lastEnd == at - 1 && lastRoll.Length == length && lastRoll.All(lane => lane >= 0)
+            // The roll right before, when it is as long and nothing comes between them. Two-note pieces (a split roll on eight
+            // lanes) are trills: two in a row take two pairs (user rule), so for them it is what to keep off instead.
+            bool RepeatsPair(int first, int way) => length == 2 && lastEnd == at - 1 && lastRoll.Length == 2
+                && new[] { first, first + way }.Order().SequenceEqual(lastRoll.Order());
+            (int First, int Way)? last = length >= 3 && lastEnd == at - 1 && lastRoll.Length == length && lastRoll.All(lane => lane >= 0)
                 && Math.Abs(lastRoll[1] - lastRoll[0]) == 1 && Enumerable.Range(1, length - 1).All(k => lastRoll[k] - lastRoll[k - 1] == lastRoll[1] - lastRoll[0])
                 ? (lastRoll[0], lastRoll[1] - lastRoll[0]) : null;
             bool Again(int first, int way) => last is { } roll && roll.First == first && roll.Way == way;
@@ -384,20 +464,36 @@ internal static class SimultaneousNotePlanner
                     repeatable = true;
                 }
             }
-            var way = lanes.All(lane => lane >= 0) && Enumerable.Range(1, length - 1).All(k => lanes[k] - lanes[k - 1] == lanes[1] - lanes[0])
-                && Math.Abs(lanes[1] - lanes[0]) == 1 ? lanes[1] - lanes[0] : 0;
-            if (way == 0 || !Allowed(lanes[0], way) || !Clear(lanes[0], way) || (repeatable && !Again(lanes[0], way)))
+            if (way == 0 || !Allowed(lanes[0], way) || !Clear(lanes[0], way) || (repeatable && !Again(lanes[0], way)) || !InTable(lanes[0], way)
+                || RepeatsPair(lanes[0], way))
             {
                 var current = lanes[0] >= 0 ? lanes[0] : 0;
                 var chosen = Enumerable.Range(0, visible.Count).SelectMany(first => new[] { (First: first, Way: step), (First: first, Way: -step) })
                     .Where(option => Usable(option.First, option.Way))
                     .OrderBy(option => Clear(option.First, option.Way) ? 0 : 1)
+                    .ThenBy(option => RepeatsPair(option.First, option.Way) ? 1 : 0)
                     .ThenBy(option => Again(option.First, option.Way) ? 0 : 1)
                     .ThenBy(option => option.Way == step ? 0 : 1)
                     // A roll turned the pattern's way keeps its lanes (2-3-4 becomes 4-3-2).
                     .ThenBy(option => Enumerable.Range(0, length).Select(k => LaneAt(option.First, option.Way, k)).Order().SequenceEqual(lanes.Order()) ? 0 : 1)
                     .ThenBy(option => Math.Abs(option.First - current))
                     .Select(option => ((int First, int Way)?)option).FirstOrDefault();
+                if (chosen is null && onTable)
+                {
+                    // No place on the table is free (long notes hold them). A roll whose first and last notes are further
+                    // apart than the trill window is not all one moment: the notes within the window of the first stay
+                    // together on the table, as a chord would, and the rest is a roll of its own laid out the same way. A
+                    // roll within the window that still finds no place keeps the trill rules, off the table (user rule).
+                    var together = Enumerable.Range(0, length).Count(k => result[at + k].HitTimeMs - result[at].HitTimeMs <= settings.TrillWindowMs);
+                    if (together >= 2 && together < length && TableFree(at, together))
+                    {
+                        LayRoll(at, together);
+                        if (length - together >= 2) LayRoll(at + together, length - together);
+                        return;
+                    }
+                    LayRoll(at, length, table: false);
+                    return;
+                }
                 if (chosen is { } pick)
                 {
                     for (var k = 0; k < length; k++) result[at + k] = result[at + k] with { Tile = visible[LaneAt(pick.First, pick.Way, k)] };
@@ -408,6 +504,7 @@ internal static class SimultaneousNotePlanner
             // then and the event before them allows it: rolls in a row share one set of lanes either way (user rule). Those
             // before may have been laid by a chord block, which never saw the rolls after them.
             if (last is not null && !lanes.SequenceEqual(lastRoll) && rollRun.Count > 0 && lanes.All(lane => lane >= 0)
+                && (!eight || EightLaneStarts(length).Contains(lanes.Min()) && lanes.Max() - lanes.Min() == length - 1)
                 && !LanesAround(result, rollRun[0] - 1, backward: true).Contains(visible[lanes[0]])
                 && rollRun.All(start => Enumerable.Range(0, length).All(k => Free(visible[lanes[k]], result[start + k].HitTimeMs))))
                 foreach (var start in rollRun)
@@ -592,6 +689,14 @@ internal static class SimultaneousNotePlanner
                     var fits = blockEnd == blockStart || (mode <= 2
                         ? blockEnd - blockStart < mode && size <= 2 && groups[blockStart].Count <= 2
                         : count + size <= mode);
+                    // The chords of one block never share a lane, and six and eight lanes hold fewer chords than they have
+                    // lanes for (no center pair; on eight only the table's places, user rule): two chords a block at most, one
+                    // per hand, and on eight lanes a chord of five notes or more, which spans both hands, has a block of its own.
+                    if (fits && blockEnd > blockStart && size >= 2 && visible.Length >= 6)
+                    {
+                        var held = Enumerable.Range(blockStart, blockEnd - blockStart).Select(i => groups[i].Count).Where(notes => notes >= 2).ToArray();
+                        if (held.Length >= 2 || (held.Length == 1 && visible.Length == 8 && Math.Max(size, held[0]) >= 5)) fits = false;
+                    }
                     if (!fits) break;
                     count += size;
                     blockEnd++;
@@ -631,7 +736,7 @@ internal static class SimultaneousNotePlanner
                         .SelectMany(keepChords => Enumerable.Range(1, 3).Select(level => (style, keepChords, level))))
                     .Select(option => Assign(block, candidates, visible, mode, extras, budget, option.level, option.keepChords, busyUntil,
                         option.style.Avoid ? lanes : null, option.style.Avoid ? used : null, option.style.Repeat, option.style.NoFollow, previous,
-                        settings.GetPreferredChordLanes(), settings.UseChordCenterPair, option.style.Fresh ? flow : null, hand))
+                        settings.GetPreferredChordLanes(), option.style.Fresh ? flow : null, hand))
                     .FirstOrDefault(found => found is not null);
                 var assignment = Find(0) ?? Enumerable.Range(1, extras.Length).Select(Find).FirstOrDefault(found => found is not null);
                 if (assignment is null) throw Failure(settings, block[0].SourceIndex, block[0].TimeMs, mode, count);
@@ -784,6 +889,7 @@ internal static class SimultaneousNotePlanner
                 else
                 {
                     if (following.Contains(side[0]) || following.Contains(side[1])) return;
+                    if (!ChordFits(visible.Count, Math.Min(side[0], side[1]), 2)) return;
                     plan[events[after].At] = side[0];
                     plan[events[after].At + 1] = side[1];
                 }
@@ -832,16 +938,18 @@ internal static class SimultaneousNotePlanner
     /// chords alternate as one hand would play them (2 3-4 2 3-4, 3 1-2 3 1-2). A trill comes before those rules (it opens on
     /// a lane whose neighbour in the pattern's direction may close it, and closes there), and past them a single keeps the
     /// tile the cursor gave it, so a run of singles stays as the pattern walked it.
-    /// <paramref name="preferredLane"/> is the 0-based lane a chord tries first (-1 for none), and <paramref name="centerPair"/>
-    /// lets a chord cross the screen center on four lanes.
+    /// <paramref name="preferredLanes"/> are the 0-based lanes the chord pairs it tries first start on. A chord never takes the
+    /// pair across the center on four and six lanes, and on eight lanes only the places of <see cref="EightLaneStarts"/>, which
+    /// may lie outside the section's pattern (user rule).
     /// </summary>
     private static (int Tile, bool StartsChord)[]? Assign(GroupedHit[] groups, int[] candidates, int[] visible, int mode, int[] extras, int budget,
         int level, bool keepChords, double[] busyUntil, int[]? sectionLanes, int[]? sectionUsed, bool repeatSingles, bool noFollow,
-        int[] previousLanes, IReadOnlyList<int> preferredLanes, bool centerPair, Flow? flow = null, int hand = -1)
+        int[] previousLanes, IReadOnlyList<int> preferredLanes, Flow? flow = null, int hand = -1)
     {
         var fresh = flow is not null;
         var total = groups.Sum(g => g.Count);
-        if (total > candidates.Length + budget) return null;
+        var eight = visible.Length == 8;
+        if (total > (eight ? Math.Max(candidates.Length, visible.Length) : candidates.Length) + budget) return null;
         var tiles = new List<int>();
         var chords = new List<bool>();
         var chordTiles = new List<int>();
@@ -856,9 +964,10 @@ internal static class SimultaneousNotePlanner
             if (Math.Abs(ia - ib) != 1) return false;
             var low = Math.Min(ia, ib);
             var half = visible.Length / 2;
-            // A pair across the screen center (lanes 2-3 of four, 3-4 of six, 4-5 of eight) is never used on four lanes
-            // (user rule, found in 1K/2K sections of RUSH E), whatever the preference says.
-            if (low == half - 1 && visible.Length == 4 && !centerPair) return false;
+            // A pair across the screen center (lanes 2-3 of four, 3-4 of six, 4-5 of eight) is never a chord (user rule, found
+            // in 1K/2K sections of RUSH E), whatever the preference says; eight lanes have their table and nothing else.
+            if (!ChordFits(visible.Length, low, 2)) return false;
+            if (eight) return true;
             // A pair the preference names is taken from the first level on; that is what choosing it means.
             if (preferredLanes.Contains(low)) return true;
             // Otherwise the pair across the center is the last resort.
@@ -921,9 +1030,16 @@ internal static class SimultaneousNotePlanner
                 : choices.OrderBy(tile => Array.IndexOf(visible, tile) is var lane
                         && preferredLanes.Any(start => lane >= start && lane <= start + 1) ? 0 : 1)
                     .ThenBy(tile => Array.IndexOf(visible, tile) is var lane && lane >= 0 ? lane : int.MaxValue).ToArray();
-            // One hand per four-note chord on eight lanes (experimental): it starts on lane 1 or 5, the wanted hand first.
-            // Only an order, so a chord that cannot have either hand is still placed.
-            if (hand >= 0 && member == 0 && groups[groupIndex].Count == 4 && visible.Length == 8)
+            // On eight lanes a chord may need lanes outside the section's pattern to sit where the table puts it (user rule).
+            if (eight && !single) ordered = ordered.Concat(visible.Where(tile => !ordered.Contains(tile))).ToArray();
+            // A chord of three notes or more on eight lanes starts where the table says, in its order (user rule: the flow,
+            // which the styles of the caller try first, then the order listed).
+            if (eight && wide && member == 0)
+                ordered = ordered.Where(tile => ChordFits(8, Array.IndexOf(visible, tile), groups[groupIndex].Count))
+                    .OrderBy(tile => EightLaneStarts(groups[groupIndex].Count).ToList().IndexOf(Array.IndexOf(visible, tile))).ToArray();
+            // One hand per four-note chord on eight lanes: it starts on lane 1 or 5, the wanted hand first. Only an order, so
+            // a chord that cannot have either hand is still placed.
+            if (hand >= 0 && member == 0 && groups[groupIndex].Count == 4 && eight)
                 ordered = ordered.OrderBy(tile => Array.IndexOf(visible, tile) is var lane && lane == hand * 4 ? 0 : lane == (1 - hand) * 4 ? 1 : 2).ToArray();
             var before = Before(groupIndex);
             if (flow is not null && single)

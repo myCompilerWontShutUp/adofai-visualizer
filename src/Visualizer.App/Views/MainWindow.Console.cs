@@ -150,8 +150,11 @@ public partial class MainWindow
         // A linker that says nothing of the ease applies none, whatever the settings ask for.
         playback.GameEase = reading is null ? null : reading.Ease ?? 1;
         var grades = _gameGrades.Take(reading?.Judgments, Sync.JudgmentNames);
-        if (grades.Count > 0 && playback.State == PlaybackState.Playing)
-            _model.Presses.TakeGameGrades(grades, playback.TimelineTimeMs - playback.Offsets.TotalMs, GradeWithinMs);
+        if (grades.Count == 0 || playback.State != PlaybackState.Playing) return;
+        var difficulty = HitGrading.DifficultyOf(_model.Settings.JudgmentBarDifficulty);
+        var fallback = HitGrading.Fallback(playback.GameDifficulty ?? difficulty, playback.JudgmentEase);
+        _model.Presses.TakeGameGrades(grades, playback.TimelineTimeMs - playback.Offsets.TotalMs, GradeWithinMs,
+            mark => (playback.HitWindowsOf(mark.Note, difficulty) ?? fallback).Grade(mark.DeviationMs));
     }
 
     private void FollowGameSyncFrame()
@@ -196,6 +199,10 @@ public partial class MainWindow
         lines.AddRange(_follower.Lines());
         if (_followProblem is { } problem) lines.Add(T("ProblemLine", problem));
         lines.Add(_linkAuto ? T("AutoOn") + (_autoNote is { } note ? " \u00b7 " + note : "") : T("AutoOff"));
+        // The note above is the latest attempt's; that the loaded song stands in for the game's stays said while it does.
+        if (_linkAuto && _autoRedirect is { } put && _model.LoadedEntry is { } loaded && loaded.Id == put.Song
+            && string.Equals(Sync.Level?.Path, put.Path, StringComparison.OrdinalIgnoreCase))
+            lines.Add(T("AutoRedirectLine", loaded.SongName));
         lines.Add(InspectLine());
         if (manual) lines.Add(T("AutoOffWithStop"));
         if (reset) lines.Add(T("LinkStopReset"));
@@ -254,11 +261,17 @@ public partial class MainWindow
     private const double AutoRetryMs = 2000;
     /// <summary>What that attempt said, so link can show it: an automatic refusal must not be silent.</summary>
     private string? _autoNote;
+    /// <summary>
+    /// The game's level and the song link auto put in its place by a redirect, so that song is followed as the game's own
+    /// would be (its tiles are still matched first, and a refusal says why).
+    /// </summary>
+    private (string Path, string Song)? _autoRedirect;
 
     IReadOnlyList<string> ICmdHost.GameSyncAuto(bool on)
     {
         _linkAuto = on;
         _autoLoadedPath = null;
+        _autoRedirect = null;
         _autoTried = null;
         _autoRefusedAt = double.NaN;
         _autoNote = null;
@@ -276,13 +289,21 @@ public partial class MainWindow
     {
         if (!_linkAuto) return;
         if (_syncServer is not { Listening: true } || Sync.Level is not { } level) return;
-        // The game moving to another song comes first (user rule: link auto loads it), following or not.
-        if (_model.LoadedEntry is not { } entry || !GamePlays(level, entry))
+        // The game moving to another song comes first (user rule: link auto loads it, or the song redirected in its place),
+        // following or not.
+        if (!string.Equals(_autoLoadedPath, level.Path, StringComparison.OrdinalIgnoreCase))
         {
+            // A song found loaded already goes on to following in this frame; one loaded now waits for the next.
+            var before = _model.LoadedEntry;
             LoadGameSong(level);
-            return;
+            if (!string.Equals(_autoLoadedPath, level.Path, StringComparison.OrdinalIgnoreCase) || !ReferenceEquals(before, _model.LoadedEntry)) return;
         }
-        _autoLoadedPath = level.Path;
+        // The game's song, an edit of it or the song redirected in its place is followed; a song picked here by hand stays
+        // as it is until the game moves on.
+        if (_model.LoadedEntry is not { } entry) return;
+        var redirected = _autoRedirect is { } put && put.Song == entry.Id
+            && string.Equals(put.Path, level.Path, StringComparison.OrdinalIgnoreCase);
+        if (!redirected && !GamePlays(level, entry)) return;
         if (_model.FollowingGame || _model.Playback.Timeline is null) return;
         // One try per level the game sends (each one sent is a new object, a resend included) and per song prepared here;
         // without this the tile compare would run every frame. Preparations are counted, not notes: a refusal over the
@@ -303,25 +324,66 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Loads the song the game moved to, once per song. Not under the editor or the settings panel: they hold work of the
-    /// user's, so it waits for them to close. The load is the one the console's load does, speed rule included.
+    /// Loads the song the game moved to, once per song: the song a redirect puts in its place when there is one (user
+    /// request), else the game's own. A song already loaded that is the one wanted is kept as it is. Not under the editor or
+    /// the settings panel: they hold work of the user's, so it waits for them to close. The load is the one the console's
+    /// load does, speed rule included.
     /// </summary>
     private void LoadGameSong(GameSyncLevel level)
     {
         var gamePath = level.Path;
         if (string.IsNullOrWhiteSpace(gamePath) || string.Equals(_autoLoadedPath, gamePath, StringComparison.OrdinalIgnoreCase)) return;
+        // The song list is searched only when a redirect could change what is wanted or something has to be loaded.
+        var song = RedirectMap.Count > 0 ? GameSongOf(level) : null;
+        var (target, missing) = song is null ? (null, null) : RedirectOf(song);
+        if (_model.LoadedEntry is { } loaded && (target is not null ? loaded.Id == target.Id : GamePlays(level, loaded)))
+        {
+            _autoLoadedPath = gamePath;
+            _autoRedirect = target is null ? null : (gamePath, target.Id);
+            // Loaded by hand before link auto came on: it still gets the lanes it needs whole (user rule), once nothing of the
+            // user's is open.
+            if (!Busy && _settingsPanel is null) _model.WidenLoadedForGame();
+            return;
+        }
         if (Busy || _settingsPanel is not null) return;
         _autoLoadedPath = gamePath;
-        if (SongFor(level, _model.AllSongs, OriginalPathOf) is not { } song)
+        _autoRedirect = null;
+        if ((song ?? GameSongOf(level)) is not { } game)
         {
             _autoNote = T("AutoNotListed", gamePath);
             _model.SetMessage(_model.Text["GameSongMissing"]);
             return;
         }
-        _model.LoadChosen(song, null);
+        // At least the lanes the song needs whole, without asking (user rule).
+        _model.LoadForGame(target ?? game);
+        if (target is not null) _autoRedirect = (gamePath, target.Id);
         ForgetGuide();
         MapPanel.IsExpanded = false;
-        _autoNote = T("AutoLoaded", song.SongName);
+        _autoNote = target is not null ? T("AutoRedirected", target.SongName, game.SongName)
+            : missing is not null ? T("AutoRedirectGone", game.SongName, missing) : T("AutoLoaded", game.SongName);
+    }
+
+    /// <summary>The level and song list the game's song was last looked up for, and what was found.</summary>
+    private (GameSyncLevel Level, IReadOnlyList<MapCacheEntry> Songs, MapCacheEntry? Song)? _gameSong;
+
+    /// <summary>The song in the list that the game's level is, as link auto finds it; looked up once per level and song list.</summary>
+    private MapCacheEntry? GameSongOf(GameSyncLevel level)
+    {
+        var songs = _model.AllSongs;
+        if (_gameSong is { } seen && ReferenceEquals(seen.Level, level) && ReferenceEquals(seen.Songs, songs)) return seen.Song;
+        var song = SongFor(level, songs, OriginalPathOf);
+        _gameSong = (level, songs, song);
+        return song;
+    }
+
+    /// <summary>
+    /// The song a redirect puts in place of <paramref name="song"/>, by its family (user decision: as pins are kept); with
+    /// the id it names when that song is no longer in the list, so link auto can say so and load the game's own.
+    /// </summary>
+    private (MapCacheEntry? Target, string? Missing) RedirectOf(MapCacheEntry song)
+    {
+        if (_model.SongFamily is not { } familyOf || !RedirectMap.TryGetValue(familyOf(song), out var id)) return (null, null);
+        return _model.SongWithId(id) is { } target ? (target, null) : (null, id);
     }
 
     string? ICmdHost.GameSongId(out string? problem)
@@ -632,6 +694,51 @@ public partial class MainWindow
             return null;
         }
         catch (Exception error) when (IsExpectedError(error)) { return T("PinsNotSaved", error.Message); }
+    }
+
+    /// <summary>Every redirect (song family → the console id of the song put in its place), read from redirects.json once; tests keep them in memory only.</summary>
+    private Dictionary<string, string>? _redirects;
+    /// <summary>Why redirects.json could not be read; nothing is written over it then, so no redirect is lost to a bad read.</summary>
+    private string? _redirectsUnreadable;
+
+    private Dictionary<string, string> RedirectMap
+    {
+        get
+        {
+            if (_redirects is not null) return _redirects;
+            _redirects = new(StringComparer.Ordinal);
+            if (!UseAppStore) return _redirects;
+            try { foreach (var (family, id) in new RedirectBook(Storage).Read()) _redirects[family] = id; }
+            catch (Exception error) when (IsExpectedError(error) || error is System.Text.Json.JsonException) { _redirectsUnreadable = error.Message; }
+            return _redirects;
+        }
+    }
+
+    IReadOnlyDictionary<string, string> ICmdHost.Redirects => RedirectMap;
+
+    string? ICmdHost.SetRedirects(IReadOnlyDictionary<string, string> redirects)
+    {
+        ArgumentNullException.ThrowIfNull(redirects);
+        var kept = RedirectMap;
+        if (_redirectsUnreadable is { } why) return T("RedirectsUnreadable", why);
+        // A change to the redirect of the song the game is on is acted on at once: link auto looks at that song again.
+        var family = _linkAuto && Sync.Level is { } level && GameSongOf(level) is { } game ? _model.SongFamily?.Invoke(game) : null;
+        var before = family is not null && kept.TryGetValue(family, out var was) ? was : null;
+        var next = redirects.ToArray();
+        kept.Clear();
+        foreach (var (key, id) in next) kept[key] = id;
+        if (family is not null && !string.Equals(before, kept.GetValueOrDefault(family), StringComparison.OrdinalIgnoreCase))
+        {
+            _autoLoadedPath = null;
+            _autoTried = null;
+        }
+        if (!UseAppStore) return null;
+        try
+        {
+            new RedirectBook(Storage).Write(kept);
+            return null;
+        }
+        catch (Exception error) when (IsExpectedError(error)) { return T("RedirectsNotSaved", error.Message); }
     }
 
     string? ICmdHost.SetHidden(string id, bool hidden)

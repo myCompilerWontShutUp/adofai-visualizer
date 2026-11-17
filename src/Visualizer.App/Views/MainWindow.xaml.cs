@@ -330,6 +330,11 @@ public partial class MainWindow : Window, ICmdHost
             MarkBook.Write(new SongMarks(_model.NewSongs, _model.LastSongId));
             if (string.Equals(previous, Storage.Root, StringComparison.OrdinalIgnoreCase)) return;
             _cache = null;
+            // Pins and redirects belong to the store too; kept from the old one, they would be written into the new one.
+            _pins = null;
+            _pinsUnreadable = null;
+            _redirects = null;
+            _redirectsUnreadable = null;
             _model.SetMessage(_model.Text.Format("DataFolderMoved", Storage.Root));
             ReloadLibrary();
         }

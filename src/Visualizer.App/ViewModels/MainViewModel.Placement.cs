@@ -1,3 +1,4 @@
+using Visualizer.Application.Cache;
 using Visualizer.Application.Playback;
 using Visualizer.Core.Maps;
 using Visualizer.Core.Settings;
@@ -21,6 +22,72 @@ public sealed partial class MainViewModel
     public Func<string, bool>? ConfirmExtraLanes { get; set; }
     /// <summary>Asks whether to raise the maximum tile count (to 6 or 8) when extra lanes cannot help. Null never switches.</summary>
     public Func<string, bool>? ConfirmWiderLanes { get; set; }
+    /// <summary>While link auto loads the game's song: a wider maximum is taken without asking, and spare lanes are not offered.</summary>
+    private bool _widenWithoutAsking;
+
+    /// <summary>
+    /// Loads the song the game moved to for link auto (user rule): the maximum tile count first goes up, without asking, to
+    /// what the song needs whole: its widest chord (an eight-note chord takes eight lanes, straight from four if need be, spare
+    /// lanes or not). Should it still not place (a saved edit made for more lanes), the smallest wider count that does is
+    /// taken the same way. Never down; each change is a settings step of its own, so rollback undoes it.
+    /// </summary>
+    public void LoadForGame(MapCacheEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        _widenWithoutAsking = true;
+        int? widened = null;
+        try
+        {
+            if (entry.Timeline is { } timeline)
+            {
+                var speed = Settings.KeepSpeedOnLoad ? Settings : Settings with { PlaybackSpeedPercent = 100 };
+                var need = PlaybackSession.WidestChord(timeline, speed);
+                if (need > Settings.MaximumTileCount
+                    && VisualizerSettings.Modes.FirstOrDefault(count => count >= need) is var wider and > 0 && Widen(wider)) widened = wider;
+            }
+            LoadChosen(entry, null);
+        }
+        finally { _widenWithoutAsking = false; }
+        // A song that still did not place keeps saying why.
+        if (widened is { } count && Playback.Notes.Count > 0) SetMessage(Text.Format("AutoWiderLanes", count));
+    }
+
+    /// <summary>
+    /// link auto found the game's song loaded already (by hand, before link auto was on): it gets the lanes it needs whole as
+    /// well, the song prepared again with them (user rule). False when nothing changed.
+    /// </summary>
+    public bool WidenLoadedForGame()
+    {
+        if (LoadedEntry is null || Playback.Timeline is not { } timeline) return false;
+        var need = PlaybackSession.WidestChord(timeline, Settings);
+        int wider;
+        if (need > Settings.MaximumTileCount) wider = VisualizerSettings.Modes.FirstOrDefault(count => count >= need);
+        // A song that does not place at all takes the smallest count that places it, as loading it here would.
+        else if (Playback.Notes.Count == 0)
+            wider = VisualizerSettings.Modes.Where(count => count > Settings.MaximumTileCount)
+                .FirstOrDefault(count => Settings with { MaximumTileCount = count } is var proposed && proposed.Validate().Count == 0 && Places(timeline, proposed));
+        else return false;
+        if (wider == 0 || !Widen(wider)) return false;
+        SetMessage(Text.Format("AutoWiderLanes", wider));
+        return true;
+    }
+
+    /// <summary>Raises the maximum tile count to <paramref name="count"/> as a settings step of its own; false when it cannot be.</summary>
+    private bool Widen(int count)
+    {
+        var before = Settings;
+        var proposed = before with { MaximumTileCount = count };
+        if (proposed.Validate().Count != 0) return false;
+        // The song still loaded is prepared again with it; the game's song is loaded right after.
+        try { Playback.ApplySettings(proposed, Checkpoint); }
+        catch (NotePlacementException) { }
+        Record(before, proposed);
+        Settings = proposed;
+        _manualCheckpointPending = false;
+        NotifyAll();
+        SettingsCommitted?.Invoke();
+        return true;
+    }
 
     /// <summary>Runs a note preparation; on a placement failure offers a lane change and retries after consent.</summary>
     private bool TryPrepare(Action prepare, Action? retry = null)
@@ -51,8 +118,9 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>Extra lanes when they would place the song (accepted or declined, a wider maximum is then not asked); otherwise a wider maximum.</summary>
-    private bool OfferLayoutChange(VisualizerSettings failed, NotePlacementException error) =>
-        OfferExtraLanes(failed, error) ?? OfferWiderLanes(failed, error) ?? false;
+    private bool OfferLayoutChange(VisualizerSettings failed, NotePlacementException error) => _widenWithoutAsking
+        ? OfferWiderLanes(failed, error, _ => true) ?? false
+        : OfferExtraLanes(failed, error) ?? OfferWiderLanes(failed, error) ?? false;
 
     private bool? OfferExtraLanes(VisualizerSettings failed, NotePlacementException error)
     {
@@ -66,10 +134,10 @@ public sealed partial class MainViewModel
             Text.Format("ExtraLanesQuestion", error.Message), Text["ExtraLanesApplied"]);
     }
 
-    private bool? OfferWiderLanes(VisualizerSettings failed, NotePlacementException error)
+    private bool? OfferWiderLanes(VisualizerSettings failed, NotePlacementException error, Func<string, bool>? answer = null)
     {
         // Every larger key count is tried, smallest first: chords usually need 6 or 8, and an edited song can need any.
-        if (ConfirmWiderLanes is not { } confirm || failed.MaximumTileCount >= 8 || Playback.Timeline is not { } timeline) return null;
+        if ((answer ?? ConfirmWiderLanes) is not { } confirm || failed.MaximumTileCount >= 8 || Playback.Timeline is not { } timeline) return null;
         foreach (var wider in VisualizerSettings.Modes.Where(count => count > failed.MaximumTileCount))
         {
             var proposed = failed with { MaximumTileCount = wider };
@@ -99,7 +167,8 @@ public sealed partial class MainViewModel
         ref (ParsedTimeline Timeline, VisualizerSettings Settings)? declined, string question, string applied)
     {
         if (proposed.Validate().Count != 0 || !Places(timeline, proposed)) return null;
-        if (declined is { } previous && ReferenceEquals(previous.Timeline, timeline) && previous.Settings == failed) return false;
+        // link auto does not ask, so an earlier no to this song does not hold it back either.
+        if (!_widenWithoutAsking && declined is { } previous && ReferenceEquals(previous.Timeline, timeline) && previous.Settings == failed) return false;
         if (!confirm(question))
         {
             declined = (timeline, failed);

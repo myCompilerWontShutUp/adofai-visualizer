@@ -30,7 +30,7 @@ internal static class SimultaneousNoteTests
         TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, TrillCenterPair = "LastResort", TrillLanePreference = "1-2,3-4",
         TrillAsOneNote = true, ChordsOnlyAboveFourKeys = true, ImmediateDownshift = true, DownshiftNoteCount = 3, NextIntervalTiles = true,
         BothIntervalTiles = false, FourKeyPattern = "3 4 5 6", TwoKeyPattern = "4 5", EnableTilePreference = true, TwoKeyOrder = "2 1",
-        FourKeyOrder = "4 3 2 1", InitialTile = 5, ExperimentalFeatures = true, EnhancedChordRules = true, NoChordCenterPair = true,
+        FourKeyOrder = "4 3 2 1", InitialTile = 5, ExperimentalFeatures = true, EnhancedChordRules = true,
         ChordLanePreference = "None", MagicCircleFixedTiles = true, MagicCircleTileCount = 4, MagicCircleNoteCount = 40,
         MagicCircleMaxIntervalMs = 150, MagicCircleChords = false
     };
@@ -282,7 +282,7 @@ internal static class SimultaneousNoteTests
             {
                 SimultaneousWindowMs = 20, TrillWindowMs = 40, MaximumTileCount = 4, InitialTile = 4, EnableTilePreference = false,
                 EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 70, FourKeyBoundaryMs = 120, TwoKeyBoundaryMs = 500,
-                ChordLanePreference = "1-2,3-4", NoChordCenterPair = true, TrillCenterPair = "LastResort", MagicCircleFixedTiles = false,
+                ChordLanePreference = "1-2,3-4", TrillCenterPair = "LastResort", MagicCircleFixedTiles = false,
                 // The trill rules below are the ones for trills counted note by note; the mixed run at the end checks both.
                 TrillAsOneNote = false
             };
@@ -661,8 +661,9 @@ internal static class SimultaneousNoteTests
                 .Concat([600, 601, 602, 603, 604]).Concat([700, 701, 702])
                 .Concat(Enumerable.Range(0, 8).Select(i => 800 + i * 30d)).ToArray();
             var notes = generator.Generate(times, eight);
-            var four = eight.GetPattern(4).ToHashSet();
-            Assert(notes.Take(16).All(n => n.Mode == 4 && four.Contains(n.Tile)), "30ms singles stay in 4K: "
+            // Eight lanes are played by hand (user rule): four keys read inside one hand.
+            var hand = notes[0].Tile <= 4 ? new[] { 1, 2, 3, 4 } : [5, 6, 7, 8];
+            Assert(notes.Take(16).All(n => n.Mode == 4 && hand.Contains(n.Tile)), "30ms singles stay in 4K, in one hand: "
                 + string.Join(" ", notes.Take(16).Select(n => $"{n.Tile}/{n.Mode}")));
             var wide = notes.Where(n => n.HitTimeMs == 600).ToArray();
             Equal(wide.Length, 5);
@@ -674,13 +675,13 @@ internal static class SimultaneousNoteTests
             Assert(!new VisualizerSettings().ChordsOnlyAboveFourKeys, "Off by default (user decision)");
             Assert(!eight.HasSameNoteRulesAs(eight with { ChordsOnlyAboveFourKeys = false }), "It is a note rule");
         });
-        yield return ("Four-note chords on one hand on eight lanes (experimental), the hands in turn", () =>
+        yield return ("Four-note chords on one hand on eight lanes, the hands in turn", () =>
         {
             // User rule, from S3RL - play it loud: four notes at once every 79ms read a s d f / j k l ;, not d f j k (the 4K
             // lanes 3-6 across both hands).
             var generator = new NoteGenerator();
             var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 50, SixKeyBoundaryMs = 50,
-                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20, ExperimentalFeatures = true, OneHandFourChords = true };
+                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 20 };
             var times = Enumerable.Range(0, 6).SelectMany(k => Enumerable.Repeat(k * 79d, 4)).ToArray();
             var visible = eight.GetVisibleTiles().ToList();
             var chords = generator.Generate(times, eight).GroupBy(n => n.HitTimeMs)
@@ -689,22 +690,96 @@ internal static class SimultaneousNoteTests
             for (var k = 0; k < chords.Length; k++)
                 Assert(chords[k].SequenceEqual(k % 2 == 0 ? new[] { 1, 2, 3, 4 } : new[] { 5, 6, 7, 8 }),
                     "Left, right, left: " + string.Join(" | ", chords.Select(c => string.Join(" ", c))));
-            // Off, or with the experimental features off, the chord keeps the 4K lanes as before.
-            Sequence(generator.Generate(times, eight with { OneHandFourChords = false }).Take(4).Select(n => n.Tile).Order(), 3, 4, 5, 6);
-            Sequence(generator.Generate(times, eight with { ExperimentalFeatures = false }).Take(4).Select(n => n.Tile).Order(), 3, 4, 5, 6);
-            Assert(!new VisualizerSettings().UseOneHandFourChords, "Off by default");
-            Assert(!eight.HasSameNoteRulesAs(eight with { OneHandFourChords = false }), "It is a note rule");
+            // Always so now (user rule): no setting, no experimental switch.
+            Assert(new VisualizerSettings { MaximumTileCount = 8 }.PlaysByHand, "Eight lanes always play by hand");
         });
-        yield return ("Eight lanes by hand (experimental): four keys or fewer stay in one hand, a new run takes the other", () =>
+        yield return ("Eight lanes: chords and trills take only the table's places, never the pair across the center", () =>
+        {
+            // User rule: on eight lanes a chord of n notes sits only where the table puts it (2: 3-4, 5-6; 3: 2-3-4, 5-6-7;
+            // 4: 1-4, 5-8; 5: 2-6, 3-7; 6: 2-7, 1-6, 3-8; 7: 1-7, 2-8; 8: all), and a trill takes the same places first.
+            int[][] table = [[], [], [2, 4], [1, 4], [0, 4], [1, 2], [1, 0, 2], [0, 1], [0]];
+            var generator = new NoteGenerator();
+            var eight = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 25, SixKeyBoundaryMs = 50,
+                FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, TrillCenterPair = "LastResort" };
+            var visible = eight.GetVisibleTiles().ToList();
+            string Lanes(IEnumerable<VisualizerNote> notes) => string.Join(" ", notes.Select(n => visible.IndexOf(n.Tile) + 1));
+            void OnTable(IReadOnlyList<VisualizerNote> notes, string what)
+            {
+                foreach (var chord in notes.GroupBy(n => n.HitTimeMs).Where(group => group.Count() >= 2))
+                {
+                    var lanes = chord.Select(n => visible.IndexOf(n.Tile)).Order().ToArray();
+                    Assert(lanes[^1] - lanes[0] == lanes.Length - 1 && table[lanes.Length].Contains(lanes[0]),
+                        $"{what}: a chord on lanes {string.Join("-", lanes.Select(lane => lane + 1))}");
+                }
+            }
+            // Chords of every size among singles and trills, at many paces, with each rule set that changes chords.
+            var random = new Random(7);
+            var times = new List<double>();
+            for (double at = 0, k = 0; k < 400; k++)
+            {
+                var size = random.Next(1, 9);
+                for (var n = 0; n < size; n++) times.Add(at + n);
+                at += size + random.Next(20, 420);
+            }
+            foreach (var (name, rules) in new[] { ("plain", eight), ("wide chords only", eight with { ChordsOnlyAboveFourKeys = true }),
+                         ("enhanced 4/8 keys", eight with { ExperimentalFeatures = true, EnhancedFourEightKeys = true }) })
+            {
+                var notes = generator.Generate(times, rules);
+                Equal(notes.Count, times.Count);
+                OnTable(notes, name);
+            }
+
+            // Trills: two notes on 3-4 or 5-6, three on 2-3-4 or 5-6-7, four on one hand's lanes.
+            IReadOnlyList<int[]> Trills(double[] shape, VisualizerSettings rules)
+            {
+                var run = Enumerable.Range(0, 12).SelectMany(k => shape.Select(offset => k * 600 + offset)).ToArray();
+                var notes = generator.Generate(run, rules);
+                return Enumerable.Range(0, 12).Select(k => notes.Skip(k * shape.Length).Take(shape.Length)
+                    .Select(n => visible.IndexOf(n.Tile) + 1).Order().ToArray()).ToArray();
+            }
+            foreach (var (shape, places) in new[] { (new[] { 0d, 30 }, new[] { "3 4", "5 6" }), (new[] { 0d, 25, 50 }, new[] { "2 3 4", "5 6 7" }),
+                         (new[] { 0d, 20, 40, 60 }, new[] { "1 2 3 4", "5 6 7 8" }) })
+            {
+                var laid = Trills(shape, eight);
+                Assert(laid.All(lanes => places.Contains(string.Join(" ", lanes))), $"{shape.Length}-note trills: " + string.Join(" | ", laid.Select(l => string.Join(" ", l))));
+            }
+            // The trill setting decides the pair across the center (4-5): never there when it says never.
+            var never = Trills([0d, 30], eight with { TrillCenterPair = "Never" });
+            Assert(never.All(lanes => string.Join(" ", lanes) is "3 4" or "5 6"), "Never: " + string.Join(" | ", never.Select(l => string.Join(" ", l))));
+            var allowed = Trills([0d, 30], eight with { TrillCenterPair = "Allowed" });
+            Assert(allowed.All(lanes => string.Join(" ", lanes) is "3 4" or "4 5" or "5 6"), "Allowed: " + string.Join(" | ", allowed.Select(l => string.Join(" ", l))));
+            Assert(!new[] { "1 2", "2 3", "6 7", "7 8" }.Any(pair => Trills([0d, 30], eight).Any(lanes => string.Join(" ", lanes) == pair)), "No pair off the table");
+
+            // Enhanced 4/8 keys (experimental, user rule): a trill rolls past four keys, over a chord's places, while singles
+            // keep to four keys, in one hand. Off, a roll stays in one hand.
+            var enhanced = eight with { ExperimentalFeatures = true, EnhancedFourEightKeys = true };
+            var six = Trills([0d, 25, 50, 75, 100, 125], enhanced);
+            Assert(six.All(lanes => string.Join(" ", lanes) is "2 3 4 5 6 7" or "1 2 3 4 5 6" or "3 4 5 6 7 8"), "Six-note trills: " + string.Join(" | ", six.Select(l => string.Join(" ", l))));
+            var chain = Enumerable.Range(0, 12).SelectMany(k => new[] { 0d, 25, 50, 75, 100, 125 }.Select(offset => k * 600 + offset)).ToArray();
+            var rolled = generator.Generate(chain, eight).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
+            for (var k = 0; k < 12; k++)
+            {
+                var head = rolled.Skip(k * 6).Take(4).ToArray();
+                Assert(head.All(lane => lane <= 4) || head.All(lane => lane >= 5), "Off, the first four roll in one hand: " + string.Join(" ", rolled.Skip(k * 6).Take(6)));
+            }
+            var fast = Enumerable.Range(0, 32).Select(i => i * 45d).ToArray(); // 45ms: 6K by the gaps, not a trill
+            var singles = generator.Generate(fast, enhanced);
+            Assert(singles.All(n => n.Mode <= 4), "Singles keep to four keys: " + Lanes(singles));
+            Assert(generator.Generate(fast, eight).Any(n => n.Mode > 4), "Off, the gaps pick more than four keys");
+            // Four lanes or fewer: the same either way.
+            var four = new VisualizerSettings { TrillWindowMs = 40, SimultaneousWindowMs = 25 };
+            Assert(generator.Generate(times, four).SequenceEqual(generator.Generate(times, four with { ExperimentalFeatures = true, EnhancedFourEightKeys = true })),
+                "Nothing changes on four lanes");
+            Assert(!eight.HasSameNoteRulesAs(enhanced), "It is a note rule");
+        });
+        yield return ("Eight lanes by hand: four keys or fewer stay in one hand, a new run takes the other", () =>
         {
             // User rule, from S3RL - play it loud: a four-note run reads a s d f / j k l ;, never d f j k across the hands, a long
             // stream goes round inside the hand (4 3 2 1 4 3 2 1), and each new run takes the other hand.
             var generator = new NoteGenerator();
             var hands = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 1, EightKeyBoundaryMs = 25, SixKeyBoundaryMs = 25,
-                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40,
-                ExperimentalFeatures = true, OneHandFourChords = true };
-            Assert(hands.PlaysByHand && !(hands with { OneHandFourChords = false }).PlaysByHand && !(hands with { MaximumTileCount = 6 }).PlaysByHand,
-                "Only eight lanes with the switch play by hand");
+                FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40 };
+            Assert(hands.PlaysByHand && !(hands with { MaximumTileCount = 6 }).PlaysByHand, "Eight lanes, and only eight, play by hand");
             var visible = hands.GetVisibleTiles().ToList();
             int Hand(VisualizerNote note) => visible.IndexOf(note.Tile) / 4;
             var runs = new List<double>();
@@ -721,8 +796,6 @@ internal static class SimultaneousNoteTests
             var stream = generator.Generate(Enumerable.Range(0, 24).Select(i => i * 39d).ToArray(), hands).Select(n => visible.IndexOf(n.Tile) + 1).ToArray();
             Assert(stream.All(lane => lane <= 4) || stream.All(lane => lane >= 5), "The stream stays in one hand: " + string.Join(" ", stream));
             Assert(stream.Zip(stream.Skip(1)).All(p => p.Second == p.First - 1 || p.Second == p.First + 3), "It walks 4 3 2 1: " + string.Join(" ", stream));
-            // Off, the four-key pattern is the middle lanes 3-6 as before.
-            Assert(generator.Generate(runs, hands with { OneHandFourChords = false }).Take(8).All(n => n.Tile is >= 3 and <= 6), "Off: lanes 3-6");
         });
         yield return ("On six and eight lanes too, a trill takes the pair between the hands only as a last resort", () =>
         {

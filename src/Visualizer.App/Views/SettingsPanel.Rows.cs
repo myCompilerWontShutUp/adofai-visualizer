@@ -233,7 +233,7 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.ChordAvoidBeforeLanes)] = ("StateChordBeforeOn", "StateChordBeforeOff"),
         [nameof(VisualizerSettings.RestartPatternOnRun)] = ("StateRunRestartOn", "StateRunRestartOff"),
         [nameof(VisualizerSettings.EnhancedChordRules)] = ("StateEnhancedChordsOn", "StateEnhancedChordsOff"),
-        [nameof(VisualizerSettings.OneHandFourChords)] = ("StateOneHandOn", "StateOneHandOff"),
+        [nameof(VisualizerSettings.EnhancedFourEightKeys)] = ("StateEnhancedKeysOn", "StateEnhancedKeysOff"),
         [nameof(VisualizerSettings.MagicCircleFixedTiles)] = ("StateFixedTilesOn", "StateFixedTilesOff"),
         [nameof(VisualizerSettings.MagicCircleChords)] = ("StateMagicChordsOn", "StateMagicChordsOff"),
         [nameof(VisualizerSettings.ShowInputEffect)] = ("StateEffectOn", "StateEffectOff"),
@@ -242,7 +242,6 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.SlowNotesPastJudgmentLine)] = ("StateSlowdownOn", "StateSlowdownOff"),
         [nameof(VisualizerSettings.ExperimentalFeatures)] = ("StateApplied", "StateNotApplied"),
         [nameof(VisualizerSettings.ChordSectionLanes)] = ("StateChordLanesOn", "StateChordLanesOff"),
-        [nameof(VisualizerSettings.NoChordCenterPair)] = ("StateCenterPairOff", "StateCenterPairOn"),
         [nameof(VisualizerSettings.TrillAsOneNote)] = ("StateTrillOneNote", "StateTrillEachNote"),
         [nameof(VisualizerSettings.ChordsOnlyAboveFourKeys)] = ("StateChordsAboveFourOn", "StateChordsAboveFourOff"),
         [nameof(VisualizerSettings.KeepSpeedOnLoad)] = ("StateKeepSpeedOn", "StateKeepSpeedOff")
@@ -378,8 +377,12 @@ public partial class SettingsPanel
         CurrentSection.Children.Add(grid);
     }
 
-    /// <summary>A scale row: a slider that drags the value, with the number beside it. Both write the same setting.</summary>
-    private void AddScale(string label, string name, string? help = null)
+    /// <summary>
+    /// A scale row: a slider that drags the value in steps of 0.1, with the number beside it. Both write the same setting. The
+    /// note scales' range unless another is given.
+    /// </summary>
+    private void AddScale(string label, string name, string? help = null, double minimum = VisualizerSettings.MinimumNoteScale,
+        double maximum = VisualizerSettings.MaximumNoteScale)
     {
         var box = NewTextBox(name);
         box.Width = 64;
@@ -387,8 +390,8 @@ public partial class SettingsPanel
         // Steps of 0.1 so the value always reads with a single decimal.
         var slider = new Slider
         {
-            Minimum = VisualizerSettings.MinimumNoteScale,
-            Maximum = VisualizerSettings.MaximumNoteScale,
+            Minimum = minimum,
+            Maximum = maximum,
             TickFrequency = 0.1,
             IsSnapToTickEnabled = true,
             SmallChange = 0.1,

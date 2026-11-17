@@ -55,8 +55,8 @@ $root = $PSScriptRoot
 $gameFolderName = 'A Dance of Fire and Ice'
 # What the app writes into a data folder. In a folder the user chose only these go; anything else there is the user's.
 $storeEntries = @('settings.json', 'data-root.txt', 'last-version.txt', 'songs.json', 'song-ids.json', 'song-marks.json',
-    'pins.json', 'map-cache', 'maps', 'library', 'reports')
-$storeTemps = @('settings-*.tmp', 'songs-*.tmp', 'song-ids-*.tmp', 'song-marks-*.tmp', 'pins-*.tmp')
+    'pins.json', 'redirects.json', 'map-cache', 'maps', 'library', 'reports')
+$storeTemps = @('settings-*.tmp', 'songs-*.tmp', 'song-ids-*.tmp', 'song-marks-*.tmp', 'pins-*.tmp', 'redirects-*.tmp')
 # The linker's mod id, for a copy whose plugins folder is gone.
 $knownPlugins = @('AdofaiVisualizerSync')
 # The Start menu folder Install.cmd makes.

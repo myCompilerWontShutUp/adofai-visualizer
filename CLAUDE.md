@@ -63,6 +63,7 @@ src/Visualizer.Infrastructure/
   Storage/NoteEditStore                maps/edited/<곡>/<슬롯>/{원본.adofai, edit.json}
   Storage/WorkspaceSongPreferences     songs.json      Storage/SongIdBook  song-ids.json      Storage/SongMarkBook  song-marks.json
   Storage/PinBook                      pins.json (곡 묶음 CmdSong.Family 키별 타일)
+  Storage/RedirectBook                 redirects.json (곡 묶음 키 → link auto가 대신 불러올 곡의 8자 id)
   Storage/ReportBook                   reports/*.txt (모든 .txt가 메모, 상태는 written.mark·done.mark). 터미널 쪽은 report.ps1
   Parsing/AdofaiTimelineParser         CurrentVersion·FormatVersions·허용 이벤트·ParseForced (근거 docs/adofai-parser.md)
   Parsing/AdofaiJson                   문자열 안 제어 문자·생략된 쉼표를 메모리에서만 보정
@@ -85,7 +86,7 @@ src/Visualizer.App/
   Input/           ControlBindings, KeyNames, KeyCaptureBox, PlaybackButton, LinkInspection(+InspectRun·InspectPress)
   Localization/    UiText(XAML Text[key], 코드 Format)
 tests/Visualizer.Tests/   실행형 하네스 (xUnit 없음)
-tools/GameSyncMod/        링커 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter · JudgmentEase(판정 완화, 유일한 Harmony 패치). Info.json은 빌드가 만듦
+tools/GameSyncMod/        링커 모드(net48, UMM): Main · GameReader(리플렉션) · KeyViewerFocus · SyncWriter · JudgmentEase(판정 완화) · ErrorMeterTicks + MeterUnits(게임 판정 막대 눈금, 표시만) — Harmony 패치는 이 둘뿐. Info.json은 빌드가 만듦
 plugins/linker/           빌드된 링커(커밋함)
 update.ps1                저장소 쪽 일의 유일한 스크립트: -Check · 받기 · -Force -Version · -Reinstall · -Scan · -LinkerGame · 다시 띄우기
 Install.cmd / Uninstall.cmd / uninstall.ps1   더블클릭 설치·제거 (AGENTS 안전 규칙 2)
@@ -115,7 +116,7 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 - **입력 정책**: 전역 입력 범위를 켜면 ADOFAI 또는 이 앱이 전경일 때만, UI 입력 편집·설정판·콘솔 중엔 무시. `MainWindow.Busy`(설정판·수정 창)면 메인 창 클릭·검색창 키를 막되 `SettingsHost`·`PreviewBar` 안은 예외. Ctrl+T는 Raw Input의 `ObservedConsoleKey`, 창들은 `ConsoleKeyInWindow`로 삼키기만. 실제 키는 `KeyNames.Real`(IME).
 - **노트 영역 위**: `OverlayArea` 안 `OverlayBand`·`HideOverlayButton`, 위쪽 띠 `TopNotices`(노트 Grid의 마지막 자식: 구간 안내·inspect 띠). **`Show…` 속성은 `MainViewModel.PlaybackProperties`에 이름이 있어야 재생 상태가 바뀔 때 화면이 따라옵니다.**
 - **콘솔**: `CmdCatalog`(명령·옵션·키워드) → `CmdSession`(동작) → `ICmdHost` = `MainWindow.Console.cs`(+ `.Scan.cs`·`.Inspect.cs`·`.Log.cs`). 오래 걸리는 일은 `RunJob`. 앱이 다른 프로그램을 띄우는 곳은 `UpdateScript`(`update.ps1`) 하나.
-- **게임 동기화**: 프레임마다 `MainWindow.FollowGameSync`(앞에서 `AutoFollowGame`, 끝에서 `LogFrame`) → `GameSyncFollower`(`Prepare`·`Follow`·`Stand`·`RestartCut`, 재시작 타일은 링커의 `cp`). link auto의 곡 찾기는 경로, 안 되면 타일 시각(`MainWindow.SongFor(GameSyncLevel…)`·`GameTileCheck.LinesUp`). 스위치는 `MainViewModel.FollowingGame`, 기준은 `PlaybackSession.ClockFollowsGame`, 되돌리기는 `BackToLoaded`. 파이프 `NamedPipeGameSyncServer.Choose`, inspect `LinkInspection` → `KeyboardInjector`.
+- **게임 동기화**: 프레임마다 `MainWindow.FollowGameSync`(앞에서 `AutoFollowGame`, 끝에서 `LogFrame`) → `GameSyncFollower`(`Prepare`·`Follow`·`Stand`·`RestartCut`, 재시작 타일은 링커의 `cp`). link auto의 곡 찾기는 경로, 안 되면 타일 시각(`MainWindow.SongFor(GameSyncLevel…)`·`GameTileCheck.LinesUp`, 레벨마다 한 번 `GameSongOf`), 리다이렉트는 `LoadGameSong`의 `RedirectOf`(곡 묶음 `_model.SongFamily`)·`_autoRedirect`, 불러오기는 `MainViewModel.LoadForGame`(최대 타일 수를 가장 넓은 동타 `PlaybackSession.WidestChord`까지 올리고 배치 실패 제안은 묻지 않고 수락). 스위치는 `MainViewModel.FollowingGame`, 기준은 `PlaybackSession.ClockFollowsGame`, 되돌리기는 `BackToLoaded`. 파이프 `NamedPipeGameSyncServer.Choose`, inspect `LinkInspection` → `KeyboardInjector`.
 - **캐시 저장 범위**: 식별자·경로·곡 이름·원문 hash·파서 버전·상태·경고·hit time·타일 번호·hit 종류·체크포인트·미니게임 구간·곡 정보·강제 로드 형식. `ParserVersion`이 다르면 재동기화를 안내합니다.
 
 ## 4. 노트 규칙 요점
@@ -124,14 +125,14 @@ Start     시계 기준점만 기록 (Paused는 같은 지점에서 재개)
 
 - 모드 1·2·4·6·8, 경계 기본 `<50` 8K, `<70` 6K, `<120` 4K, `<500` 2K. 최대·최소 타일 수로 상·하한. 느린 쪽과 경계값이 같으면 그 모드를 건너뜀(`DynamicTimingSelector.Select`). 표시 레인 `DisplayLaneCount`(0 = 최대 타일 수)는 배치에 영향 없음(`GetShownTiles`·`GetDisplayTiles(쓰는 타일)`).
 - 패턴은 타일 집합(오름차순 저장, `SortTiles`), 도는 순서는 `EnableTilePreference`가 꺼져 있으면 큰 번호부터. 1키 패턴 = `InitialTile`.
-- 동타 레인 우선순위(`SimultaneousNotePlanner.Assign`의 level): ① 중앙에서 두 칸씩 묶은 쌍 ② 한쪽 반 안의 인접 쌍 ③ 중앙을 가로지르는 쌍(4레인은 `NoChordCenterPair`를 끌 때만) ④ 여분 레인. 선호 쌍 `GetPreferredChordLanes()`는 레벨 1부터. `ChordSectionLanes`는 동타 바로 뒤 단타가 그 레인을 피함.
+- 동타 레인 우선순위(`SimultaneousNotePlanner.Assign`의 level): ① 중앙에서 두 칸씩 묶은 쌍 ② 한쪽 반 안의 인접 쌍 ③ 중앙을 가로지르는 쌍(4·6레인은 2노트 동타에 언제나 금지, `ChordFits`) ④ 여분 레인. 8레인은 표의 자리만(`EightLaneStarts`: `Adjacent`가 2동타를, `Search`의 첫 멤버가 3노트 이상을 거름, 동타 멤버는 구간 패턴 밖 레인도 후보), 6·8레인 블록은 동타 둘까지(8레인 5노트 이상은 혼자). 선호 쌍 `GetPreferredChordLanes()`는 레벨 1부터. `ChordSectionLanes`는 동타 바로 뒤 단타가 그 레인을 피함.
 - 마법진(같은 간격 ±5ms 연속)은 `MagicCircleFinder`(`Find(times, settings, chords)`: `MagicCircleChords`가 꺼지면 동타·단타가 같은 구간끼리만), 고정 타일은 `MagicCircleTiles`(clamp, 설정 값은 유지).
-- 실험적 기능은 `ExperimentalFeatures`가 켜져야 적용: `UseChordAvoidBefore`(`Place`가 앞 단타를 옮김), `UseRestartOnRun`(`TilePatternCursor.RestartCycle`). `NextIntervalTiles`는 고급 설정. `UseChordSectionLanes`·`UseChordCenterPair`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일 읽기용.
+- 실험적 기능은 `ExperimentalFeatures`가 켜져야 적용: `UseChordAvoidBefore`(`Place`가 앞 단타를 옮김), `UseRestartOnRun`(`TilePatternCursor.RestartCycle`). `NextIntervalTiles`는 고급 설정. `UseChordSectionLanes`·`PreferredChordLane` 같은 계산 값은 예전 설정 파일 읽기용. 향상된 4/8키(`UseEnhancedFourEightKeys`): 단타 상한은 `SinglesUpToFourKeys`(4키 초과는 동타만과 공유), 트릴은 `RollLanes`가 화면 레인 수.
 - **배치 코드**: `NoteGenerator`(묶음·키 수 `unit`·`crowded`·`QuickReturnMs`·`busyUntil`) → `TilePatternCursor`(`FreshStart`·`OpenTrill`·`OpenRoll`·`RollHead`·`BesideTrill`·`RestartCycle`) → `SimultaneousNotePlanner.Place`(`Assign`+`Flow`·`Shift`·`LockChords`·`SplitTrills`/`LayRoll`). 트릴 묶음 `TrillRuns`, 롱노트 레인 `HeldUntil`. 함수별 역할은 `docs/code-map.md`.
 - 묶음은 `SimultaneousNotePlanner.Group`이 만들고 화면 + 여분 레인 수에서 자릅니다(나머지는 다음 묶음). 트릴 판정으로 이어진 체인이 동타 판정을 넘으면 같은 시각(`SameInstantMs`)끼리만 묶음(`loose`).
-- 굴림의 패턴 걸음은 `WalksPattern`(패턴 3레인 이상·굴림 길이 이상), 굴림 레인 수 `RollLanes`(한 손이면 4). 가운데 쌍은 `IsTrillPair`(짝수 4레인 이상), 트릴의 가운데 쌍 설정은 `TrillCenterPair`(계산 값 `TrillCenterLast`·`TrillCenterNever`). 트릴 뒤 단타가 트릴 레인으로 돌아오지 않게 하는 곳은 커서 `BesideTrill`(굴림 전체 `_lastRoll`)·`Shift`의 `KeepsTrills`·`SplitTrills`의 `ClearsSingle`과 단타 옮기기. 긴 트릴 체인은 `ChainPieces`가 리듬으로 자르고, 이어지는 같은 길이 굴림은 같은 레인(`OpenRoll`·`LayRoll`의 `Again`·`rollRun`), 반대 굴림은 끝 레인에서만(`AtEdge`). 동타 구간 단타는 `Assign`의 `WalksOn`(실제 친 레인에서 이어 감)·`WalksAround`(연타 속도로 한 바퀴 지난 걸음 레인은 쉰 레인보다 먼저)·`ChordWalk`(동타 뒤 패턴 쪽, 끝 쌍이면 돌아감)·쉰 동타 레인 재사용(`RestedChordLane`), `Flow.Walk`는 블록 패턴.
-- 8레인 한 손(`PlaysByHand`): `VisualizerSettings.GetPattern(mode, hand)`·`HandOf`·`GetPatternFor`, 커서 `_hand`·`SwitchHand`(새 연타, `NoteGenerator`의 `RunGapFactor`)·`Neighbour`가 손을 넘지 않음, 플래너 `blockPreferred`·`Flow.ByHand`·`LayRoll`의 `byHand`.
-- 4키 초과는 동타만(`ChordsOnlyAboveFourKeys`): `NoteGenerator`의 `gapCap`·`Pick`(간격 모드 상한)과 넓은 동타의 `mode`(그 노트만, 커서는 그대로). 8레인 4동타 한 손(`UseOneHandFourChords`): `Place`의 `oneHand`·`lastHand` → `Assign(hand)`가 첫 멤버를 레인 1·5 순으로 정렬(후보에 화면 레인 전부).
+- 굴림의 패턴 걸음은 `WalksPattern`(패턴 3레인 이상·굴림 길이 이상), 굴림 레인 수 `RollLanes`(한 손이면 4, 향상된 4/8키면 화면 전부). 8레인 트릴은 표의 자리 먼저: 2노트는 `SplitTrills`의 `pairs`·`anywhere`, 3노트 이상은 `LayRoll`의 `InTable`, 표가 막히면 `TableFree`로 판정 간격 안 노트만 표에 두고 나머지는 따로(`LayRoll(…, table: false)`가 예전 규칙). 가운데 쌍은 `IsTrillPair`(짝수 4레인 이상), 트릴의 가운데 쌍 설정은 `TrillCenterPair`(계산 값 `TrillCenterLast`·`TrillCenterNever`). 트릴 뒤 단타가 트릴 레인으로 돌아오지 않게 하는 곳은 커서 `BesideTrill`(굴림 전체 `_lastRoll`)·`Shift`의 `KeepsTrills`·`SplitTrills`의 `ClearsSingle`과 단타 옮기기. 긴 트릴 체인은 `ChainPieces`가 리듬으로 자르고, 이어지는 같은 길이 굴림은 같은 레인(`OpenRoll`·`LayRoll`의 `Again`·`rollRun`), 반대 굴림은 끝 레인에서만(`AtEdge`). 동타 구간 단타는 `Assign`의 `WalksOn`(실제 친 레인에서 이어 감)·`WalksAround`(연타 속도로 한 바퀴 지난 걸음 레인은 쉰 레인보다 먼저)·`ChordWalk`(동타 뒤 패턴 쪽, 끝 쌍이면 돌아감)·쉰 동타 레인 재사용(`RestedChordLane`), `Flow.Walk`는 블록 패턴.
+- 8레인 한 손(`PlaysByHand`, 8레인이면 언제나): `VisualizerSettings.GetPattern(mode, hand)`·`HandOf`·`GetPatternFor`, 커서 `_hand`·`SwitchHand`(새 연타, `NoteGenerator`의 `RunGapFactor`)·`Neighbour`가 손을 넘지 않음, 플래너 `blockPreferred`·`Flow.ByHand`·`LayRoll`의 `byHand`.
+- 4키 초과는 동타만(`ChordsOnlyAboveFourKeys`): `NoteGenerator`의 `gapCap`·`Pick`(간격 모드 상한)과 넓은 동타의 `mode`(그 노트만, 커서는 그대로). 8레인 4동타 한 손: `Place`의 `oneHand`·`lastHand` → `Assign(hand)`가 첫 멤버를 레인 1·5 순으로 정렬(후보에 화면 레인 전부).
 - 트릴 색은 저장된 표시 없이 그릴 때 `TrillNotes.IsTrill`(`NoteField.BrushOf`·`NoteEditField`)로 정합니다(동타 아래 순위).
 - 동타는 `StartsChord`로만 그립니다(마지막을 뺀 모든 멤버, `ChordSpan`). 읽는 곳: `NoteField`·`NoteEditField.Members`·`NoteEditSession.CanMerge`·`MainWindow.FromRules`·`CmdSession.FormatNotes(Json)`.
 - 고급 설정 밖의 토글은 기본 켜짐이 되도록 이름을 정합니다(사용자 선호).

@@ -7,7 +7,8 @@ namespace AdofaiVisualizerSync
     /// <summary>
     /// Unity Mod Manager entry point. The mod reads the game's own playback state and sends it to the visualizer; it writes
     /// no game field and synthesises no input (AGENTS.md rule 6, docs/game-sync-plan.md). Its one change to the game is the
-    /// judgment ease the user asked for (<see cref="JudgmentEase"/>), which is 1, the game's own judgment, unless set.
+    /// judgment ease the user asked for (<see cref="JudgmentEase"/>), which is 1, the game's own judgment, unless set, and the
+    /// error meter's ticks put in the zones of their grades (<see cref="ErrorMeterTicks"/>, display only).
     /// </summary>
     public static class Main
     {
@@ -47,6 +48,7 @@ namespace AdofaiVisualizerSync
             {
                 Started();
                 JudgmentEase.Start(line => modEntry.Logger.Log(line));
+                ErrorMeterTicks.Start(line => modEntry.Logger.Log(line));
             }
             else
             {
@@ -54,6 +56,7 @@ namespace AdofaiVisualizerSync
                 _writer = null;
                 KeyViewer.Release();
                 JudgmentEase.Stop();
+                ErrorMeterTicks.Stop();
             }
             return true;
         }
@@ -64,6 +67,7 @@ namespace AdofaiVisualizerSync
             _writer = null;
             KeyViewer.Release();
             JudgmentEase.Stop();
+            ErrorMeterTicks.Stop();
             return true;
         }
 

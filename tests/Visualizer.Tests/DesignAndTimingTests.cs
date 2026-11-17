@@ -184,6 +184,14 @@ internal static class DesignAndTimingTests
             Equal(slow.Grade(-50), HitGrade.EarlyPerfect);
             Equal(slow.Grade(-75), HitGrade.VeryEarly);
             Equal(slow.Grade(-100), HitGrade.TooEarly);
+            // A press sits in the zone of its own grade on a bar drawn with another tile's windows, and at its deviation over
+            // the counted window on its own.
+            Near(fast.Place(25, slow), 0.5, "Its perfect edge on the bar's perfect edge");
+            Near(fast.Place(-37.5, slow), -0.75, "Its early perfect edge on the bar's");
+            Near(fast.Place(51, slow), 0.75 + (51 - 37.5) / (65 - 37.5) * 0.25, "Evenly in between");
+            Near(fast.Place(80, slow), 1, "Past the counted window, at the end");
+            Near(slow.Place(30, slow), 0.3, "On its own windows, the deviation over the counted window");
+            Near(slow.Place(0, fast), 0, "The middle");
             Equal(HitGrading.DifficultyOf("Lenient"), 0);
             Equal(HitGrading.DifficultyOf("Normal"), 1);
             Equal(HitGrading.DifficultyOf("Strict"), 2);
@@ -215,24 +223,30 @@ internal static class DesignAndTimingTests
             Throws<ArgumentException>(() => new ParsedTimeline([0, 150], hitTempos: [400, 0]));
             Throws<ArgumentException>(() => new ParsedTimeline([0, 150], hitMarginScales: [1, -1]));
 
-            // The game's own grade goes to the press just made (link): the latest presses without one, matched in order of
-            // timing, and never one made long before.
+            // The game's own grade goes to the press just made (link). The counts do not say which press got which grade, so
+            // they are paired by the grade each press's own timing gives, and never with a press made long before.
             session.ApplySettings(settings);
             var judge = new NotePressJudge();
             session.Presses = judge;
             session.Start();
-            clock.NowMs = 10;
-            Assert(judge.Press(session, session.Notes[0].Tile, 150) is 0, "The first note is pressed 10 ms late");
-            clock.NowMs = 140;
-            Assert(judge.Press(session, session.Notes[1].Tile, 150) is 1, "The second 10 ms early");
-            Equal(judge.TakeGameGrades([HitGrade.LatePerfect, HitGrade.EarlyPerfect], 150, 400), 2);
+            HitGrade Expected(PressMark mark) => session.HitWindowsOf(mark.Note, 1)!.Grade(mark.DeviationMs);
+            clock.NowMs = 20;
+            Assert(judge.Press(session, session.Notes[0].Tile, 150) is 0, "The first note is pressed 20 ms late");
+            clock.NowMs = 120;
+            Assert(judge.Press(session, session.Notes[1].Tile, 150) is 1, "The second 30 ms early");
+            Equal(judge.TakeGameGrades([HitGrade.LatePerfect, HitGrade.EarlyPerfect], 150, 400, Expected), 2);
             Equal(judge.RecentPresses[0].GameGrade, (HitGrade?)HitGrade.LatePerfect);
             Equal(judge.RecentPresses[1].GameGrade, (HitGrade?)HitGrade.EarlyPerfect);
             Equal(judge.RecentPresses[1].Note, 1);
+            // User report: in a fast run the game also graded presses this app never matched to a note, and those late extras
+            // went to presses near the middle. Extras nowhere near what a press's timing gives are not taken.
             clock.NowMs = 300;
             Assert(judge.Press(session, session.Notes[2].Tile, 150) is 2, "The third on time");
-            Equal(judge.TakeGameGrades([HitGrade.XPerfect], 300 + 500, 400), 0);
+            Equal(judge.TakeGameGrades([HitGrade.TooLate, HitGrade.VeryLate], 310, 400, Expected), 0);
             Equal(judge.RecentPresses[2].GameGrade, null);
+            Equal(judge.TakeGameGrades([HitGrade.TooLate, HitGrade.XPerfect, HitGrade.VeryLate], 310, 400, Expected), 1);
+            Equal(judge.RecentPresses[2].GameGrade, (HitGrade?)HitGrade.XPerfect);
+            Equal(judge.TakeGameGrades([HitGrade.XPerfect], 300 + 500, 400, Expected), 0);
 
             // Drawn: on a fast tile the green ends where perfect really ends (25 of 65 ms), not at half the bar as the game
             // paints it, so 30 ms late lands in yellow. Bar 280 px wide in a 400 px field: centre 200, 140 px a side.
@@ -339,9 +353,11 @@ internal static class DesignAndTimingTests
 
             // Switched off, every change waits for the cycle to end.
             var old = settings with { ImmediateDownshift = false };
+            // The 8K cycle is played out first; eight lanes are played by hand (user rule), so it starts on the initial tile's
+            // place in the hand (8 is the hand's lane 4) and 4K then reads inside the hand.
             var cursor = new TilePatternCursor(new VisualizerSettings { MaximumTileCount = 8, InitialTile = 8, ImmediateDownshift = false }, 8);
-            Sequence(Enumerable.Range(0, 8).Select(_ => cursor.Next(4)).ToArray(), 8, 7, 6, 5, 4, 3, 2, 1);
-            Equal(cursor.Next(4), 6); Equal(cursor.CurrentMode, 4);
+            Sequence(Enumerable.Range(0, 8).Select(_ => cursor.Next(4)).ToArray(), 4, 3, 2, 1, 8, 7, 6, 5);
+            Equal(cursor.Next(4), 4); Equal(cursor.CurrentMode, 4);
             // The wait is not used at all while the toggle is off.
             var times = new[] { 0d, 50, 100, 150, 350, 550, 750 };
             Assert(generator.Generate(times, old with { DownshiftNoteCount = 1 })
@@ -438,7 +454,6 @@ internal static class DesignAndTimingTests
             // lanes 1-2 and 3-4 from six lanes up (user request).
             Equal(defaults.ChordLanePreference, "1-2,3-4");
             Sequence(defaults.GetPreferredChordLanes(), 0, 2);
-            Equal(defaults.NoChordCenterPair, true);
             var experiments = defaults;
             Sequence((defaults with { ChordLanePreference = "None" }).GetPreferredChordLanes());
             Sequence((defaults with { ChordLanePreference = "1-2" }).GetPreferredChordLanes(), 0);
@@ -460,10 +475,16 @@ internal static class DesignAndTimingTests
                 Assert(chords.All(chord => Lane(chord) == expected),
                     $"{preference}: chords on lanes " + string.Join(" ", chords.Select(chord => Lane(chord) + 1)));
             }
-            // The center pair stays refused on four lanes unless the setting allows it.
-            Assert(!experiments.UseChordCenterPair, "Refused by default");
-            Assert((defaults with { NoChordCenterPair = false }).UseChordCenterPair, "Allowed once the setting is off");
-            Assert(!defaults.HasSameNoteRulesAs(defaults with { NoChordCenterPair = false }), "The center pair is a note rule");
+            // The center pair is never a chord's, on four lanes nor on six (user rule: no setting turns it on any more).
+            var pairsOnly = Enumerable.Range(0, 40).SelectMany(i => new[] { i * 300d, i * 300 + 1 }).ToArray();
+            foreach (var lanes in new[] { 4, 6 })
+            {
+                var wide = defaults with { MaximumTileCount = lanes, ChordLanePreference = "None" };
+                var shown = wide.GetVisibleTiles().ToList();
+                var lows = generator.Generate(pairsOnly, wide).GroupBy(note => note.HitTimeMs).Where(chord => chord.Count() == 2)
+                    .Select(chord => chord.Min(note => shown.IndexOf(note.Tile))).ToArray();
+                Assert(lows.Length == 40 && lows.All(low => low != lanes / 2 - 1), $"{lanes} lanes: chords from lanes " + string.Join(" ", lows.Select(low => low + 1)));
+            }
 
             // Checkpoint notes carry their own color setting, white by default.
             Equal(defaults.CheckpointColor, "255, 255, 255");

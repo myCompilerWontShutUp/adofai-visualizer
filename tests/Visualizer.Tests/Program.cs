@@ -152,44 +152,54 @@ internal static class Program
             }),
             ("Initial rotation, fallback and full rotated cycle", () =>
             {
+                // Eight lanes are played by hand (user rule): the 4K tiles 3-6 read as one hand's lanes 1-4, so the initial tile 5
+                // is that hand's third lane, and a tile that is not in the 4K pattern (1) still lies in a hand.
                 var s = new VisualizerSettings { MaximumTileCount = 8 };
                 var four = new TilePatternCursor(s, 4);
-                Sequence(Enumerable.Range(0, 8).Select(_ => four.Next(4)).ToArray(), 5, 4, 3, 6, 5, 4, 3, 6);
+                Sequence(Enumerable.Range(0, 8).Select(_ => four.Next(4)).ToArray(), 3, 2, 1, 4, 3, 2, 1, 4);
                 var eight = new TilePatternCursor(s, 8);
-                Sequence(Enumerable.Range(0, 8).Select(_ => eight.Next(8)).ToArray(), 5, 4, 3, 2, 1, 8, 7, 6);
+                Sequence(Enumerable.Range(0, 8).Select(_ => eight.Next(8)).ToArray(), 3, 2, 1, 8, 7, 6, 5, 4);
                 var absent = new TilePatternCursor(s with { InitialTile = 1 }, 4);
-                Equal(absent.Next(4), 6);
+                Equal(absent.Next(4), 1);
                 var rotated = new TilePatternCursor(s, 4);
-                Sequence(new[] { rotated.Next(4), rotated.Next(8), rotated.Next(8), rotated.Next(8), rotated.Next(8) }, 5, 4, 3, 6, 8);
+                Sequence(new[] { rotated.Next(4), rotated.Next(8), rotated.Next(8), rotated.Next(8), rotated.Next(8) }, 3, 2, 1, 4, 8);
+                // On four lanes, where nothing is by hand, the pattern starts on the initial tile itself.
+                var plain = new TilePatternCursor(new VisualizerSettings(), 4);
+                Sequence(Enumerable.Range(0, 4).Select(_ => plain.Next(4)).ToArray(), 5, 4, 3, 6);
             }),
             ("Pending change waits, persists or cancels at boundary", () =>
             {
                 var s = new VisualizerSettings { MaximumTileCount = 8, InitialTile = 6, SimultaneousWindowMs = 0 };
+                // By hand on eight lanes (user rule): the initial tile 6 is the hand's fourth lane.
                 var cursor = new TilePatternCursor(s, 4);
-                Equal(cursor.Next(4), 6); Equal(cursor.Next(4), 5);
-                Equal(cursor.Next(8), 4); Equal(cursor.PendingMode, (int?)8);
-                Equal(cursor.Next(8), 3); Equal(cursor.CurrentMode, 4);
+                Equal(cursor.Next(4), 4); Equal(cursor.Next(4), 3);
+                Equal(cursor.Next(8), 2); Equal(cursor.PendingMode, (int?)8);
+                Equal(cursor.Next(8), 1); Equal(cursor.CurrentMode, 4);
                 Equal(cursor.Next(8), 8); Equal(cursor.CurrentMode, 8);
                 var cancelled = new TilePatternCursor(s, 4);
-                Sequence(new[] { cancelled.Next(4), cancelled.Next(4), cancelled.Next(8), cancelled.Next(8), cancelled.Next(4) }, 6, 5, 4, 3, 6);
+                Sequence(new[] { cancelled.Next(4), cancelled.Next(4), cancelled.Next(8), cancelled.Next(8), cancelled.Next(4) }, 4, 3, 2, 1, 4);
                 Equal(cancelled.PendingMode, null);
                 // A request for fewer tiles replaces a pending increase and takes effect at once.
                 var replaced = new TilePatternCursor(s, 4);
-                Sequence(new[] { replaced.Next(4), replaced.Next(8), replaced.Next(2), replaced.Next(2), replaced.Next(2) }, 6, 5, 4, 5, 4);
+                Sequence(new[] { replaced.Next(4), replaced.Next(8), replaced.Next(2), replaced.Next(2), replaced.Next(2) }, 4, 3, 2, 3, 2);
                 Equal(replaced.CurrentMode, 2);
             }),
             ("Decrease switches at once, and never repeats the tile just played", () =>
             {
                 // User rule: fewer tiles do not wait for the running cycle to end.
+                // Eight lanes are played by hand (user rule), so 4K and 2K read inside one hand's lanes 1-4.
                 var cursor = new TilePatternCursor(new() { MaximumTileCount = 8, InitialTile = 8 }, 8);
-                Sequence(Enumerable.Range(0, 8).Select(_ => cursor.Next(4)).ToArray(), 6, 5, 4, 3, 6, 5, 4, 3);
-                Equal(cursor.Next(4), 6);
-                // The 2K pattern starts at 5; the tile just played was 6, so nothing repeats.
-                Sequence(new[] { cursor.Next(2), cursor.Next(2), cursor.Next(2), cursor.Next(2) }, 5, 4, 5, 4);
-                Equal(cursor.Next(1), 8); Equal(cursor.CurrentMode, 1); // The 1K pattern is the initial tile.
-                // Leaving 4K on tile 5 would repeat it, so the 2K pattern starts one tile later.
+                Sequence(Enumerable.Range(0, 8).Select(_ => cursor.Next(4)).ToArray(), 4, 3, 2, 1, 4, 3, 2, 1);
+                Equal(cursor.Next(4), 4);
+                // The 2K pattern is the hand's lanes 3 2; the tile just played was 4, so nothing repeats.
+                Sequence(new[] { cursor.Next(2), cursor.Next(2), cursor.Next(2), cursor.Next(2) }, 3, 2, 3, 2);
+                Equal(cursor.Next(1), 4); Equal(cursor.CurrentMode, 1); // The 1K pattern is the initial tile, in the hand.
+                // Leaving 4K on the hand's lane 2 would repeat it, so the 2K pattern starts one tile later.
                 var repeat = new TilePatternCursor(new() { MaximumTileCount = 8, InitialTile = 6 }, 4);
-                Sequence(new[] { repeat.Next(4), repeat.Next(4), repeat.Next(2), repeat.Next(2), repeat.Next(2) }, 6, 5, 4, 5, 4);
+                Sequence(new[] { repeat.Next(4), repeat.Next(4), repeat.Next(2), repeat.Next(2), repeat.Next(2) }, 4, 3, 2, 3, 2);
+                // On four lanes the same steps keep the middle tiles.
+                var plain = new TilePatternCursor(new() { InitialTile = 6 }, 4);
+                Sequence(new[] { plain.Next(4), plain.Next(4), plain.Next(2), plain.Next(2), plain.Next(2) }, 6, 5, 4, 5, 4);
                 // One tile cannot avoid a repeat: 1K keeps its own tile.
                 var single = new TilePatternCursor(new() { MaximumTileCount = 4, InitialTile = 5 }, 2);
                 Sequence(new[] { single.Next(2), single.Next(1), single.Next(1) }, 5, 5, 5);
@@ -201,7 +211,8 @@ internal static class Program
                 var s = new VisualizerSettings { MaximumTileCount = 8, InitialTile = 6, SimultaneousWindowMs = 0, TrillWindowMs = 0,
                     EightKeyBoundaryMs = 20, SixKeyBoundaryMs = 30, FourKeyBoundaryMs = 80, TwoKeyBoundaryMs = 500 };
                 var notes = new NoteGenerator().Generate(new[] { 0d, 30, 40, 50, 60, 70 }, s);
-                Sequence(notes.Select(n => n.Tile), 6, 5, 4, 3, 8, 7);
+                // By hand on eight lanes (user rule): the gap of 30 before 10 opens a new run, which takes the other hand.
+                Sequence(notes.Select(n => n.Tile), 4, 7, 6, 5, 8, 7);
                 Sequence(notes.Select(n => n.Mode), 4, 4, 4, 4, 8, 8);
                 Equal(new NoteGenerator().Generate(new[] { 0d }, s)[0].Mode, 1);
                 Equal(new NoteGenerator().Generate(Array.Empty<double>(), s).Count, 0);
@@ -290,7 +301,7 @@ internal static class Program
                 };
                 var generator = new NoteGenerator();
                 var times = new[] { 0d, 600, 700, 800, 900, 1000 };
-                foreach (var cap in new[] { 2, 4, 8 })
+                foreach (var cap in new[] { 2, 4 })
                 {
                     var notes = generator.Generate(times, settings with { MaximumTileCount = cap });
                     // The 2K pattern opens on its second tile, because its first would repeat the 1K note (user rule: 3 3 2 3 2
@@ -300,8 +311,12 @@ internal static class Program
                     Assert(notes.Select(n => n.HitTimeMs).SequenceEqual(times), "Hit times must remain unchanged");
                     Assert(notes.SequenceEqual(generator.Generate(times, settings with { MaximumTileCount = cap })), "Regeneration must be deterministic");
                 }
+                // On eight lanes, played by hand (user rule), the run from 600 on is a new one and takes the other hand: the 2K
+                // pattern 3 2 reads 7 6 there, and the 1K note before it stays on 3.
+                Sequence(generator.Generate(times, settings).Select(n => n.Tile), 3, 7, 6, 7, 6, 7);
+                Sequence(generator.Generate(times, settings).Select(n => n.Mode), 1, 2, 2, 2, 2, 2);
                 // An isolated close pair completes its cycle, then returns to 1K.
-                Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings).Select(n => n.Tile), 3, 2, 3, 3);
+                Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings with { MaximumTileCount = 4 }).Select(n => n.Tile), 3, 2, 3, 3);
                 Sequence(generator.Generate(new[] { 0d, 600, 700, 1300 }, settings).Select(n => n.Mode), 1, 2, 2, 1);
                 // Exact threshold and end of input must not trigger anticipation.
                 Sequence(generator.Generate(new[] { 0d, 600, 1100 }, settings).Select(n => n.Mode), 1, 1, 1);

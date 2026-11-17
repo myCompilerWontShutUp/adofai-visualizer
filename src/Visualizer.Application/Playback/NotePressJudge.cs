@@ -34,23 +34,43 @@ public sealed class NotePressJudge
     /// <summary>
     /// Gives the grades the game reported to the latest presses that have none yet: the judgment counts the linker sends
     /// went up by these since the last reading. Only presses shown within <paramref name="withinMs"/> before
-    /// <paramref name="nowDisplayMs"/> take one, since an older press was graded long ago. Several at once (a chord, or two
-    /// presses in one game frame) are matched in order of timing, earliest grade to earliest press. Returns how many were given.
+    /// <paramref name="nowDisplayMs"/> take one, since an older press was graded long ago.
+    /// The counts do not say which press got which grade, and the game grades presses this app never matched to a note
+    /// (a key off the drawn lane in a fast run), so several grades at once are paired with the presses by
+    /// <paramref name="expected"/>, the grade each press's own timing gives: the closest grade first. When the grades and the
+    /// presses are one for one, every press takes one; otherwise only a grade within one step of what was expected, and the
+    /// rest keep their own (user report: in a fast run the late extras went to presses near the middle). Returns how many
+    /// were given.
     /// </summary>
-    public int TakeGameGrades(IReadOnlyList<HitGrade> grades, double nowDisplayMs, double withinMs)
+    public int TakeGameGrades(IReadOnlyList<HitGrade> grades, double nowDisplayMs, double withinMs, Func<PressMark, HitGrade> expected)
     {
         ArgumentNullException.ThrowIfNull(grades);
+        ArgumentNullException.ThrowIfNull(expected);
         if (grades.Count == 0 || !double.IsFinite(nowDisplayMs) || !double.IsFinite(withinMs) || withinMs < 0) return 0;
         var open = Enumerable.Range(0, _recent.Count)
             .Where(i => _recent[i].GameGrade is null && nowDisplayMs - _recent[i].DisplayTimeMs is var age && age >= 0 && age <= withinMs)
             .ToList();
-        // The newest presses are the ones the game just graded.
-        if (open.Count > grades.Count) open = open.Skip(open.Count - grades.Count).ToList();
-        var ordered = open.OrderBy(i => _recent[i].DeviationMs).ToArray();
-        var sorted = grades.Order().Skip(grades.Count - ordered.Length).ToArray();
-        for (var k = 0; k < ordered.Length; k++) _recent[ordered[k]] = _recent[ordered[k]] with { GameGrade = sorted[k] };
-        if (ordered.Length > 0) Version++;
-        return ordered.Length;
+        var oneForOne = open.Count == grades.Count;
+        var left = grades.ToList();
+        var given = 0;
+        while (open.Count > 0 && left.Count > 0)
+        {
+            // The closest pair of all that are left; ties go to the older press and the earlier grade.
+            var (press, grade, cost) = (-1, -1, int.MaxValue);
+            foreach (var i in open)
+            {
+                var want = (int)expected(_recent[i]);
+                for (var g = 0; g < left.Count; g++)
+                    if (Math.Abs((int)left[g] - want) is var distance && distance < cost) (press, grade, cost) = (i, g, distance);
+            }
+            if (!oneForOne && cost > 1) break;
+            _recent[press] = _recent[press] with { GameGrade = left[grade] };
+            open.Remove(press);
+            left.RemoveAt(grade);
+            given++;
+        }
+        if (given > 0) Version++;
+        return given;
     }
 
     /// <summary>Changes whenever a mark is added or cleared, so renderers can skip static frames.</summary>

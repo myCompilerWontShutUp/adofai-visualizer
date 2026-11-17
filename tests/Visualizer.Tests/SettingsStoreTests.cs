@@ -54,8 +54,8 @@ internal static class SettingsStoreTests
             NoteThickness = 1.5, NoteWidth = 0.8, HoldNoteWidth = 0.5, GlobalDisplayOffsetMs = 12,
             SixKeyPattern = "1 2 3 4 5 6", FourKeyPattern = "2 3 4 5", TwoKeyPattern = "3 6",
             ExtraLanes = true, SlowNotesPastJudgmentLine = true,
-            ExperimentalFeatures = true, ChordSectionLanes = true, ChordLanePreference = "3-4", NoChordCenterPair = false, KeepSpeedOnLoad = true,
-            ChordAvoidBeforeLanes = true, RestartPatternOnRun = true, EnhancedChordRules = true, OneHandFourChords = true,
+            ExperimentalFeatures = true, ChordSectionLanes = true, ChordLanePreference = "3-4", KeepSpeedOnLoad = true,
+            ChordAvoidBeforeLanes = true, RestartPatternOnRun = true, EnhancedChordRules = true, EnhancedFourEightKeys = true,
             EnableTilePreference = true, TwoKeyOrder = "1 2", FourKeyOrder = "1 2 3 4",
             SixKeyOrder = "1 2 3 4 5 6", EightKeyOrder = "1 2 3 4 5 6 7 8", InitialTile = 3,
             AutoCheckpointAdvance = false, AutoCheckpointOnLoad = false, JudgmentLineHeightDip = 100, KeyPressWindowMs = 120,
@@ -214,6 +214,25 @@ internal static class SettingsStoreTests
             Throws<ArgumentOutOfRangeException>(() => storage.WriteJudgmentEase(0.5));
         }),
 
+        ("Redirects are kept in redirects.json by song family, and a file this version cannot read is refused", () =>
+        {
+            // User request: the songs link auto loads in place of others stay across runs, as pins do.
+            var home = Path.Combine(artifactRoot, "redirect-home");
+            if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
+            var book = new RedirectBook(AppStorage.At(home));
+            Equal(book.Read().Count, 0);
+            book.Write(new Dictionary<string, string> { ["1234/main.adofai"] = "20000004", ["5678/main.adofai"] = "10000002", ["9/x.adofai"] = " " });
+            var read = book.Read();
+            Equal(read.Count, 2);
+            Equal(read["1234/main.adofai"], "20000004");
+            Equal(read["5678/main.adofai"], "10000002");
+            Assert(!Directory.EnumerateFiles(home, "*.tmp").Any(), "Nothing half written is left");
+            book.Write(new Dictionary<string, string>());
+            Equal(book.Read().Count, 0);
+            File.WriteAllText(Path.Combine(home, "redirects.json"), """{ "SchemaVersion": 2, "Redirects": {} }""");
+            Throws<InvalidDataException>(() => book.Read());
+        }),
+
         ("Every copy shares one store under %LOCALAPPDATA% and it keeps settings across runs", () =>
         {
             // User request: a copy fetched for playing and the one being worked on see the same songs, settings and notes.
@@ -356,28 +375,34 @@ internal static class SettingsStoreTests
 
             // A file written by 0.4.6 or earlier still carries the worked-out values: they are fine while they agree...
             var old = System.Text.Json.Nodes.JsonNode.Parse(export)!.AsObject();
-            old["UseChordCenterPair"] = settings.UseChordCenterPair;
+            old["UseEnhancedChordRules"] = settings.UseEnhancedChordRules;
             old["PressedNoteStrength"] = settings.PressedNoteStrength;
             old["MagicCircleTiles"] = settings.MagicCircleTiles;
             var restored = SettingsJson.Import(old.ToJsonString(), new VisualizerSettings());
             Assert(Differences(restored, settings).Length == 0, "An older file still loads — " + Differences(restored, settings));
             // ...and one typed in by hand, which could not change anything, is refused with the reason.
-            old["UseChordCenterPair"] = !settings.UseChordCenterPair;
+            old["UseEnhancedChordRules"] = !settings.UseEnhancedChordRules;
             IReadOnlyList<string>? refused = null;
             try { SettingsJson.Import(old.ToJsonString(), new VisualizerSettings()); }
             catch (SettingsJsonException error) { refused = error.Fields; }
-            Assert(refused is not null && refused.SequenceEqual(["UseChordCenterPair"]), "The refused value is named: " + string.Join(", ", refused ?? []));
+            Assert(refused is not null && refused.SequenceEqual(["UseEnhancedChordRules"]), "The refused value is named: " + string.Join(", ", refused ?? []));
 
             // Older files hold the chord rules as experiments, with the center pair named the other way round. With experiments
-            // on, the file's rules carry over; with them off, they did nothing, so the rules that were in effect (the defaults) come in.
+            // on, the file's rules carry over; with them off, they did nothing, so the rules that were in effect (the defaults) come
+            // in. The center pair itself is no setting any more (user rule: a chord never takes it), nor is eight lanes by hand
+            // (always), so files that name them still load.
             var legacy = System.Text.Json.Nodes.JsonNode.Parse(export)!.AsObject();
-            legacy.Remove(nameof(VisualizerSettings.NoChordCenterPair));
             legacy["ChordCenterPair"] = true;
+            legacy["NoChordCenterPair"] = false;
+            legacy["OneHandFourChords"] = false;
+            // Their worked-out values too, which files from 0.4.6 and earlier carry (refusing them threw the whole file away).
+            legacy["UseChordCenterPair"] = true;
+            legacy["UseOneHandFourChords"] = false;
             var carried = SettingsJson.Import(legacy.ToJsonString(), new VisualizerSettings());
-            Assert(carried.NoChordCenterPair == false && carried.ChordSectionLanes && carried.ChordLanePreference == "3-4", "Experiments on: the rules carry over");
+            Assert(carried.ChordSectionLanes && carried.ChordLanePreference == "3-4", "Experiments on: the rules carry over");
             legacy["ExperimentalFeatures"] = false;
-            var inEffect = SettingsJson.Import(legacy.ToJsonString(), new VisualizerSettings { NoChordCenterPair = false, ChordSectionLanes = true });
-            Assert(inEffect.NoChordCenterPair && !inEffect.ChordSectionLanes && inEffect.ChordLanePreference == "None" && !inEffect.ExperimentalFeatures,
+            var inEffect = SettingsJson.Import(legacy.ToJsonString(), new VisualizerSettings { ChordSectionLanes = true });
+            Assert(!inEffect.ChordSectionLanes && inEffect.ChordLanePreference == "None" && !inEffect.ExperimentalFeatures,
                 "Experiments off: the rules that were in effect");
             legacy["ChordCenterPair"] = "yes";
             Throws<SettingsJsonException>(() => SettingsJson.Import(legacy.ToJsonString(), new VisualizerSettings()));

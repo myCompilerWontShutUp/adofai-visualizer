@@ -263,6 +263,7 @@ public partial class MainWindow
         });
         Check(T("TheNotes"), () => new ReportBook(Storage).Notes());
         Check("pins.json", () => new PinBook(Storage).Read());
+        Check("redirects.json", () => new RedirectBook(Storage).Read());
         return new("data", problems, Storage.Root);
     }
 

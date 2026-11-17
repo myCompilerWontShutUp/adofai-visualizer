@@ -468,15 +468,16 @@ public sealed class NoteField : FrameworkElement
         dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - Inner(zones.PureMs), rect.Top, 2 * Inner(zones.PureMs), MagicBarHeight));
         dc.DrawRectangle(JudgmentExactBrush, null, new Rect(centerX - Inner(zones.XPerfectMs), rect.Top, 2 * Inner(zones.XPerfectMs), MagicBarHeight));
         dc.DrawLine(palette.MagicCenter, new Point(centerX, rect.Top + 2), new Point(centerX, rect.Bottom - 2));
-        // Each press sits where the game would put it, against its own tile's counted window, and takes the colour of its
-        // grade: the game's own when the linker reported it, otherwise the one the game's rules give that deviation.
+        // Each press is placed by its own tile's edges onto the zones drawn (HitWindows.Place), so it always sits in the zone
+        // of its grade even when the bar shows another tempo's windows (user report: red marks inside the green on a mixed
+        // run). It takes the colour of its grade: the game's own when the linker reported it, else the rules' for that deviation.
         HitWindows WindowsOf(PressMark mark) => session.HitWindowsOf(mark.Note, difficulty) ?? zones;
         foreach (var mark in recent)
         {
             var age = timeline - mark.DisplayTimeMs;
             if (age < 0 || age > MagicMarkMs) continue;
             var windows = WindowsOf(mark);
-            var x = centerX + Math.Clamp(mark.DeviationMs / windows.CountedMs, -1, 1) * (half - 3);
+            var x = centerX + windows.Place(mark.DeviationMs, zones) * (half - 3);
             dc.PushOpacity(1 - age / MagicMarkMs);
             // Taller than the bar and outlined, so a press is visible wherever it lands.
             dc.DrawRoundedRectangle(GradeBrush(mark.GameGrade ?? windows.Grade(mark.DeviationMs)), JudgmentMarkPen,
@@ -489,7 +490,7 @@ public sealed class NoteField : FrameworkElement
             var taken = Math.Min(settings.JudgmentAverageCount, recent.Count);
             var average = 0d;
             for (var i = recent.Count - taken; i < recent.Count; i++)
-                average += Math.Clamp(recent[i].DeviationMs / WindowsOf(recent[i]).CountedMs, -1, 1);
+                average += WindowsOf(recent[i]).Place(recent[i].DeviationMs, zones);
             average /= taken;
             var target = centerX + average * (half - 3);
             // Eased towards the average instead of snapping: a jumping arrow is harder to read than a moving one.
