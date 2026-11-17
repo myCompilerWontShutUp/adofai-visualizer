@@ -206,8 +206,10 @@ public sealed class NoteGenerator
             if (magicIndex < magic.Count && magic[magicIndex].Contains(times[i]))
             {
                 // Inside a run the count is fixed, and entering one switches at once instead of waiting for the cycle.
-                anticipated = cursor.CurrentMode != settings.MagicCircleTiles;
-                requested = settings.MagicCircleTiles;
+                // Singles that keep to four keys keep to them here too (user rule): no fixed count takes them past.
+                var held = settings.SinglesUpToFourKeys ? Math.Min(settings.MagicCircleTiles, gapCap) : settings.MagicCircleTiles;
+                anticipated = cursor.CurrentMode != held;
+                requested = held;
                 lowerRun = 0;
             }
             // Eight lanes played by hand (experimental, user rule): a note whose gap before it is clearly longer than the gap

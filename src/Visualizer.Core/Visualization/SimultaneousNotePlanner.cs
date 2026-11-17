@@ -218,6 +218,9 @@ internal static class SimultaneousNotePlanner
         var holds = result.Where(note => note.HoldEndMs is not null)
             .Select(note => (note.Tile, Start: note.HitTimeMs, Until: HeldUntil(noteTimes, note.HoldEndMs!.Value))).ToArray();
         bool Free(int tile, double time) => !holds.Any(hold => hold.Tile == tile && hold.Start < time && time <= hold.Until);
+        // Under the enhanced 4/8-key rules a single moved beside a trill keeps to the four-key lanes (user report).
+        var singleTiles = settings.GetSingleTiles();
+        bool SingleMay(int tile) => singleTiles is null || singleTiles.Contains(tile);
         // Whether some place on the eight-lane table is free for the notes from at on, laid either way.
         bool TableFree(int at, int count) => EightLaneStarts(count).Any(low =>
             Enumerable.Range(0, count).All(k => Free(visible[low + k], result[at + k].HitTimeMs))
@@ -382,7 +385,7 @@ internal static class SimultaneousNotePlanner
                     .Where(side => side != low && side != high);
                 foreach (var side in sides)
                     if (side >= 0 && side < visible.Count && !after.Contains(visible[side]) && Free(visible[side], result[i + 2].HitTimeMs)
-                        && (!byHand || side / 4 == low / 4))
+                        && (!byHand || side / 4 == low / 4) && SingleMay(visible[side]))
                     {
                         result[i + 2] = result[i + 2] with { Tile = visible[side] };
                         break;
@@ -455,7 +458,7 @@ internal static class SimultaneousNotePlanner
                 var side = new[] { roll[^1] + again.Way, roll[0] - again.Way }
                     .Concat(Enumerable.Range(0, visible.Count).OrderBy(lane => Math.Abs(lane - roll[^1])))
                     .Where(lane => lane >= 0 && lane < visible.Count && !roll.Contains(lane) && !next.Contains(visible[lane])
-                        && Free(visible[lane], result[after].HitTimeMs) && (!byHand || lane / 4 == roll[0] / 4))
+                        && Free(visible[lane], result[after].HitTimeMs) && (!byHand || lane / 4 == roll[0] / 4) && SingleMay(visible[lane]))
                     .Select(lane => (int?)lane).FirstOrDefault();
                 if (side is { } moved)
                 {
@@ -634,6 +637,8 @@ internal static class SimultaneousNotePlanner
         var groupTimes = groups.Select(group => group.TimeMs).ToArray();
         // Experimental (user rule): on eight lanes a four-note chord takes one hand, the other one than the last such chord.
         var oneHand = settings.PlaysByHand;
+        // Under the enhanced 4/8-key rules singles keep to the four-key lanes (user report: d f j k, never a s or l ;).
+        var singleTiles = settings.GetSingleTiles()?.ToArray();
         var lastHand = 1;
         void Add(VisualizerNote note, int sourceIndex)
         {
@@ -707,7 +712,7 @@ internal static class SimultaneousNotePlanner
                 if (oneHand && settings.GetPatternFor(mode, baseline[blockStart].Tile).ToArray() is var own && Array.IndexOf(own, baseline[blockStart].Tile) is var turn and >= 0)
                     blockPreferred = own.Skip(turn).Concat(own.Take(turn)).ToArray();
                 // A four-note chord on one hand may need lanes outside the section's pattern (4K is 3-6 on eight lanes).
-                var hand = oneHand && block.Any(group => group.Count == 4) ? 1 - lastHand : -1;
+                var hand = visible.Length == 8 && block.Any(group => group.Count == 4) ? 1 - lastHand : -1;
                 var candidates = mode >= 4 && hand < 0 ? blockPreferred : blockPreferred.Concat(visible).Distinct().ToArray();
                 // A chord with more notes than the section's pattern has lanes takes the screen's lanes too: it needs that many.
                 if (block.Any(group => group.Count > candidates.Length)) candidates = candidates.Concat(visible).Distinct().ToArray();
@@ -736,7 +741,7 @@ internal static class SimultaneousNotePlanner
                         .SelectMany(keepChords => Enumerable.Range(1, 3).Select(level => (style, keepChords, level))))
                     .Select(option => Assign(block, candidates, visible, mode, extras, budget, option.level, option.keepChords, busyUntil,
                         option.style.Avoid ? lanes : null, option.style.Avoid ? used : null, option.style.Repeat, option.style.NoFollow, previous,
-                        settings.GetPreferredChordLanes(), option.style.Fresh ? flow : null, hand))
+                        settings.GetPreferredChordLanes(), option.style.Fresh ? flow : null, hand, singleTiles))
                     .FirstOrDefault(found => found is not null);
                 var assignment = Find(0) ?? Enumerable.Range(1, extras.Length).Select(Find).FirstOrDefault(found => found is not null);
                 if (assignment is null) throw Failure(settings, block[0].SourceIndex, block[0].TimeMs, mode, count);
@@ -757,7 +762,7 @@ internal static class SimultaneousNotePlanner
                     if (!isChordMember && pair.Contains(result[last].Tile))
                     {
                         var before = last > 0 ? result[last - 1].Tile : 0;
-                        var free = visible.Where(lane => !pair.Contains(lane) && lane != before
+                        var free = visible.Where(lane => !pair.Contains(lane) && lane != before && (singleTiles is null || singleTiles.Contains(lane))
                             && result[last].HitTimeMs > busyUntil[lane])
                             // Nearest to where it already was, so the hand moves as little as the rule allows.
                             .OrderBy(lane => Math.Abs(lane - result[last].Tile)).ToArray();
@@ -807,6 +812,8 @@ internal static class SimultaneousNotePlanner
     private static void LockChords(List<VisualizerNote> result, VisualizerSettings settings)
     {
         var visible = settings.GetVisibleTiles().ToList();
+        // Under the enhanced 4/8-key rules a single keeps to the four-key lanes (user report).
+        var singleTiles = settings.GetSingleTiles();
         var noteTimes = result.Select(note => note.HitTimeMs).ToArray();
         var holds = result.Where(note => note.HoldEndMs is not null)
             .Select(note => (note.Tile, Start: note.HitTimeMs, Until: HeldUntil(noteTimes, note.HoldEndMs!.Value))).ToArray();
@@ -895,6 +902,8 @@ internal static class SimultaneousNotePlanner
                 }
             }
             if (plan.Any(entry => !Free(visible[entry.Value], result[entry.Key].HitTimeMs))) return;
+            if (plan.Any(entry => !result[entry.Key].StartsChord && (entry.Key == 0 || !result[entry.Key - 1].StartsChord)
+                && singleTiles is not null && !singleTiles.Contains(visible[entry.Value]))) return;
             foreach (var (index, planned) in plan) result[index] = result[index] with { Tile = visible[planned] };
         }
 
@@ -916,6 +925,7 @@ internal static class SimultaneousNotePlanner
             {
                 var walk = Enumerable.Range(0, count).Select(n => ((start + n * step) % visible.Count + visible.Count) % visible.Count).ToArray();
                 if (previous.Contains(walk[0]) || target.Contains(walk[^1])) continue;
+                if (singleTiles is not null && walk.Any(lane => !singleTiles.Contains(visible[lane]))) continue;
                 if (Enumerable.Range(0, count).Any(n => !Free(visible[walk[n]], TimeOf(first + n)))) continue;
                 for (var n = 0; n < count; n++) result[events[first + n].At] = result[events[first + n].At] with { Tile = visible[walk[n]] };
                 return;
@@ -944,7 +954,7 @@ internal static class SimultaneousNotePlanner
     /// </summary>
     private static (int Tile, bool StartsChord)[]? Assign(GroupedHit[] groups, int[] candidates, int[] visible, int mode, int[] extras, int budget,
         int level, bool keepChords, double[] busyUntil, int[]? sectionLanes, int[]? sectionUsed, bool repeatSingles, bool noFollow,
-        int[] previousLanes, IReadOnlyList<int> preferredLanes, Flow? flow = null, int hand = -1)
+        int[] previousLanes, IReadOnlyList<int> preferredLanes, Flow? flow = null, int hand = -1, int[]? singleTiles = null)
     {
         var fresh = flow is not null;
         var total = groups.Sum(g => g.Count);
@@ -1205,6 +1215,9 @@ internal static class SimultaneousNotePlanner
                     : single && tile == (tiles.Count > 0 ? tiles[^1] : previousLanes.LastOrDefault()))) continue;
                 var spare =Array.IndexOf(extras, tile) >= 0;
                 if (spare && spareUsed == budget) continue;
+                // A single keeps to the four-key lanes under the enhanced 4/8-key rules; a chord's leftover on a spare lane is
+                // still a chord note.
+                if (single && !spare && singleTiles is not null && Array.IndexOf(singleTiles, tile) < 0) continue;
                 if (spare && keepChords && (pairsWithPrevious || member + 1 < groups[groupIndex].Count)) continue;
                 var chord = pairsWithPrevious && !spare && Array.IndexOf(extras, tiles[^1]) < 0;
                 // A wide chord runs over lanes side by side in one direction. The center rule is the two-note chord's own

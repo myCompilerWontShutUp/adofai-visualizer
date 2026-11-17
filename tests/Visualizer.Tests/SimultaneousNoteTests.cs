@@ -772,6 +772,48 @@ internal static class SimultaneousNoteTests
                 "Nothing changes on four lanes");
             Assert(!eight.HasSameNoteRulesAs(enhanced), "It is a note rule");
         });
+        yield return ("Enhanced 4/8 keys: singles keep to the four-key lanes themselves (d f j k), whatever is around them", () =>
+        {
+            // User report (S3RL - play it loud, enhanced 4/8 keys on): singles showed on a s and l ; as well; only trills and
+            // chords may go past the four-key lanes. Settings as the user plays: eight lanes, wide chords only, spare lanes,
+            // a magic circle fixed at eight tiles.
+            var generator = new NoteGenerator();
+            var rules = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 2, EightKeyBoundaryMs = 55, SixKeyBoundaryMs = 55,
+                FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, ChordsOnlyAboveFourKeys = true,
+                ExtraLanes = true, ExperimentalFeatures = true, EnhancedFourEightKeys = true, MagicCircleJudgmentLine = true,
+                MagicCircleFixedTiles = true, MagicCircleTileCount = 8, MagicCircleNoteCount = 16, EnhancedChordRules = true, ChordAvoidBeforeLanes = true };
+            Assert(!rules.PlaysByHand, "Singles are not played by hand under these rules");
+            Equal(string.Join(" ", rules.GetSingleTiles()!), "3 4 5 6");
+            var random = new Random(11);
+            var times = new List<double>();
+            var ends = new List<double?>();
+            var afterHold = false;
+            for (double at = 0, k = 0; k < 900; k++)
+            {
+                // Runs at one pace (magic circles), chords of every size, trills and long notes, mixed. A single follows each
+                // long note: the note after it may not take its lane, and a wide chord there could have no place on the table.
+                var size = afterHold || random.Next(10) < 7 ? 1 : random.Next(2, 9);
+                for (var n = 0; n < size; n++) { times.Add(at + n); ends.Add(null); }
+                afterHold = size == 1 && !afterHold && random.Next(12) == 0;
+                if (afterHold) ends[^1] = at + 150;
+                at += size + (k % 60 < 30 ? 70 : random.Next(20, 400)) + (ends[^1] is null ? 0 : 160);
+            }
+            var notes = generator.Generate(times, ends, rules);
+            Equal(notes.Count, times.Count);
+            var off = new List<string>();
+            for (var i = 0; i < notes.Count; i++)
+            {
+                var together = notes.Count(n => n.HitTimeMs == notes[i].HitTimeMs) > 1;
+                var near = (i > 0 && notes[i].HitTimeMs - notes[i - 1].HitTimeMs is > 0 and <= 40)
+                    || (i + 1 < notes.Count && notes[i + 1].HitTimeMs - notes[i].HitTimeMs is > 0 and <= 40);
+                if (!together && !near && notes[i].Tile is < 3 or > 6) off.Add($"{notes[i].HitTimeMs:0}ms tile {notes[i].Tile} mode {notes[i].Mode}");
+            }
+            Assert(off.Count == 0, $"{off.Count} singles off d f j k: " + string.Join(" | ", off.Take(12)));
+            Assert(notes.Where(n => notes.Count(m => m.HitTimeMs == n.HitTimeMs) == 1).All(n => n.Mode <= 4 || n.HoldEndMs is null), "Singles stay at four keys");
+            // Off, eight lanes go by hand again, a s d f and j k l ;.
+            var byHand = generator.Generate(times, ends, rules with { EnhancedFourEightKeys = false });
+            Assert(byHand.Any(n => n.Tile is 1 or 2 or 7 or 8 && byHand.Count(m => m.HitTimeMs == n.HitTimeMs) == 1), "Off: singles by hand");
+        });
         yield return ("Eight lanes by hand: four keys or fewer stay in one hand, a new run takes the other", () =>
         {
             // User rule, from S3RL - play it loud: a four-note run reads a s d f / j k l ;, never d f j k across the hands, a long

@@ -226,6 +226,14 @@ public sealed record VisualizerSettings
     /// <summary>Whether singles keep to four keys or fewer: the chord card's setting, or the enhanced 4/8-key rules.</summary>
     [JsonIgnore]
     public bool SinglesUpToFourKeys => ChordsOnlyAboveFourKeys || UseEnhancedFourEightKeys;
+
+    /// <summary>
+    /// Under the enhanced 4/8-key rules on a screen wider than four lanes, the only tiles a single may take: those of the
+    /// four-key and smaller patterns themselves (user report, S3RL - play it loud: d f j k, never a s or l ;). Null otherwise.
+    /// </summary>
+    public IReadOnlyList<int>? GetSingleTiles() => UseEnhancedFourEightKeys && MaximumTileCount > 4
+        ? GetPattern(1).Concat(GetPattern(2)).Concat(GetPattern(4)).Distinct().Order().ToArray()
+        : null;
     /// <summary>
     /// Which lane pair a chord takes first, as screen lanes: "1-2" (the left hand), "3-4", or "None" for the pattern order.
     /// Only a preference: a taken pair still moves the chord elsewhere.
@@ -457,10 +465,12 @@ public sealed record VisualizerSettings
 
     /// <summary>
     /// Whether eight lanes are played as two hands of four (user rule, from S3RL - play it loud; always, no longer a setting):
-    /// four keys or fewer stay in one hand (see <see cref="GetPattern(int, int)"/>) and each new run takes the other one.
+    /// four keys or fewer stay in one hand (see <see cref="GetPattern(int, int)"/>) and each new run takes the other one. Not
+    /// under the enhanced 4/8-key rules, where singles keep to the four-key lanes themselves (<see cref="GetSingleTiles"/>);
+    /// four-note chords still take the hands in turn there.
     /// </summary>
     [JsonIgnore]
-    public bool PlaysByHand => MaximumTileCount == 8;
+    public bool PlaysByHand => MaximumTileCount == 8 && !UseEnhancedFourEightKeys;
 
     /// <summary>
     /// The pattern of <paramref name="mode"/> inside one hand of eight lanes (0 the left lanes 1-4, 1 the right lanes 5-8): the
