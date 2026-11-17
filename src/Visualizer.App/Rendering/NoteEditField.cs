@@ -60,8 +60,14 @@ public sealed class NoteEditField : FrameworkElement
     public NoteEditSession? Session
     {
         get => _session;
-        set { _session = value; InvalidateVisual(); }
+        set { _session = value; _firstTile = FirstTile(); InvalidateVisual(); }
     }
+
+    /// <summary>
+    /// The main screen's first lane for this song, which the lane colors count from. With the auto tile count that depends
+    /// on the lanes the notes sit on, as they were when the sheet opened.
+    /// </summary>
+    private int FirstTile() => _settings.GetDisplayTiles(_session?.Notes.Select(note => note.Tile) ?? []).FirstOrDefault(1);
 
     public VisualizerSettings Settings
     {
@@ -70,7 +76,7 @@ public sealed class NoteEditField : FrameworkElement
         {
             _settings = value ?? new VisualizerSettings();
             _ruleTiles = _settings.GetVisibleTiles().ToHashSet();
-            _firstTile = _settings.GetDisplayTiles().FirstOrDefault(1);
+            _firstTile = FirstTile();
             _palette = null;
             _text = null;
             _muted = null;

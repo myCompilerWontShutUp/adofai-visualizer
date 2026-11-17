@@ -168,7 +168,7 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 - **`property [<section>[.<setting>]]`** — 인자 없으면 구역 목록, 구역이면 그 설정과 값, 설정이면 받는 값.
 - **`export`** — 설정 JSON(설정판의 내보내기와 같음, 맵·데이터 폴더 제외).
 - **`import <json>`** — 적힌 설정만 적용하고 나머지는 그대로. 바뀔 것을 보여 주고 묻습니다. 두 폴더 경로는 이 PC의 값을 유지합니다. 없어진 설정 이름은 조용히 건너뜁니다.
-- **`rollback`** — 마지막 설정 변경을 무엇이 했든(설정판·명령·불러올 때의 배속 초기화·여분 레인 같은 강제 변경) 되돌립니다. 그 단계에서 **바뀐 항목만** 돌리고, 다시 치면 한 단계 더. 앱을 끄면 기록은 사라집니다.
+- **`rollback`** — 마지막 설정 변경을 무엇이 했든(설정판·명령·불러올 때의 배속 초기화·배치 실패 때 동의한 최대 타일 수 변경 같은 강제 변경) 되돌립니다. 그 단계에서 **바뀐 항목만** 돌리고, 다시 치면 한 단계 더. 앱을 끄면 기록은 사라집니다.
 - **`reset`** — 모든 설정을 기본값으로(맵·데이터 폴더는 그대로, `rollback`으로 되돌림).
 - **`do <action>`** — 설정판의 동작: 이전·다음 체크포인트 키·설정 키 지우기, 맵 폴더·데이터 폴더 고르기(폴더 고르기 창), 곡 리스트 상세 창 열기. 키워드 없이 오면 받는 낱말만.
 
@@ -303,8 +303,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `keys.reset` · `keys.start` · `keys.toggle` | ResetKey · StartTriggerKey · VisualizerToggleKey | 키 |
 | `keys.previous` · `keys.next` · `keys.settings` | PreviousCheckpointKey · NextCheckpointKey · SettingsHotkey | 키 또는 `none` |
 | `keys.lane-1` … `keys.lane-8` | LaneKeys | 키 |
-| `design.display-lanes` | DisplayLaneCount | 선택 (`max` · 1 · 2 · 4 · 6 · 8, 최대 타일 수보다 작으면 거절) |
-| `tiles.max` · `tiles.min` | MaximumTileCount · MinimumTileCount | 선택 |
+| `design.display-lanes` | DisplayLaneCount | 선택 (`max` · 1 · 2 · 4 · 6 · 8, 최대 타일 수보다 작으면 거절; 최대 타일 수가 `auto`면 어느 값이든 화면의 최소 레인 수) |
+| `tiles.max` · `tiles.min` | MaximumTileCount · MinimumTileCount | 선택 (`tiles.max`는 1 · 2 · 4 · 6 · 8 · `auto` — `auto`는 곡마다 필요한 가장 적은 수로 놓고 저장된 최대는 8, 숫자를 주면 자동이 꺼짐) |
 | `tiles.dynamic` | DynamicTiming | 토글 |
 | `tiles.8k-6k` · `tiles.6k-4k` · `tiles.4k-2k` · `tiles.2k-1k` | EightKey… · SixKey… · FourKey… · TwoKeyBoundaryMs | ms |
 | `tiles.instant-down` | ImmediateDownshift | 토글 |
@@ -328,7 +328,8 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `judgment.average` | ShowJudgmentAverage | 토글 |
 | `judgment.fixed` | FixedJudgmentBar | 토글 (판정선 모양 고정: 게임 막대 비율 + 양 끝 판정 시간) |
 | `judgment.average-notes` | JudgmentAverageCount | 노트 수 |
-| `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임에 적용; 설정판은 0.1 간격 슬라이더) |
+| `judgment.ease` | JudgmentEaseScale | 배 (1~3, 1이면 게임 판정 그대로 — 연습용, 링커가 게임의 퍼펙트 최소 시간에만 적용하고 판정 인정 끝은 그대로; 설정판은 0.1 간격 슬라이더) |
+| `judgment.offset` | JudgmentBarOffset | px (-400~400, 0이면 원래 자리, +면 위로) |
 | `magic.notes` | MagicCircleNoteCount | 노트 수 |
 | `magic.max-interval` · `magic.fade-in` · `magic.lead` · `magic.fade-out` | MagicCircleMaxIntervalMs · …FadeInMs · …LeadMs · …FadeOutMs | ms |
 | `magic.chords` | MagicCircleChords | 토글 |
@@ -343,7 +344,6 @@ Ctrl+T로 여는 콘솔의 **명령·옵션·키워드·설정 이름 전부**�
 | `colors.lane-effect` · `colors.note` · `colors.chord` · `colors.trill` · `colors.start-note` · `colors.end-note` · `colors.checkpoint` · `colors.judgment-line` · `colors.miss` | LaneEffectColor · NoteColor · ChordColor · TrillColor · StartNoteColor · EndNoteColor · CheckpointColor · JudgmentLineColor · MissEffectColor | 색 |
 | `colors.pressed-transparency` | PressedNoteTransparencyPercent | % |
 | `advanced.experimental` | ExperimentalFeatures | 토글 |
-| `advanced.extra-lanes` | ExtraLanes | 토글 |
 | `advanced.slowdown` | SlowNotesPastJudgmentLine | 토글 |
 | `advanced.tile-order` | EnableTilePreference | 토글 |
 | `advanced.chord-lanes` | ChordSectionLanes | 토글 |

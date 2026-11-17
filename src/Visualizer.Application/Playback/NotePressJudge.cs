@@ -105,7 +105,13 @@ public sealed class NotePressJudge
         return false;
     }
 
-    /// <summary>Marks the unpressed note of <paramref name="tile"/> closest to the displayed time.</summary>
+    /// <summary>
+    /// Marks the unpressed note of <paramref name="tile"/> closest to the displayed time. As the game takes a tile
+    /// (scrPlanet.SwitchChosen moves on only for a counted margin), a press earlier than that note's own counted window does
+    /// not take it: it is shown as too early and the note stays to be pressed. Taking it made one stray press pull every
+    /// later press of the lane a note ahead, each of them early, for as long as the lane's notes came within the press
+    /// window (user report: one early mark, then a run of them). A late press keeps the press window.
+    /// </summary>
     public int? Press(PlaybackSession session, int tile, double windowMs)
     {
         if (!double.IsFinite(windowMs) || windowMs < 0) throw new ArgumentOutOfRangeException(nameof(windowMs));
@@ -130,17 +136,22 @@ public sealed class NotePressJudge
             var distance = Math.Abs(notes[i].HitTimeMs - target);
             if (distance < bestDistance) { best = i; bestDistance = distance; }
         }
-        if (best is int index)
+        if (best is not int index) return null;
+        var deviation = target - notes[index].HitTimeMs;
+        var difficulty = HitGrading.DifficultyOf(session.Settings.JudgmentBarDifficulty);
+        var windows = session.HitWindowsOf(index, difficulty) ?? HitGrading.Fallback(session.GameDifficulty ?? difficulty, session.JudgmentEase);
+        var taken = -deviation <= windows.CountedMs;
+        if (taken)
         {
             _pressed[index] = true;
             // The press calibration averages how late (or early) the first presses of a play are.
-            var deviation = target - notes[index].HitTimeMs;
             session.AddCalibrationSample(deviation);
-            if (_recent.Count == RecentPressCount) _recent.RemoveAt(0);
-            _recent.Add(new PressMark(target, deviation, index));
-            Version++;
         }
-        return best;
+        // Too early is drawn as well, at the bar's early end as the game shows it.
+        if (_recent.Count == RecentPressCount) _recent.RemoveAt(0);
+        _recent.Add(new PressMark(target, deviation, index));
+        Version++;
+        return taken ? index : null;
     }
 
     /// <summary>

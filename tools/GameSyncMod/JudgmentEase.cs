@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading;
 using HarmonyLib;
@@ -10,11 +12,15 @@ using HarmonyLib;
 namespace AdofaiVisualizerSync
 {
     /// <summary>
-    /// The one change this mod makes to the game, asked for by the user for practice (2026-11-17, AGENTS.md rule 6): the
-    /// minimum times of the hit windows multiplied by the visualizer's judgment ease. scrMisc.GetMinimumTimes builds the
-    /// counted, perfect and pure minimums from time constants only (0.091 / 0.065 / 0.04, 0.03, 0.02, the mobile ones and
-    /// the 0.025 floor, each divided by the speed trial), so multiplying every constant multiplies every result, and both
-    /// the grading (scrMisc.GetAdjustedAngleBoundaryInDeg / GetAdjustedTimeBoundaries) and the game's error meter follow.
+    /// The judgment ease the user asked for, for practice (2026-11-17, AGENTS.md rule 6): the minimum times of the perfect
+    /// windows multiplied by the visualizer's setting, and nothing else. scrMisc.GetMinimumTimes works out three minimums,
+    /// Counted (0.091 / 0.065 / 0.04 s by difficulty), Perfect (0.03) and Pure (0.02, floored at 0.025), and stores them into
+    /// its result; the ease is applied to Perfect and Pure only, where they are stored, and never past Counted.
+    /// Counted is what decides whether a press takes the next tile at all (scrPlanet.SwitchChosen moves on only for a counted
+    /// margin), so it stays the game's own: the first version multiplied it too, and on fast tiles the window grew longer
+    /// than the gap between tiles, any stray press took the next tile, and every press after it hit a tile ahead as "early"
+    /// (user report: Halation at 720 BPM, most tiles early). With Counted untouched the presses that take a tile are exactly
+    /// the unmodified game's; only how a counted press is graded gets more lenient.
     /// A transpiler does it, so no game type is referenced here and a game that moved the method only loses this feature.
     /// The ease is read from the visualizer's store and applies only while the visualizer runs; 1 is the game's own judgment.
     /// </summary>
@@ -25,6 +31,8 @@ namespace AdofaiVisualizerSync
         private static volatile float _scale = 1;
         private static Harmony? _harmony;
         private static Timer? _timer;
+        /// <summary>How many of the two stores (Perfect, Pure) the transpiler found; both are needed.</summary>
+        private static int _sites;
 
         /// <summary>The ease in force now; 1 when off, not patched or the visualizer is not running.</summary>
         public static float Scale => _scale;
@@ -44,8 +52,15 @@ namespace AdofaiVisualizerSync
                     else
                     {
                         var harmony = new Harmony(HarmonyId);
+                        _sites = 0;
                         harmony.Patch(method, transpiler: new HarmonyMethod(typeof(JudgmentEase), nameof(Transpiler)));
-                        _harmony = harmony;
+                        if (_sites == 2) _harmony = harmony;
+                        else
+                        {
+                            // The method is not the one this was written for: it is put back as it was.
+                            harmony.UnpatchAll(HarmonyId);
+                            log("Judgment ease is off: scrMisc.GetMinimumTimes does not store Counted, Perfect and Pure as expected.");
+                        }
                     }
                 }
                 catch (Exception error)
@@ -68,18 +83,48 @@ namespace AdofaiVisualizerSync
             _harmony = null;
         }
 
-        /// <summary>Called by the patched method for every time constant in it.</summary>
-        public static float Ease(float seconds) => seconds * _scale;
+        /// <summary>
+        /// Called by the patched method for the Perfect and the Pure minimum, with the Counted minimum it already stored:
+        /// longer by the ease, never past Counted, and never shorter than the game's own.
+        /// </summary>
+        public static double Ease(double seconds, double counted) => Math.Max(seconds, Math.Min(seconds * _scale, counted));
 
+        /// <summary>
+        /// Before each store into the result's Perfect and Pure, the value goes through <see cref="Ease"/> with the result's
+        /// Counted, which the method stores first. A method that does not store all three as doubles is left exactly as it is.
+        /// </summary>
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            var ease = AccessTools.Method(typeof(JudgmentEase), nameof(Ease));
-            foreach (var instruction in instructions)
+            var list = instructions.ToList();
+            FieldInfo? counted = null;
+            CodeInstruction? result = null;
+            var countedAt = -1;
+            for (var i = 0; i < list.Count && counted == null; i++)
             {
-                yield return instruction;
-                // Every float the method loads is one of its times; the labels stay on the load, so branches are untouched.
-                if (instruction.opcode == OpCodes.Ldc_R4) yield return new CodeInstruction(OpCodes.Call, ease);
+                if (list[i].opcode != OpCodes.Stfld || !(list[i].operand is FieldInfo field) || field.Name != "Counted" || field.FieldType != typeof(double)) continue;
+                // The address of the result the store goes into: the nearest load of a local's address before it.
+                for (var k = i - 1; k >= 0 && result == null; k--)
+                    if (list[k].opcode == OpCodes.Ldloca || list[k].opcode == OpCodes.Ldloca_S) result = list[k];
+                counted = field;
+                countedAt = i;
             }
+            if (counted == null || result == null) return list;
+            var ease = AccessTools.Method(typeof(JudgmentEase), nameof(Ease));
+            var sites = 0;
+            for (var i = countedAt + 1; i < list.Count; i++)
+            {
+                if (list[i].opcode != OpCodes.Stfld || !(list[i].operand is FieldInfo field) || field.FieldType != typeof(double)
+                    || field.DeclaringType != counted.DeclaringType || (field.Name != "Perfect" && field.Name != "Pure")) continue;
+                // On the stack: the result's address and the value. The value becomes Ease(value, result.Counted).
+                var load = new CodeInstruction(result.opcode, result.operand);
+                load.labels.AddRange(list[i].labels);
+                list[i].labels.Clear();
+                list.InsertRange(i, new[] { load, new CodeInstruction(OpCodes.Ldfld, counted), new CodeInstruction(OpCodes.Call, ease) });
+                i += 3;
+                sites++;
+            }
+            _sites = sites;
+            return list;
         }
 
         /// <summary>

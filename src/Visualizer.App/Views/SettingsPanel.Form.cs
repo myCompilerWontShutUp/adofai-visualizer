@@ -43,12 +43,11 @@ public partial class SettingsPanel
             _songInfo.IsChecked = settings.ShowSongInfo;
             _inputEffect.IsChecked = settings.ShowInputEffect;
             _missEffect.IsChecked = settings.ShowMissEffect;
-            _maximum.SelectedItem = settings.MaximumTileCount;
+            _maximum.SelectedItem = settings.AutoTileCount ? AutoTiles : settings.MaximumTileCount;
             _minimum.SelectedItem = settings.MinimumTileCount;
             _displayLanes.SelectedIndex = LaneIndex(settings.DisplayLaneCount);
             _dynamic.IsChecked = settings.DynamicTiming;
             _tilePreference.IsChecked = settings.EnableTilePreference;
-            _extraLanes.IsChecked = settings.ExtraLanes;
             _judgmentSlowdown.IsChecked = settings.SlowNotesPastJudgmentLine;
             _immediateDownshift.IsChecked = settings.ImmediateDownshift;
             _experimental.IsChecked = settings.ExperimentalFeatures;
@@ -129,16 +128,14 @@ public partial class SettingsPanel
         var policy = new VisualizerSettings
         {
             DynamicTiming = _dynamic.IsChecked == true,
-            MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum : 1,
+            // Auto may take up to eight tiles for a song, so every boundary below is open with it (user rule).
+            MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum == AutoTiles ? VisualizerSettings.LaneKeyCount : maximum : 1,
             MinimumTileCount = _minimum.SelectedItem is int minimum ? minimum : 1
         };
         _textFields[nameof(VisualizerSettings.EightKeyBoundaryMs)].IsEnabled = policy.IsThresholdEnabled(8);
         _textFields[nameof(VisualizerSettings.SixKeyBoundaryMs)].IsEnabled = policy.IsThresholdEnabled(6);
         _textFields[nameof(VisualizerSettings.FourKeyBoundaryMs)].IsEnabled = policy.IsThresholdEnabled(4);
         _textFields[nameof(VisualizerSettings.TwoKeyBoundaryMs)].IsEnabled = policy.IsThresholdEnabled(2);
-        // Extra lanes apply to 2- and 4-lane views only; the switch keeps its value while locked.
-        _extraLanes.IsEnabled = policy.CanUseExtraLanes;
-        _extraLanes.ToolTip = policy.CanUseExtraLanes ? null : T("ExtraLanesUnavailable");
         // The wait matters only while immediate switching is on; the box keeps its value while locked.
         _textFields[nameof(VisualizerSettings.DownshiftNoteCount)].IsEnabled = _immediateDownshift.IsChecked == true;
         // The magic circle rows matter only while the bar can appear in one, which its own card now decides.
@@ -443,7 +440,8 @@ public partial class SettingsPanel
             RestartPatternOnRun = _runRestart.IsChecked == true,
             EnhancedChordRules = _enhancedChords.IsChecked == true,
             EnhancedFourEightKeys = _enhancedKeys.IsChecked == true,
-            MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum : 0,
+            MaximumTileCount = _maximum.SelectedItem is int maximum ? maximum == AutoTiles ? VisualizerSettings.LaneKeyCount : maximum : 0,
+            AutoTileCount = _maximum.SelectedItem is AutoTiles,
             MinimumTileCount = _minimum.SelectedItem is int minimum ? minimum : 0,
             DisplayLaneCount = _displayLanes.SelectedIndex <= 0 ? 0 : VisualizerSettings.Modes[_displayLanes.SelectedIndex - 1],
             DynamicTiming = _dynamic.IsChecked == true,
@@ -476,6 +474,7 @@ public partial class SettingsPanel
             JudgmentBarDifficulty = JudgmentDifficulties[Math.Clamp(_judgmentDifficulty.SelectedIndex, 0, JudgmentDifficulties.Length - 1)],
             ShowJudgmentAverage = _judgmentAverage.IsChecked == true,
             FixedJudgmentBar = _fixedBar.IsChecked == true,
+            JudgmentBarOffset = Number(nameof(VisualizerSettings.JudgmentBarOffset)),
             JudgmentAverageCount = Whole(nameof(VisualizerSettings.JudgmentAverageCount)),
             JudgmentEaseScale = Number(nameof(VisualizerSettings.JudgmentEaseScale)),
             MagicCircleFixedTiles = _magicFixedTiles.IsChecked == true,
@@ -495,7 +494,6 @@ public partial class SettingsPanel
             SixKeyPattern = Tiles(nameof(VisualizerSettings.SixKeyPattern)),
             FourKeyPattern = Tiles(nameof(VisualizerSettings.FourKeyPattern)),
             TwoKeyPattern = Tiles(nameof(VisualizerSettings.TwoKeyPattern)),
-            ExtraLanes = _extraLanes.IsChecked == true,
             SlowNotesPastJudgmentLine = _judgmentSlowdown.IsChecked == true,
             EnableTilePreference = preference,
             TwoKeyOrder = Order(nameof(VisualizerSettings.TwoKeyOrder)),

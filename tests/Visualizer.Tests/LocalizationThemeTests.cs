@@ -120,8 +120,8 @@ internal static class LocalizationThemeTests
             // The file is a complete settings JSON, so importing it over anything gives exactly the initial settings.
             Equal(SettingsJson.Import(file, s with { NoteTravelTimeMs = 1, Theme = "white" }), s);
             Assert(Languages.Get(Languages.Korean, "InputScopeHelp").StartsWith("활성화하면", StringComparison.Ordinal)
-                && !Languages.Get(Languages.Korean, "ExtraLanesHelp").Contains("켜면"), "System wording: 활성화 / 비활성화");
-            Equal(Languages.Get(Languages.Korean, "Extra lanes"), "여분 레인 배치");
+                && !Languages.Get(Languages.Korean, "MaximumTilesHelp").Contains("켜면"), "System wording: 활성화 / 비활성화");
+            Equal(Languages.Get(Languages.Korean, "TileCountAuto"), "자동");
         });
 
         yield return ("The console's words: every language has them whole, and every key the code names is in the files", () =>
@@ -552,7 +552,7 @@ internal static class LocalizationThemeTests
             var advanced = Labels(expanders[^2]);
             int At(string label) => advanced.IndexOf(label);
             // The experimental switch leads the card; chord section lanes follow tile preference.
-            Assert(At("실험적 기능") == 0 && At("실험적 기능") < At("여분 레인 배치") && At("여분 레인 배치") < At("판정선 노트 변속")
+            Assert(At("실험적 기능") == 0 && At("실험적 기능") < At("판정선 노트 변속")
                 && At("판정선 노트 변속") < At("순서 선호도 사용") && At("순서 선호도 사용") < At("동타 구간 레인 분리")
                 && At("동타 구간 레인 분리") < At("불러오기 배속 유지") && At("불러오기 배속 유지") < At("맵 폴더")
                 && At("맵 폴더") < At("데이터 저장 폴더") && At("데이터 저장 폴더") < At("ADOFAI 프로세스 이름"),

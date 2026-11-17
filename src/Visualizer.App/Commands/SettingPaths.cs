@@ -42,7 +42,9 @@ public static class SettingPaths
     public static IReadOnlyList<string> NotInWindow { get; } =
         [nameof(VisualizerSettings.SongListFields), nameof(VisualizerSettings.LaneBackgroundColors),
          // The bar has its own choice now (judgment.bar); this one only stays so an older settings file still reads.
-         nameof(VisualizerSettings.MagicCircleJudgmentLine)];
+         nameof(VisualizerSettings.MagicCircleJudgmentLine),
+         // Part of tiles.max: its value auto.
+         nameof(VisualizerSettings.AutoTileCount)];
 
     private static SettingPath[] Build()
     {
@@ -102,6 +104,7 @@ public static class SettingPaths
             new("judgment", "window", nameof(VisualizerSettings.JudgmentBarDifficulty), Choice),
             new("judgment", "average", nameof(VisualizerSettings.ShowJudgmentAverage), Toggle),
             new("judgment", "fixed", nameof(VisualizerSettings.FixedJudgmentBar), Toggle),
+            new("judgment", "offset", nameof(VisualizerSettings.JudgmentBarOffset), Number, "px"),
             new("judgment", "average-notes", nameof(VisualizerSettings.JudgmentAverageCount), Whole, "notes"),
             new("judgment", "ease", nameof(VisualizerSettings.JudgmentEaseScale), Number, "x"),
             new("timing", "start-delay", nameof(VisualizerSettings.StartDelayMs), Number, "ms"),
@@ -138,7 +141,6 @@ public static class SettingPaths
             new(ExperimentalSection, "run-restart", nameof(VisualizerSettings.RestartPatternOnRun), Toggle),
             new(ExperimentalSection, "enhanced-chords", nameof(VisualizerSettings.EnhancedChordRules), Toggle),
             new(ExperimentalSection, "enhanced-keys", nameof(VisualizerSettings.EnhancedFourEightKeys), Toggle),
-            new("advanced", "extra-lanes", nameof(VisualizerSettings.ExtraLanes), Toggle),
             new("advanced", "slowdown", nameof(VisualizerSettings.SlowNotesPastJudgmentLine), Toggle),
             new("advanced", "tile-order", nameof(VisualizerSettings.EnableTilePreference), Toggle),
             new("advanced", "chord-lanes", nameof(VisualizerSettings.ChordSectionLanes), Toggle),
@@ -176,6 +178,7 @@ public static class SettingPaths
             var tokens = settings.GetLaneKeyTokens();
             return path.Lane < tokens.Count ? tokens[path.Lane] : "";
         }
+        if (path.Property == nameof(VisualizerSettings.MaximumTileCount) && settings.AutoTileCount) return "auto";
         var value = SettingsFields.Get(settings, path.Property);
         return path.Kind switch
         {
@@ -204,14 +207,16 @@ public static class SettingPaths
             nameof(VisualizerSettings.Theme) => ThemeCatalog.All.Select(theme => theme.Id).ToArray(),
             nameof(VisualizerSettings.SongSortKey) => Enum.GetNames<SongSortField>().Select(Kebab).ToArray(),
             nameof(VisualizerSettings.SongGroup) => Enum.GetNames<SongGroupField>().Select(Kebab).ToArray(),
-            nameof(VisualizerSettings.MaximumTileCount) => Numbers(VisualizerSettings.Modes),
+            // auto: each song laid out with the fewest tiles it needs, eight at most (user request).
+            nameof(VisualizerSettings.MaximumTileCount) => [.. Numbers(VisualizerSettings.Modes), "auto"],
             // Only counts the maximum allows, as the settings window lists them.
             nameof(VisualizerSettings.MinimumTileCount) or nameof(VisualizerSettings.MagicCircleTileCount) =>
                 Numbers(VisualizerSettings.Modes.Where(mode => mode <= settings.MaximumTileCount)),
             nameof(VisualizerSettings.InitialTile) => Numbers(Enumerable.Range(1, VisualizerSettings.LaneKeyCount)),
-            // "max" follows the maximum tile count; the rest are the lane counts at or above it.
+            // "max" follows the maximum tile count; the rest are the lane counts at or above it, or with the auto tile
+            // count any of them, since the screen is then never narrower than the loaded song.
             nameof(VisualizerSettings.DisplayLaneCount) =>
-                ["max", .. Numbers(VisualizerSettings.Modes.Where(mode => mode >= settings.MaximumTileCount))],
+                ["max", .. Numbers(VisualizerSettings.Modes.Where(mode => settings.AutoTileCount || mode >= settings.MaximumTileCount))],
             nameof(VisualizerSettings.ChordLanePreference) or nameof(VisualizerSettings.TrillLanePreference) =>
                 ["none", "1-2", "3-4", "1-2,3-4"],
             nameof(VisualizerSettings.JudgmentBarMode) => ["off", "magiccircle", "always"],
@@ -303,6 +308,10 @@ public static class SettingPaths
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(path);
+        // The maximum tile count carries auto with it: 0 is auto, which goes with a maximum of eight, and a count
+        // switches auto off.
+        if (path.Property == nameof(VisualizerSettings.MaximumTileCount) && value is int count)
+            return settings with { MaximumTileCount = count == 0 ? VisualizerSettings.LaneKeyCount : count, AutoTileCount = count == 0 };
         if (path.Lane < 0) return SettingsFields.With(settings, path.Property, value);
         var tokens = settings.GetLaneKeyTokens().ToList();
         while (tokens.Count < VisualizerSettings.LaneKeyCount) tokens.Add("");
@@ -332,7 +341,6 @@ public static class SettingPaths
                 or nameof(VisualizerSettings.MagicCircleChords) =>
                 settings.MagicCircleJudgmentLine ? null : T("LockedMagicLine"),
             nameof(VisualizerSettings.MagicCircleTileCount) => settings.UseMagicCircleTiles ? null : T("LockedMagicFixed"),
-            nameof(VisualizerSettings.ExtraLanes) => settings.CanUseExtraLanes ? null : T("LockedSideLanes"),
             nameof(VisualizerSettings.EightKeyOrder) or nameof(VisualizerSettings.SixKeyOrder)
                 or nameof(VisualizerSettings.FourKeyOrder) or nameof(VisualizerSettings.TwoKeyOrder) =>
                 settings.EnableTilePreference ? null : T("LockedTileOrder"),
@@ -355,6 +363,7 @@ public static class SettingPaths
         nameof(VisualizerSettings.JudgmentBarDifficulty) => choice.ToLowerInvariant() switch
             { "lenient" => "Lenient", "strict" => "Strict", _ => "Normal" },
         nameof(VisualizerSettings.TrillCenterPair) => VisualizerSettings.TrillCenterChoices.First(name => Kebab(name) == choice.ToLowerInvariant()),
+        nameof(VisualizerSettings.MaximumTileCount) when choice.Equals("auto", StringComparison.OrdinalIgnoreCase) => 0,
         nameof(VisualizerSettings.MaximumTileCount) or nameof(VisualizerSettings.MinimumTileCount)
             or nameof(VisualizerSettings.MagicCircleTileCount) or nameof(VisualizerSettings.InitialTile) =>
             int.Parse(choice, CultureInfo.InvariantCulture),

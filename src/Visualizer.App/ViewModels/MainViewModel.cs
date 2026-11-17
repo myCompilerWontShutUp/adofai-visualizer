@@ -383,7 +383,7 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         try { Playback.ApplySettings(settings, Checkpoint); }
         catch (NotePlacementException error)
         {
-            if (OfferLayoutChange(settings, error)) return;
+            if (OfferWiderLanes(settings, error) == true) return;
             SetMessage(error.Message);
             throw;
         }
@@ -428,7 +428,6 @@ public sealed partial class MainViewModel : INotifyPropertyChanged
         {
             if (Playback.Timeline is { } timeline)
             {
-                _declinedExtraLanes = (timeline, restored);
                 _declinedWiderLanes = (timeline, restored);
             }
             SetMessage(error.Message);

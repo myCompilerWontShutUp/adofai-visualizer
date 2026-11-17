@@ -95,19 +95,6 @@ public sealed class NoteGenerator
     public IReadOnlyList<VisualizerNote> Generate(IEnumerable<double> hitTimesMs, VisualizerSettings settings) =>
         Generate(hitTimesMs, null, settings);
 
-    /// <summary>
-    /// The most notes any chord of these hits has, grouped as the chord window groups them on eight lanes (user rule, for link
-    /// auto: a song with an eight-note chord needs eight lanes, not the chord cut onto fewer). 0 without hits.
-    /// </summary>
-    public static int WidestChord(IReadOnlyList<double> hitTimesMs, IReadOnlyList<double?>? holdEndsMs, VisualizerSettings settings)
-    {
-        ArgumentNullException.ThrowIfNull(hitTimesMs);
-        ArgumentNullException.ThrowIfNull(settings);
-        if (hitTimesMs.Count == 0) return 0;
-        var eight = settings with { MaximumTileCount = VisualizerSettings.LaneKeyCount, ExtraLanes = false };
-        return SimultaneousNotePlanner.Group(hitTimesMs.ToArray(), eight, holdEndsMs).Max(group => group.Count);
-    }
-
     /// <param name="holdEndsMs">Per hit, the end of its long note, or null for a tap. Null means every hit is a tap.</param>
     public IReadOnlyList<VisualizerNote> Generate(IEnumerable<double> hitTimesMs, IReadOnlyList<double?>? holdEndsMs, VisualizerSettings settings)
     {
@@ -122,6 +109,25 @@ public sealed class NoteGenerator
             || Enumerable.Range(0, times.Length).Any(i => holdEndsMs[i] is double end && (!double.IsFinite(end) || end <= times[i]))))
             throw new ArgumentException("Long note ends must match the hits and come after them.", nameof(holdEndsMs));
         if (times.Length == 0) return Array.Empty<VisualizerNote>();
+        if (!settings.AutoTileCount) return Lay(times, holdEndsMs, settings);
+        // The maximum tile count on auto (user rule; it took the place of extra lane placement and of link auto's raise):
+        // the song is laid out with the fewest tiles that hold its widest chord and place it whole, four, then six, then
+        // eight, so a wide song takes the lanes it needs and the next one starts from four again. The widest chord is
+        // counted as the most lanes would group it; a chord cut onto fewer lanes is what this is here to avoid.
+        var counts = settings.GetAutoTileCounts();
+        var widest = SimultaneousNotePlanner.Group(times, settings.WithTileCount(counts[^1]), holdEndsMs).Max(group => group.Count);
+        for (var i = 0; ; i++)
+        {
+            var last = i == counts.Count - 1;
+            if (counts[i] < widest && !last) continue;
+            try { return Lay(times, holdEndsMs, settings.WithTileCount(counts[i])); }
+            // The widest count's own failure is the one to report.
+            catch (NotePlacementException) when (!last) { }
+        }
+    }
+
+    private static IReadOnlyList<VisualizerNote> Lay(double[] times, IReadOnlyList<double?>? holdEndsMs, VisualizerSettings settings)
+    {
         var groups = SimultaneousNotePlanner.Group(times, settings, holdEndsMs);
         times = groups.Select(g => g.TimeMs).ToArray();
         // Singles this close are played as a roll, so the pattern lines them up on neighbouring lanes in its own direction

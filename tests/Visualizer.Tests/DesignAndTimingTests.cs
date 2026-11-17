@@ -312,27 +312,156 @@ internal static class DesignAndTimingTests
             Assert(Red(At(200 + 125)) && Red(At(200 - 125)), $"Early/late past that: {At(325)} {At(75)}");
             var english = barSettings with { FixedJudgmentBar = true, Language = "english" };
             Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 1)), ("Early -65ms", "Late +65ms"));
-            Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 0, 1.4)), ("Early -127ms", "Late +127ms"));
+            // The judgment ease never moves the counted window, so the ends say the game's own time whatever it is.
+            Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 0, 1.4)), ("Early -91ms", "Late +91ms"));
+            Equal(NoteField.BarLabels(english, HitGrading.Windows(400, 1, 0, 3)), ("Early -91ms", "Late +91ms"));
             Equal(NoteField.BarLabels(english with { FixedJudgmentBar = false }, HitGrading.Windows(400, 1, 1)), ("Early", "Late"));
             Equal(NoteField.BarLabels(english with { Language = "korean" }, HitGrading.Windows(400, 1, 2)), ("빠름 -50ms", "느림 +50ms")); // 60 degrees at 400 BPM, past Strict's 40 ms
         });
 
-        yield return ("The judgment ease widens the game's minimum times only, and the bar draws what the game applies", () =>
+        yield return ("A press mark sits in the zone of the grade it is shown as, pink at the very ends, and the bar moves by its offset", () =>
         {
-            // User request: for practice, the game's minimum hit times longer by a scale the visualizer sets; the linker
-            // multiplies the time constants of scrMisc.GetMinimumTimes, so every minimum grows by it and nothing else does.
+            // User report: red and yellow marks were drawn inside the green. With the game linked a mark took the game's
+            // grade for its colour and this app's own timing for its place, and the marks were on a slightly shorter scale
+            // than the zones. Pink (too early, too late) belongs at the very ends (user rule).
+            var windows = HitGrading.Windows(400, 1, 1);        // 65 / 37.5 / 25 / 16.67 ms
+            var layout = new HitWindows(60, 45, 30, 12.5);      // the fixed bar: edges at 12.5/60, 0.5, 0.75 and 1
+            const double inset = 3.0 / 140;
+            // Shown as its own grade a press stays where its timing puts it, at most the mark's room inside the zone.
+            foreach (var ms in new[] { -60d, -40, -30, -20, -5, 0, 5, 20, 30, 40, 60 })
+                Assert(Math.Abs(windows.PlaceAs(windows.Grade(ms), ms, layout, inset) - windows.Place(ms, layout)) <= 2 * inset + 1e-9,
+                    $"{ms} ms as its own grade: {windows.PlaceAs(windows.Grade(ms), ms, layout, inset)} for {windows.Place(ms, layout)}");
+            // Too early and too late: the very ends, whatever the timing says.
+            Equal(windows.PlaceAs(HitGrade.TooEarly, -3, layout, inset), -1d);
+            Equal(windows.PlaceAs(HitGrade.TooEarly, -500, layout, inset), -1d);
+            Equal(windows.PlaceAs(HitGrade.TooLate, 3, layout, inset), 1d);
+            // Any grade for any timing: inside its own zone, on its own side, and never on the ends.
+            (HitGrade Grade, double Low, double High)[] zones =
+            [
+                (HitGrade.VeryEarly, -1, -0.75), (HitGrade.EarlyPerfect, -0.75, -0.5), (HitGrade.PerfectMinus, -0.5, -12.5 / 60),
+                (HitGrade.PerfectPlus, 12.5 / 60, 0.5), (HitGrade.LatePerfect, 0.5, 0.75), (HitGrade.VeryLate, 0.75, 1)
+            ];
+            foreach (var ms in new[] { -70d, -64.9, -30, -2, 0, 2, 30, 64.9, 70 })
+                foreach (var (grade, low, high) in zones)
+                {
+                    var place = windows.PlaceAs(grade, ms, layout, inset);
+                    Assert(place >= low + inset - 1e-9 && place <= high - inset + 1e-9, $"{grade} for {ms} ms is drawn at {place}, outside {low}..{high}");
+                    Assert(Math.Abs(place) <= 1 - 2 * inset + 1e-9, $"{grade} for {ms} ms leaves the end to too early and too late: {place}");
+                }
+            // The middle band keeps the side the press was on, and has no edge at the centre.
+            Assert(windows.PlaceAs(HitGrade.XPerfect, -40, layout, inset) is < 0 and > -12.5 / 60, "Exact keeps the early side");
+            Assert(windows.PlaceAs(HitGrade.XPerfect, 40, layout, inset) is > 0 and < 12.5 / 60, "And the late side");
+            Equal(windows.PlaceAs(HitGrade.XPerfect, 0, layout, inset), 0d);
+            Throws<ArgumentOutOfRangeException>(() => windows.PlaceAs(HitGrade.XPerfect, 0, layout, -1));
+
+            // Drawn: a 280 px bar in a 400 px field, centre 200, so the early red is 60 to 95 and the bar ends at 60.
+            var settings = new VisualizerSettings
+            {
+                StartDelayMs = 0, DynamicTiming = false, JudgmentBarMode = "Always", ShowJudgmentAverage = false, FixedJudgmentBar = true
+            };
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            session.LoadParsedTimeline(new ParsedTimeline([0, 150, 300, 450], hitFloors: [1, 2, 3, 4], hitTempos: [400, 400, 400, 400]), settings);
+            session.Toggle();
+            var judge = new NotePressJudge();
+            session.Presses = judge;
+            session.Start();
+            // On time by this app's clock, early by the game's word: the red mark goes to the early red, not the middle.
+            clock.NowMs = 150;
+            Assert(judge.Press(session, session.Notes[1].Tile, 150) is 1, "The second note is pressed on time");
+            Equal(judge.TakeGameGrades([HitGrade.VeryEarly], 150, 400, _ => HitGrade.XPerfect), 1);
+            // 100 ms before the third note is before its counted window: not taken, and pink at the bar's early end.
+            clock.NowMs = 200;
+            Equal(judge.Press(session, session.Notes[2].Tile, 150), (int?)null);
+            clock.NowMs = 210;
+            var field = new NoteField { Session = session, Judge = judge, Width = 400, Height = 600 };
+            field.Measure(new Size(400, 600));
+            field.Arrange(new Rect(0, 0, 400, 600));
+            field.UpdateLayout();
+            var pixels = new byte[400 * 600 * 4];
+            (byte R, byte G, byte B) Pixel(int x, int y) { var i = (y * 400 + x) * 4; return (pixels[i + 2], pixels[i + 1], pixels[i]); }
+            // The bar's first row, found by its red end (clear of both marks) rather than worked out from the field's layout.
+            int BarTop(string png)
+            {
+                field.Tick();
+                field.InvalidateVisual();
+                field.UpdateLayout();
+                var bitmap = new RenderTargetBitmap(400, 600, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(field);
+                bitmap.CopyPixels(pixels, 400 * 4, 0);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                using (var stream = File.Create(Path.Combine(artifactRoot, png))) encoder.Save(stream);
+                var rows = Enumerable.Range(0, 600).Where(y => Pixel(75, y) is var c && c.R > 140 && c.G < 100 && c.B < 100).ToArray();
+                Assert(rows.Length > 0, "The bar is drawn: " + png);
+                return rows[0];
+            }
+            var top = BarTop("judgment-bar-marks.png");
+            // Two rows above the bar only the marks are drawn, which are taller than it.
+            var above = top - 2;
+            var red = Enumerable.Range(0, 400).Where(x => Pixel(x, above) is var c && c.R > 180 && c.G < 120 && c.B < 120).ToArray();
+            Assert(red.Length > 0 && red.Min() >= 66 && red.Max() <= 95, "The red mark is in the early red, 60 to 95: " + string.Join(",", red));
+            var pink = Enumerable.Range(0, 400).Where(x => Pixel(x, above) is var c && c.B > 180 && c.R > 140 && c.G < 140).ToArray();
+            Assert(pink.Length > 0 && pink.Min() >= 59 && pink.Max() <= 65, "The pink mark is at the bar's early end, 60: " + string.Join(",", pink));
+
+            // The bar's height (user request): up by a positive offset, down by a negative one, never off the field.
+            Equal(settings.JudgmentBarOffset, 0d);
+            Assert(settings.HasSameNoteRulesAs(settings with { JudgmentBarOffset = 40 }), "It moves no note");
+            foreach (var invalid in new[] { 400.5, -401, double.NaN })
+                Throws<ArgumentException>(() => (settings with { JudgmentBarOffset = invalid }).EnsureValid());
+            session.ApplySettings(settings with { JudgmentBarOffset = 40 });
+            Equal(BarTop("judgment-bar-up.png"), top - 40);
+            session.ApplySettings(settings with { JudgmentBarOffset = -40 });
+            Equal(BarTop("judgment-bar-down.png"), top + 40);
+            // At the top it stops under the fade notes come in through (18 px), plate and all, so it is never dimmed.
+            session.ApplySettings(settings with { JudgmentBarOffset = 400 });
+            Assert(BarTop("judgment-bar-top.png") is var highest && highest >= 23 && highest < top - 40, "It stops under the top fade");
+            session.ApplySettings(settings with { JudgmentBarOffset = -400 });
+            Assert(BarTop("judgment-bar-bottom.png") is var lowest && lowest > top + 40 && lowest < 600 - 12, "It stops above the judgment line");
+        });
+
+        yield return ("The judgment ease widens the perfect minimum times only, never the counted window, and the bar draws what the game applies", () =>
+        {
+            // User request: for practice, the game's minimum hit times longer by a scale the visualizer sets. Only the
+            // Perfect and Pure minimums of scrMisc.GetMinimumTimes grow, and never past the Counted one, which stays the
+            // game's own: Counted decides whether a press takes the next tile (scrPlanet.SwitchChosen), and eased it
+            // outgrew the gap between fast tiles, so after one slip every press hit a tile ahead as early (user report:
+            // Halation at 720 BPM, most tiles early).
             static void Near(double actual, double expected, string what) =>
                 Assert(Math.Abs(actual - expected) < 1e-9, $"{what}: {actual} instead of {expected}");
             var eased = HitGrading.Windows(400, 1, 1, 1.4);
-            Near(eased.CountedMs, 91, "65 ms times 1.4");
+            Near(eased.CountedMs, 65, "The counted window is the game's own");
             Near(eased.PerfectMs, 42, "30 ms times 1.4");
             Near(eased.PureMs, 35, "25 ms times 1.4");
             Near(eased.XPerfectMs, 1000.0 / 60, "The middle band's 1/60 s is not one of the minimum times");
+            // At any ease, tempo, margin scale and difficulty the counted window is exactly the unmodified game's, the
+            // perfect windows never pass it, and nothing gets shorter than the game's own.
+            foreach (var ease in new[] { 1.1, 1.8, 2.5, HitGrading.MaximumEase })
+                foreach (var bpm in new[] { 60d, 150, 400, 720, 864, 2000 })
+                    foreach (var scale in new[] { 0.25, 1, 2 })
+                        for (var difficulty = 0; difficulty <= 2; difficulty++)
+                        {
+                            var game = HitGrading.Windows(bpm, scale, difficulty);
+                            var windows = HitGrading.Windows(bpm, scale, difficulty, ease);
+                            var what = $"ease {ease}, {bpm} BPM, scale {scale}, difficulty {difficulty}";
+                            Near(windows.CountedMs, game.CountedMs, what + ": counted");
+                            Assert(windows.PerfectMs <= windows.CountedMs + 1e-9 && windows.PureMs <= windows.PerfectMs + 1e-9, what + ": in order");
+                            Assert(windows.PerfectMs >= game.PerfectMs - 1e-9 && windows.PureMs >= game.PureMs - 1e-9, what + ": never shorter");
+                        }
+            // The report's tile: 720 BPM with about 150 degrees between tiles is 69 ms a tile. Normal's 65 ms is shorter, so
+            // a press cannot take the tile after the next; with the first version's ease of 1.8 it was 117 ms.
+            Assert(HitGrading.Windows(720, 1, 1, 1.8).CountedMs < 60000 / 720.0 * 150 / 180, "The counted window stays inside the tile's travel");
+            // The largest ease fills the counted window with perfect: 30 and 25 ms times 3 are past Normal's 65 ms.
+            var full = HitGrading.Windows(400, 1, 1, 3);
+            Near(full.PerfectMs, 65, "Perfect stops at the counted window");
+            Near(full.PureMs, 65, "So does pure");
             // A slow tile's angles are already wider, so it stays as it was.
             var slow = HitGrading.Windows(200, 1, 1, 1.4);
             Near(slow.CountedMs, 100, "Still 60 degrees");
             Near(slow.PureMs, 50, "Still 30 degrees");
-            Near(HitGrading.Fallback(1, 1.4).CountedMs, 91, "The fallback eases too");
+            var fallback = HitGrading.Fallback(1, 1.4);
+            Near(fallback.CountedMs, 65, "The fallback keeps the counted window too");
+            Near(fallback.PureMs, 35, "And eases the perfect windows");
             Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(400, 1, 1, 0.9));
             Throws<ArgumentOutOfRangeException>(() => HitGrading.Windows(400, 1, 1, 3.1));
 

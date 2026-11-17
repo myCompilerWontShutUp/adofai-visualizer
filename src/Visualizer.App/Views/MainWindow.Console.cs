@@ -340,9 +340,6 @@ public partial class MainWindow
         {
             _autoLoadedPath = gamePath;
             _autoRedirect = target is null ? null : (gamePath, target.Id);
-            // Loaded by hand before link auto came on: it still gets the lanes it needs whole (user rule), once nothing of the
-            // user's is open.
-            if (!Busy && _settingsPanel is null) _model.WidenLoadedForGame();
             return;
         }
         if (Busy || _settingsPanel is not null) return;
@@ -354,8 +351,7 @@ public partial class MainWindow
             _model.SetMessage(_model.Text["GameSongMissing"]);
             return;
         }
-        // At least the lanes the song needs whole, without asking (user rule).
-        _model.LoadForGame(target ?? game);
+        _model.LoadChosen(target ?? game, null);
         if (target is not null) _autoRedirect = (gamePath, target.Id);
         ForgetGuide();
         MapPanel.IsExpanded = false;

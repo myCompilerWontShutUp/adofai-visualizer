@@ -67,7 +67,6 @@ public partial class SettingsPanel : UserControl
     private readonly CheckBox _inputEffect = new();
     private readonly CheckBox _missEffect = new();
     private readonly CheckBox _tilePreference = new();
-    private readonly CheckBox _extraLanes = new();
     private readonly CheckBox _judgmentSlowdown = new();
     private readonly CheckBox _immediateDownshift = new();
     private readonly CheckBox _experimental = new();
@@ -92,7 +91,19 @@ public partial class SettingsPanel : UserControl
     private readonly Button _syncButton = new();
     private readonly Button _resyncButton = new();
     private readonly TextBlock _dataRootPath = new() { FontSize = 9, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, -4, 0, 10) };
-    private readonly ComboBox _maximum = new() { ItemsSource = VisualizerSettings.Modes.ToArray() };
+    /// <summary>The maximum tile count's item for auto: each song laid out with the fewest tiles it needs, eight at most.</summary>
+    public const int AutoTiles = 0;
+    private readonly ComboBox _maximum = new() { ItemsSource = VisualizerSettings.Modes.Append(AutoTiles).ToArray() };
+
+    /// <summary>Shows a tile count as its number, and <see cref="AutoTiles"/> as the word for auto in the form's language.</summary>
+    private sealed class TileCountText(Func<string> auto) : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+            value is AutoTiles ? auto() : System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+
+        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+            throw new NotSupportedException();
+    }
     private readonly ComboBox _minimum = new() { ItemsSource = VisualizerSettings.Modes.ToArray() };
     private readonly ComboBox _displayLanes = new();
     private readonly CheckBox _dynamic = new();
@@ -216,7 +227,10 @@ public partial class SettingsPanel : UserControl
         _browseData.SetResourceReference(StyleProperty, "ToolButton");
         _browseData.Click += (_, _) => BrowseDataFolder();
         _dataRootPath.SetResourceReference(TextBlock.ForegroundProperty, "MutedTextBrush");
-        ToolTipService.SetShowOnDisabled(_extraLanes, true);
+        // The maximum tile count's last item, 0, is auto (user request), shown as the word.
+        var tileText = new FrameworkElementFactory(typeof(TextBlock));
+        tileText.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding { Converter = new TileCountText(() => T("TileCountAuto")) });
+        _maximum.ItemTemplate = new DataTemplate { VisualTree = tileText };
 
         AddSection("SectionGeneral");
         AddField("Language", _language, nameof(settings.Language));
@@ -247,7 +261,11 @@ public partial class SettingsPanel : UserControl
         AddField("Lane keys", LaneKeyGrid(), nameof(settings.LaneKeys), "LaneKeyHelp");
 
         AddSection("SectionPattern");
-        AddField("Maximum Tile Count", _maximum, nameof(settings.MaximumTileCount));
+        AddField("Maximum Tile Count", _maximum, nameof(settings.MaximumTileCount), "MaximumTilesHelp");
+        // Auto is an item of this row, and it shares the stored maximum with eight: a change of it marks this row too.
+        _fieldLabels[nameof(settings.AutoTileCount)] = "Maximum Tile Count";
+        _fieldStars[nameof(settings.AutoTileCount)] = _fieldStars[nameof(settings.MaximumTileCount)];
+        _currentSection?.Fields.Add(nameof(settings.AutoTileCount));
         AddField("Minimum Tile Count", _minimum, nameof(settings.MinimumTileCount), "MinimumTileHelp");
         AddField("Dynamic Timing", _dynamic, nameof(settings.DynamicTiming));
         AddText("8K ↔ 6K (ms)", nameof(settings.EightKeyBoundaryMs));
@@ -282,6 +300,7 @@ public partial class SettingsPanel : UserControl
         AddField("Judgment bar", _judgmentMode, nameof(settings.JudgmentBarMode));
         AddField("Judgment window", _judgmentDifficulty, nameof(settings.JudgmentBarDifficulty), "JudgmentDifficultyHelp");
         AddField("Fixed judgment bar", _fixedBar, nameof(settings.FixedJudgmentBar), "FixedBarHelp");
+        AddText("Judgment bar offset (px)", nameof(settings.JudgmentBarOffset), "JudgmentOffsetHelp");
         AddField("Average arrow", _judgmentAverage, nameof(settings.ShowJudgmentAverage));
         AddText("Average of notes", nameof(settings.JudgmentAverageCount));
         // A slider in steps of 0.1, as the note scales are (user rule).
@@ -344,7 +363,7 @@ public partial class SettingsPanel : UserControl
 
         foreach (var box in new[] { _reset, _start, _toggle, _previous, _next, _settingsKey }.Concat(_laneBoxes))
             box.TextChanged += (_, _) => FormChanged();
-        foreach (var check in new[] { _foreground, _guide, _songInfo, _inputEffect, _missEffect, _extraLanes, _judgmentSlowdown, _keepSpeed, _magicChords })
+        foreach (var check in new[] { _foreground, _guide, _songInfo, _inputEffect, _missEffect, _judgmentSlowdown, _keepSpeed, _magicChords })
         {
             check.Checked += (_, _) => FormChanged();
             check.Unchecked += (_, _) => FormChanged();
@@ -484,6 +503,10 @@ public partial class SettingsPanel : UserControl
         _displayLanes.ItemsSource = new[] { T("DisplayLanes.Max") }
             .Concat(VisualizerSettings.Modes.Select(mode => mode.ToString(CultureInfo.InvariantCulture))).ToArray();
         _displayLanes.SelectedIndex = shown;
+        // The word for auto follows the language, so the items are made again and the picked one put back.
+        var maximum = _maximum.SelectedItem ?? (_current.AutoTileCount ? AutoTiles : _current.MaximumTileCount);
+        _maximum.ItemsSource = VisualizerSettings.Modes.Append(AutoTiles).ToArray();
+        _maximum.SelectedItem = maximum;
         _songListButton.Content = T("SongListOpen");
         _editSongButton.Content = T("EditSong");
         _syncButton.Content = T("Sync");

@@ -13,7 +13,7 @@ namespace Visualizer.Tests;
 
 /// <summary>
 /// 6-tile mode: settings and thresholds between 8K and 4K, cycles, chord lane pairs on 4- and 6-lane
-/// screens, extra lane placement at 6 lanes and the offer of the smallest wider maximum.
+/// screens and the offer of the smallest wider maximum.
 /// </summary>
 internal static class SixKeyTests
 {
@@ -176,14 +176,6 @@ internal static class SixKeyTests
             var fourNotes = generator.Generate(new[] { 0d, 600, 601, 1200, 1500, 1501, 1800, 1830, 1831, 1860 }, four);
             AssertPairs(fourNotes, four);
             AssertPreferred(fourNotes, four);
-
-            // Extra lane placement applies at 6 lanes too: tiles 1 and 8 take overflowing notes.
-            var sixExtra = six with { ExtraLanes = true };
-            Sequence(sixExtra.GetExtraTiles(), 1, 8);
-            var overflow = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6 }, sixExtra);
-            // One spare single, and no chord on the center pair even then (user rule).
-            Assert(overflow.Count(n => n.Tile is 1 or 8) == 1, "One spare single: " + string.Join(" ", overflow.Select(n => n.Tile)));
-            AssertPairs(overflow, sixExtra);
         });
 
         yield return ("Unplaceable 4-lane chords offer the smallest wider maximum that places the song", () =>

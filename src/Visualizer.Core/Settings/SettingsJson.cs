@@ -59,6 +59,12 @@ public static class SettingsJson
     private const string LegacyTrillCenter = "NoTrillCenterPair";
 
     /// <summary>
+    /// Extra lane placement, gone in app 1.1.8: the maximum tile count's auto took its place (user rule). A file that had it on
+    /// is read as auto where auto works (the enhanced 4/8-key rules in effect); elsewhere it is simply dropped.
+    /// </summary>
+    private const string LegacyExtraLanes = "ExtraLanes";
+
+    /// <summary>
     /// Settings that are gone. A file that still names one is read as if it did not (the app's own settings file keeps
     /// every setting, so refusing the name would throw all the others away with it).
     /// </summary>
@@ -136,6 +142,8 @@ public static class SettingsJson
         var hasLegacyCenter = false;
         JsonNode? legacyTrill = null;
         var hasLegacyTrill = false;
+        JsonNode? legacyExtra = null;
+        var hasLegacyExtra = false;
         try
         {
             foreach (var (key, value) in input)
@@ -151,6 +159,12 @@ public static class SettingsJson
                 {
                     if (hasLegacyTrill) throw new SettingsJsonException(T("Json.Repeated", LegacyTrillCenter), [LegacyTrillCenter]);
                     (legacyTrill, hasLegacyTrill) = (value, true);
+                    continue;
+                }
+                if (name is null && string.Equals(key, LegacyExtraLanes, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (hasLegacyExtra) throw new SettingsJsonException(T("Json.Repeated", LegacyExtraLanes), [LegacyExtraLanes]);
+                    (legacyExtra, hasLegacyExtra) = (value, true);
                     continue;
                 }
                 if (name is null && Derived.TryGetValue(key, out var property))
@@ -185,6 +199,17 @@ public static class SettingsJson
             if (legacyTrill is not JsonValue flag || !flag.TryGetValue<bool>(out var last))
                 throw new SettingsJsonException(T("Json.WrongType", LegacyTrillCenter), [LegacyTrillCenter]);
             merged[nameof(VisualizerSettings.TrillCenterPair)] = last ? "LastResort" : "Allowed";
+        }
+        if (hasLegacyExtra && !seen.Contains(nameof(VisualizerSettings.AutoTileCount)))
+        {
+            if (legacyExtra is not JsonValue extraFlag || !extraFlag.TryGetValue<bool>(out var extra))
+                throw new SettingsJsonException(T("Json.WrongType", LegacyExtraLanes), [LegacyExtraLanes]);
+            static bool On(JsonNode? node) => node is JsonValue flag && flag.TryGetValue<bool>(out var on) && on;
+            if (extra && On(merged[nameof(VisualizerSettings.ExperimentalFeatures)]) && On(merged[nameof(VisualizerSettings.EnhancedFourEightKeys)]))
+            {
+                merged[nameof(VisualizerSettings.AutoTileCount)] = true;
+                merged[nameof(VisualizerSettings.MaximumTileCount)] = VisualizerSettings.LaneKeyCount;
+            }
         }
 
         VisualizerSettings? result;

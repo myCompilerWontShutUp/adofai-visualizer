@@ -441,7 +441,7 @@ public sealed class InspectRun
                 string.Join(" ", settings.GetPattern(6)), string.Join(" ", settings.GetPattern(8)), settings.LaneKeys));
             lines.Add(T("InspectRules", Bool(settings.NextIntervalTiles), Bool(settings.BothIntervalTiles),
                 Bool(settings.ImmediateDownshift), settings.DownshiftNoteCount, Bool(settings.UseRestartOnRun),
-                Bool(settings.UseEnhancedChordRules), settings.TrillCenterPair.Trim(), Bool(settings.ExtraLanes && settings.CanUseExtraLanes)));
+                Bool(settings.UseEnhancedChordRules), settings.TrillCenterPair.Trim(), Bool(settings.AutoTileCount)));
             lines.Add(T("InspectPlacement", Bool(settings.DynamicTiming), Bool(settings.UseChordSectionLanes), Bool(settings.UseChordAvoidBefore),
                 Bool(settings.UseEnhancedFourEightKeys), settings.ChordLanePreference, settings.TrillLanePreference, Bool(settings.TrillAsOneNote)));
             lines.Add(T("InspectTiming", settings.PlaybackSpeedPercent, Ms(settings.StartDelayMs), Ms(settings.GlobalDisplayOffsetMs)));

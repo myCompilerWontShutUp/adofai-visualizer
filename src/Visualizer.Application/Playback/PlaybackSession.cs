@@ -416,22 +416,6 @@ public sealed class PlaybackSession(IMonotonicClock clock)
         return Generate(pressed.Select(i => times[i]).ToArray(), holdEnds, times.Count == 0 ? 0 : times[0], settings);
     }
 
-    /// <summary>
-    /// The most notes any chord of the song's pressed hits has at the settings' speed (<see cref="NoteGenerator.WidestChord"/>):
-    /// the lanes it needs to be placed whole.
-    /// </summary>
-    public static int WidestChord(ParsedTimeline timeline, VisualizerSettings settings)
-    {
-        ArgumentNullException.ThrowIfNull(timeline);
-        ArgumentNullException.ThrowIfNull(settings);
-        var times = timeline.HitTimesMs;
-        var pressed = Enumerable.Range(0, times.Count).Where(timeline.IsPressed).ToArray();
-        var rate = settings.PlaybackSpeedPercent / 100;
-        if (!(rate > 0)) return 0;
-        var holdEnds = pressed.Select(i => ParsedTimeline.Opens(timeline.KindOf(i)) ? times[i + 1] / rate : (double?)null).ToArray();
-        return NoteGenerator.WidestChord(pressed.Select(i => times[i] / rate).ToArray(), holdEnds, settings);
-    }
-
     private static IReadOnlyList<VisualizerNote> Generate(IReadOnlyList<double> hitTimesMs, IReadOnlyList<double?>? holdEndsMs, double originMs,
         VisualizerSettings settings)
     {

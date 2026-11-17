@@ -5,17 +5,18 @@ namespace Visualizer.App.Input;
 
 /// <summary>
 /// The keys the game's key limiter takes while this app runs (user request): the lane keys of the tiles the maximum tile
-/// count shows, four on four lanes and eight on eight, and the reset key, written as the Unity key names the linker reads.
-/// Empty when a lane key has no Unity name, so the game keeps its own list rather than lose a lane key.
+/// count shows, four on four lanes and eight on eight (with the auto tile count, of the lanes the loaded song uses), and
+/// the reset key, written as the Unity key names the linker reads. Empty when a lane key has no Unity name, so the game
+/// keeps its own list rather than lose a lane key.
 /// </summary>
 public static class GameKeys
 {
-    public static IReadOnlyList<string> For(VisualizerSettings settings)
+    public static IReadOnlyList<string> For(VisualizerSettings settings, IEnumerable<int>? usedTiles = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         var tokens = settings.GetLaneKeyTokens();
         var names = new List<string>();
-        foreach (var tile in settings.GetVisibleTiles())
+        foreach (var tile in settings.GetPlayedTiles(usedTiles ?? []))
         {
             if (tile < 1 || tile > tokens.Count || !KeyNames.TryParse(tokens[tile - 1], out var key) || UnityName(key) is not { } name)
                 return [];

@@ -1000,10 +1000,11 @@ internal static class GameSyncTests
             }
         });
 
-        yield return ("link auto raises the maximum tile count to what the game's song needs, at once and never down", () =>
+        yield return ("link auto leaves the settings alone: with auto each song takes the tiles it needs, and the keys follow", () =>
         {
-            // User rule: a song with an eight-note chord moved to by link auto plays on eight lanes, not cut onto six with spare
-            // lanes, straight from four; a song that needs fewer leaves the count alone. Each raise is a settings step of its own.
+            // User rule: the raise link auto used to make is gone, because a wide song is the song's matter, not a setting's.
+            // With the maximum tile count on auto a song with an eight-note chord plays on eight lanes, the next song on
+            // four again, and the settings never change; the game's key limiter gets the keys of the lanes on screen.
             Visualizer.Application.Cache.MapCacheEntry Song(string id, double[] times) => new(id, @"C:\maps", id + @"\main.adofai", id,
                 Visualizer.Application.Maps.MapParseStatus.Supported, new ParsedTimeline(times), Array.Empty<string>(), "", "test");
             var octet = Song("eight", [0, 1, 2, 3, 4, 5, 6, 7, 600, 1200]);
@@ -1014,32 +1015,30 @@ internal static class GameSyncTests
             {
                 var model = (Visualizer.App.ViewModels.MainViewModel)window.DataContext;
                 model.SetLibrary([octet, quintet, pair]);
-                model.ApplySettings(model.Settings with { MaximumTileCount = 4, ExtraLanes = true, SimultaneousWindowMs = 25 });
-                model.LoadForGame(octet);
-                Equal(model.Settings.MaximumTileCount, 8);
-                Equal(model.LoadedEntry?.Id, "eight");
-                Equal(model.Playback.Notes.Count, 10);
+                var auto = model.Settings with { MaximumTileCount = 8, AutoTileCount = true, ExperimentalFeatures = true,
+                    EnhancedFourEightKeys = true, SimultaneousWindowMs = 25 };
+                model.ApplySettings(auto);
+                var steps = model.SettingsHistory.Count;
+                string Keys() => string.Join(" ", Visualizer.App.Input.GameKeys.For(model.Settings, model.Playback.Notes.Select(note => note.Tile)));
+                int Lanes() => model.Settings.GetDisplayTiles(model.Playback.Notes.Select(note => note.Tile)).Count;
+                model.LoadChosen(octet, null);
                 Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 8);
-                Equal(model.Message, model.Text.Format("AutoWiderLanes", 8));
-                // Never down: a two-note song keeps eight.
-                model.LoadForGame(pair);
-                Equal(model.Settings.MaximumTileCount, 8);
-                // Rollback takes the raise back.
-                model.RollBack();
-                Equal(model.Settings.MaximumTileCount, 4);
-                // Five notes at once need six lanes.
-                model.LoadForGame(quintet);
-                Equal(model.Settings.MaximumTileCount, 6);
-                Equal(model.Playback.Notes.Count, 7);
-                // Loading by hand never raises it: the song box's load asks as before.
-                model.ApplySettings(model.Settings with { MaximumTileCount = 4 });
+                Equal(Lanes(), 8);
+                Equal(Keys(), "A S D F J K L Semicolon Return");
+                model.LoadChosen(pair, null);
+                Equal(Lanes(), 4);
+                Equal(Keys(), "D F J K Return");
+                model.LoadChosen(quintet, null);
+                Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 5);
+                Equal(Lanes(), 6);
+                Equal(Keys(), "S D F J K L Return");
+                Assert(model.Settings == auto && model.SettingsHistory.Count == steps, "The settings are the user's own throughout");
+                // A fixed count is never raised for a song any more: the chord is cut at its lanes, as loading by hand does.
+                model.ApplySettings(auto with { MaximumTileCount = 4, AutoTileCount = false });
                 model.LoadChosen(octet, null);
                 Equal(model.Settings.MaximumTileCount, 4);
-                // Found loaded so when link auto comes on, it gets the lanes as well, and only once.
-                Assert(model.WidenLoadedForGame(), "The song loaded by hand widens");
-                Equal(model.Settings.MaximumTileCount, 8);
-                Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 8);
-                Assert(!model.WidenLoadedForGame(), "Nothing more to do");
+                Equal(model.Playback.Notes.Count(n => n.HitTimeMs == model.Playback.Notes[0].HitTimeMs), 4);
+                Equal(Keys(), "D F J K Return");
             }
             finally { window.Close(); }
         });

@@ -75,11 +75,14 @@ public partial class MainWindow : Window, ICmdHost
         _model.SettingsCommitted += SettingsCommitted;
         ApplyTheme();
         // Cheap string compare; runs for every property change, including per-frame status text.
-        _model.PropertyChanged += (_, _) => { if (_model.Settings.Theme != _appliedTheme) ApplyTheme(); };
+        _model.PropertyChanged += (_, _) =>
+        {
+            if (_model.Settings.Theme != _appliedTheme) ApplyTheme();
+            // With the auto tile count the keys the game counts follow the lanes the loaded song uses.
+            if (_keysTold && !ReferenceEquals(_model.Playback.Notes, _keysNotes)) TellLinkerKeys(_model.Settings);
+        };
         DataContext = _model;
         // Asked only from a visible window: an unshown window (tests, captures) never blocks on a dialog.
-        _model.ConfirmExtraLanes = message => IsVisible && ConfirmDialog.Ask(this, _model.Settings,
-            _model.Text["ExtraLanesTitle"], message, _model.Text["AllowChange"], _model.Text["Cancel"]);
         _model.ConfirmWiderLanes = message => IsVisible && ConfirmDialog.Ask(this, _model.Settings,
             _model.Text["WiderLanesTitle"], message, _model.Text["AllowChange"], _model.Text["Cancel"]);
         _model.NotifySyncFirst = message =>
@@ -593,7 +596,8 @@ public partial class MainWindow : Window, ICmdHost
                 ? NoteEditSession.FromLayout(timeline, saved.Edit, AllLanes)
                 : FromRules(timeline, settings with { Language = reasons }, entry.SourceHash);
             // One lane of the main screen, so the sheet matches it; all eight lanes are shown either way.
-            var laneWidth = Field.ActualWidth > 0 ? Field.ActualWidth / Math.Max(1, settings.GetDisplayTiles().Count) : 60;
+            var laneWidth = Field.ActualWidth > 0
+                ? Field.ActualWidth / Math.Max(1, settings.GetDisplayTiles(_model.Playback.Notes.Select(note => note.Tile)).Count) : 60;
             var place = FamilyOf(entry);
             var window = new NoteEditWindow(session, settings, _model.DisplayName(entry), Maps.SlotOf(entry), laneWidth,
                 topMs: _editorPlaces.TryGetValue(place, out var top) ? top : null)
@@ -1154,14 +1158,29 @@ public partial class MainWindow : Window, ICmdHost
             { _model.SetMessage(_model.Text.Format("SettingsWriteFailed", error.Message)); }
     }
 
+    /// <summary>The notes the keys were last worked out for, whether they are told at all, and what was written.</summary>
+    private IReadOnlyList<Visualizer.Core.Visualization.VisualizerNote>? _keysNotes;
+    private bool _keysTold;
+    private string? _keysWritten;
+
     /// <summary>
     /// Tells the linker the keys for the game's key limiter (user request): this app's lane keys for the maximum tile count
-    /// and its reset key while it runs, none once it closes (<see cref="GameKeys.For"/>, <see cref="AppStorage.WriteKeyLimiter"/>).
+    /// (with the auto tile count, for the lanes the loaded song uses) and its reset key while it runs, none once it closes
+    /// (<see cref="GameKeys.For"/>, <see cref="AppStorage.WriteKeyLimiter"/>). Written only when the keys change.
     /// </summary>
     private void TellLinkerKeys(VisualizerSettings? settings)
     {
         if (!UseAppStore) return;
-        try { Storage.WriteKeyLimiter(settings is null ? [] : GameKeys.For(settings)); }
+        _keysTold = settings is not null;
+        _keysNotes = _model.Playback.Notes;
+        var keys = settings is null ? [] : GameKeys.For(settings, _keysNotes.Select(note => note.Tile));
+        var line = string.Join(" ", keys);
+        if (line == _keysWritten) return;
+        try
+        {
+            Storage.WriteKeyLimiter(keys);
+            _keysWritten = line;
+        }
         catch (Exception error) when (IsExpectedError(error) || error is ArgumentException)
             { _model.SetMessage(_model.Text.Format("SettingsWriteFailed", error.Message)); }
     }

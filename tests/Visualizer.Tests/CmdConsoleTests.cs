@@ -2693,7 +2693,7 @@ internal static class CmdConsoleTests
                 ("set timing.speed fast", "Use a number"),
                 ("set timing.speed -5", "Not changed."),
                 ("set general.information-buttons maybe", "Use true or false (or on/off, 1/0, able/disable)."),
-                ("set tiles.max 5", "Use one of: 1, 2, 4, 6, 8."),
+                ("set tiles.max 5", "Use one of: 1, 2, 4, 6, 8, auto."),
                 ("set keys.reset S", "Not changed."),
                 ("set keys.reset NoSuchKey", "is not a key"),
                 ("set tiles.down-notes 3", "Locked while tiles.instant-down is false."),
@@ -2766,7 +2766,19 @@ internal static class CmdConsoleTests
             Assert(LastOutput(log).Any(line => line.StartsWith("tiles.max", StringComparison.Ordinal) && line.EndsWith("6", StringComparison.Ordinal))
                 && LastOutput(log).Any(line => line.StartsWith("tiles.down-notes", StringComparison.Ordinal) && line.EndsWith("(locked)", StringComparison.Ordinal)), "Settings of a section");
             session.Submit("property tiles.max");
-            Lines(LastOutput(log), "tiles.max is 6 now.", "Values: 1, 2, 4, 6, 8.");
+            Lines(LastOutput(log), "tiles.max is 6 now.", "Values: 1, 2, 4, 6, 8, auto.");
+            // auto is the maximum tile count's own word (user request): eight tiles at most, each song laid out with the
+            // fewest it needs. A number turns it off again, eight included.
+            session.Submit("set tiles.max auto");
+            Assert(host.Settings.AutoTileCount && host.Settings.MaximumTileCount == 8, "auto: " + Output(log));
+            session.Submit("get tiles.max");
+            Lines(LastOutput(log), "auto");
+            session.Submit("set tiles.max 8");
+            Assert(!host.Settings.AutoTileCount && host.Settings.MaximumTileCount == 8, "Eight turns auto off: " + Output(log));
+            session.Submit("set tiles.max AUTO");
+            Assert(host.Settings.AutoTileCount, "The word is read in any case: " + Output(log));
+            session.Submit("set tiles.max 6");
+            Assert(!host.Settings.AutoTileCount && host.Settings.MaximumTileCount == 6, "A number turns auto off: " + Output(log));
             session.Submit("property keys.reset");
             Assert(Output(log).Contains("Takes a key name", StringComparison.Ordinal), "Free values are described");
             session.Submit("property -c general");

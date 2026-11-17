@@ -413,7 +413,7 @@ internal static class Program
             .Concat(RhythmVisualTests.Create(artifactRoot))
             .Concat(PracticeSectionTests.Create(artifactRoot))
             .Concat(AdvancedFeatureTests.Create(artifactRoot))
-            .Concat(ExtraLaneTests.Create(artifactRoot))
+            .Concat(AutoTileTests.Create(artifactRoot))
             .Concat(SixKeyTests.Create(artifactRoot))
             .Concat(LocalizationThemeTests.Create(artifactRoot))
             .Concat(CmdConsoleTests.Create(artifactRoot))

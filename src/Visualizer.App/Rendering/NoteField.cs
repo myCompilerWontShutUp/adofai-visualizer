@@ -209,7 +209,7 @@ public sealed class NoteField : FrameworkElement
         dc.Pop();
 
         // Keep the spawn fade short: a dimmed note now means "pressed", so fading must not look like it.
-        dc.DrawRectangle(TopFadeBrush, null, new Rect(0, 0, width, Math.Min(18, geometry.JudgmentY * 0.05)));
+        dc.DrawRectangle(TopFadeBrush, null, new Rect(0, 0, width, TopFadeHeight(geometry)));
         dc.DrawLine(RemovalPen, new Point(0, geometry.RemovalY), new Point(width, geometry.RemovalY));
 
         var pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
@@ -447,7 +447,12 @@ public sealed class NoteField : FrameworkElement
         var barWidth = Math.Min(width - 32, 280);
         if (barWidth < 60) return;
         var centerX = width / 2;
-        var rect = new Rect(centerX - barWidth / 2, geometry.JudgmentY * 0.5, barWidth, MagicBarHeight);
+        // The setting moves the bar up from its place halfway down the field (user request). It stops under the spawn
+        // fade at the top, which would dim it, and above the judgment line; without the setting it is where it always was.
+        var home = geometry.JudgmentY * 0.5;
+        var barTop = Math.Clamp(home - settings.JudgmentBarOffset, Math.Min(home, TopFadeHeight(geometry) + 6),
+            Math.Max(home, geometry.JudgmentY - MagicBarHeight - 26));
+        var rect = new Rect(centerX - barWidth / 2, barTop, barWidth, MagicBarHeight);
         dc.PushOpacity(opacity);
         // The bar is the game's grading for the tile being played (user request): the ends are where a press stops counting,
         // as on the game's own bar, but the inner edges are drawn where they really are. The game draws them at a fixed
@@ -470,20 +475,25 @@ public sealed class NoteField : FrameworkElement
         dc.DrawRectangle(JudgmentPureBrush, null, new Rect(centerX - Inner(layout.PureMs), rect.Top, 2 * Inner(layout.PureMs), MagicBarHeight));
         dc.DrawRectangle(JudgmentExactBrush, null, new Rect(centerX - Inner(layout.XPerfectMs), rect.Top, 2 * Inner(layout.XPerfectMs), MagicBarHeight));
         dc.DrawLine(palette.MagicCenter, new Point(centerX, rect.Top + 2), new Point(centerX, rect.Bottom - 2));
-        // Each press is placed by its own tile's edges onto the zones drawn (HitWindows.Place), so it always sits in the zone
-        // of its grade even when the bar shows another tempo's windows (user report: red marks inside the green on a mixed
-        // run). It takes the colour of its grade: the game's own when the linker reported it, else the rules' for that deviation.
+        // Each press is placed by its own tile's edges onto the zones drawn, on the zones' own scale, and inside the zone
+        // of the grade it is shown as (HitWindows.PlaceAs): the game's own grade when the linker reported it, else the
+        // rules' for that deviation. The game's grade can differ from this app's own timing of the press, and the marks
+        // were drawn on a slightly shorter scale than the zones, so a red or yellow mark sat in the green (user report).
+        // Too early and too late are at the very ends (user rule), which no other mark reaches.
         HitWindows WindowsOf(PressMark mark) => session.HitWindowsOf(mark.Note, difficulty) ?? zones;
+        var inset = (MarkHalfWidth + 1) / half;
+        double MarkX(double place) => centerX + Math.Clamp(place * half, MarkHalfWidth - half, half - MarkHalfWidth);
         foreach (var mark in recent)
         {
             var age = timeline - mark.DisplayTimeMs;
             if (age < 0 || age > MagicMarkMs) continue;
             var windows = WindowsOf(mark);
-            var x = centerX + windows.Place(mark.DeviationMs, layout) * (half - 3);
+            var grade = mark.GameGrade ?? windows.Grade(mark.DeviationMs);
+            var x = MarkX(windows.PlaceAs(grade, mark.DeviationMs, layout, inset));
             dc.PushOpacity(1 - age / MagicMarkMs);
             // Taller than the bar and outlined, so a press is visible wherever it lands.
-            dc.DrawRoundedRectangle(GradeBrush(mark.GameGrade ?? windows.Grade(mark.DeviationMs)), JudgmentMarkPen,
-                new Rect(x - 2, rect.Top - 3, 4, MagicBarHeight + 6), 2, 2);
+            dc.DrawRoundedRectangle(GradeBrush(grade), JudgmentMarkPen,
+                new Rect(x - MarkHalfWidth, rect.Top - 3, 2 * MarkHalfWidth, MagicBarHeight + 6), 2, 2);
             dc.Pop();
         }
         // Where the recent presses sit on average, so a steady lean shows up even when single marks scatter.
@@ -492,9 +502,10 @@ public sealed class NoteField : FrameworkElement
             var taken = Math.Min(settings.JudgmentAverageCount, recent.Count);
             var average = 0d;
             for (var i = recent.Count - taken; i < recent.Count; i++)
-                average += WindowsOf(recent[i]).Place(recent[i].DeviationMs, layout);
+                average += WindowsOf(recent[i]) is var own
+                    ? own.PlaceAs(recent[i].GameGrade ?? own.Grade(recent[i].DeviationMs), recent[i].DeviationMs, layout, inset) : 0;
             average /= taken;
-            var target = centerX + average * (half - 3);
+            var target = MarkX(average);
             // Eased towards the average instead of snapping: a jumping arrow is harder to read than a moving one.
             _arrowX = double.IsNaN(_arrowX) ? target : _arrowX + (target - _arrowX) * ArrowEase;
             var x = _arrowX;
@@ -516,6 +527,12 @@ public sealed class NoteField : FrameworkElement
         dc.DrawText(late, new Point(rect.Right - late.Width, rect.Bottom + 2));
         dc.Pop();
     }
+
+    /// <summary>How far down the fade at the top reaches, where notes come in.</summary>
+    private static double TopFadeHeight(NoteFieldGeometry geometry) => Math.Min(18, geometry.JudgmentY * 0.05);
+
+    /// <summary>Half the width of a press mark on the bar, in points.</summary>
+    private const double MarkHalfWidth = 2;
 
     /// <summary>The game's own bar picture, a side of 60: middle band 12.5, perfect 30, early/late perfect 45 (user request).</summary>
     private static readonly HitWindows FixedBar = new(60, 45, 30, 12.5);
@@ -579,9 +596,9 @@ public sealed class NoteField : FrameworkElement
         _palette = From(settings);
         _beamBrush = null;
         _missBrush = null;
-        // Spare lanes (extra lanes) sit beside the pattern lanes in tile order, and only where a note really sits on one:
-        // extra lane placement adds a lane when a chord needs it, so the switch alone must not widen the screen (user report).
-        // An edited song never needs more: one that does is not placed until the settings show its lanes.
+        // With the auto tile count the lanes are the ones this song's notes sit on, out from the four-key lanes, so a song
+        // widens the screen only as far as it needs (user rule). Otherwise they are the shown lanes; an edited song never
+        // needs more, since one that does is not placed until the settings show its lanes.
         _tiles = settings.GetDisplayTiles(notes.Select(note => note.Tile)).ToArray();
         Array.Fill(_laneByTile, -1);
         for (var lane = 0; lane < _tiles.Length; lane++) _laneByTile[_tiles[lane]] = lane;

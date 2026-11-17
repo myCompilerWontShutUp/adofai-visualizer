@@ -12,7 +12,7 @@ internal static class SimultaneousNotePlanner
     /// <summary>
     /// One cycle step. <paramref name="Count"/> hits share <paramref name="TimeMs"/>, every one of them within the chord window
     /// of the first, so start and end are both in it (user rule). Two or more are one chord on lanes side by side as long as
-    /// the screen has the lanes; a group wider than the screen takes the spare lanes as two-note chords in order.
+    /// the screen has the lanes; a group never holds more notes than the screen has lanes (see <see cref="Group"/>).
     /// </summary>
     internal sealed record GroupedHit(double TimeMs, int Count, int SourceIndex);
 
@@ -36,10 +36,10 @@ internal static class SimultaneousNotePlanner
     internal static IReadOnlyList<GroupedHit> Group(double[] times, VisualizerSettings settings, IReadOnlyList<double?>? holdEnds = null)
     {
         var result = new List<GroupedHit>();
-        // A group never holds more notes than it has lanes for, the screen's and any spare ones: its notes never share a lane,
-        // so a wider one could never be placed. What is left starts the next group at its own time, as a roll too long for
-        // the lanes does (user rule, from Camellia - Hello (BPM) 2026: 28 notes in 25ms).
-        var cap = settings.GetVisibleTiles().Count + settings.GetExtraTiles().Count;
+        // A group never holds more notes than the screen has lanes: its notes never share a lane, so a wider one could never
+        // be placed. What is left starts the next group at its own time, as a roll too long for the lanes does (user rule, from
+        // Camellia - Hello (BPM) 2026: 28 notes in 25ms).
+        var cap = settings.GetVisibleTiles().Count;
         // Notes linked one to the next by the trill window are a trill unless the whole run fits the chord window (user rule:
         // a chord needs a and c in the chord window, a trill only a-b and b-c in the trill window, whatever the gaps are).
         // So in such a run only notes of one instant sound together. A run with a long note in it is grouped as chords
@@ -649,7 +649,6 @@ internal static class SimultaneousNotePlanner
     {
         var result = new List<VisualizerNote>();
         var visible = settings.GetVisibleTiles().ToArray();
-        var extras = settings.GetExtraTiles().ToArray();
         var busyUntil = NewBusyLanes();
         // When each lane was last played, so a single in a chord section keeps off a lane that would come back too soon.
         var lastPlayed = NewBusyLanes();
@@ -744,9 +743,7 @@ internal static class SimultaneousNotePlanner
                 var candidates = mode >= 4 && hand < 0 ? blockPreferred : blockPreferred.Concat(visible).Distinct().ToArray();
                 // A chord with more notes than the section's pattern has lanes takes the screen's lanes too: it needs that many.
                 if (block.Any(group => group.Count > candidates.Length)) candidates = candidates.Concat(visible).Distinct().ToArray();
-                // Chord pairs are tried from the most centered (tiles 3-4 and 5-6 first) outward. Spare lanes are used only when
-                // no pairing places the block on the pattern lanes, with as few spare notes as possible; with spare notes, placements
-                // that send only leftover singles to spare lanes (every chord kept) come before breaking a chord.
+                // Chord pairs are tried from the most centered (tiles 3-4 and 5-6 first) outward.
                 // Lane styles, most wanted first: keep the recent chord's lanes for singles and let them repeat a lane inside the
                 // block when few lanes are left, before giving up the rule or letting a lane follow itself. Without a recent chord
                 // (and always with the switch off) the first try keeps every note off the lanes played right before it, chords
@@ -764,14 +761,11 @@ internal static class SimultaneousNotePlanner
                     result.Count >= 1 ? result[^1].HitTimeMs : double.NegativeInfinity, settings.TrillWindowMs * NoteGenerator.RollLeadWindows,
                     lastPlayed, NoteGenerator.QuickReturnMs(settings, mode), oneHand && mode <= 4, blockPreferred);
                 var previous = LanesAround(result, result.Count - 1, backward: true);
-                (int Tile, bool StartsChord)[]? Find(int budget) => styles
-                    .SelectMany(style => (budget == 0 ? [true] : new[] { true, false })
-                        .SelectMany(keepChords => Enumerable.Range(1, 3).Select(level => (style, keepChords, level))))
-                    .Select(option => Assign(block, candidates, visible, mode, extras, budget, option.level, option.keepChords, busyUntil,
+                var assignment = styles.SelectMany(style => Enumerable.Range(1, 3).Select(level => (style, level)))
+                    .Select(option => Assign(block, candidates, visible, mode, option.level, busyUntil,
                         option.style.Avoid ? lanes : null, option.style.Avoid ? used : null, option.style.Repeat, option.style.NoFollow, previous,
                         settings.GetPreferredChordLanes(), option.style.Fresh ? flow : null, hand, singleTiles))
                     .FirstOrDefault(found => found is not null);
-                var assignment = Find(0) ?? Enumerable.Range(1, extras.Length).Select(Find).FirstOrDefault(found => found is not null);
                 if (assignment is null) throw Failure(settings, block[0].SourceIndex, block[0].TimeMs, mode, count);
                 if (hand >= 0)
                     for (int g = 0, at = 0; g < block.Length; at += block[g].Count, g++)
@@ -962,12 +956,9 @@ internal static class SimultaneousNotePlanner
     }
 
     /// <summary>
-    /// Lanes for every member of a block. Members pair into chords in order. With a spare budget, up to that many members
-    /// may come down on spare lanes as singles; a pair with a spare member is shown as two singles instead of a chord.
-    /// (A chord that includes a spare lane would need the same lanes plus adjacency, so singles are always at least as placeable.)
+    /// Lanes for every member of a block. Members pair into chords in order.
     /// <paramref name="level"/> widens the lane pairs a chord may use: 1 = centered pairs only, 2 = any pair within one half of the
-    /// screen, 3 = also a pair across the center (never on four lanes). With <paramref name="keepChords"/>, only a group's leftover
-    /// single (its odd last member) may go to a spare lane, so every chord stays a chord.
+    /// screen, 3 = also a pair across the center (never on four lanes).
     /// <paramref name="sectionLanes"/> are the recent chord's lanes, which singles keep free; <paramref name="repeatSingles"/> lets a
     /// single reuse a lane another single took in this block (too few lanes are left), and <paramref name="noFollow"/> keeps a single
     /// off the lane of the note right before it, <paramref name="previousLanes"/> being the lanes of the event right before the
@@ -980,21 +971,20 @@ internal static class SimultaneousNotePlanner
     /// pair across the center on four and six lanes, and on eight lanes only the places of <see cref="EightLaneStarts"/>, which
     /// may lie outside the section's pattern (user rule).
     /// </summary>
-    private static (int Tile, bool StartsChord)[]? Assign(GroupedHit[] groups, int[] candidates, int[] visible, int mode, int[] extras, int budget,
-        int level, bool keepChords, double[] busyUntil, int[]? sectionLanes, int[]? sectionUsed, bool repeatSingles, bool noFollow,
+    private static (int Tile, bool StartsChord)[]? Assign(GroupedHit[] groups, int[] candidates, int[] visible, int mode,
+        int level, double[] busyUntil, int[]? sectionLanes, int[]? sectionUsed, bool repeatSingles, bool noFollow,
         int[] previousLanes, IReadOnlyList<int> preferredLanes, Flow? flow = null, int hand = -1, int[]? singleTiles = null)
     {
         var fresh = flow is not null;
         var total = groups.Sum(g => g.Count);
         var eight = visible.Length == 8;
-        if (total > (eight ? Math.Max(candidates.Length, visible.Length) : candidates.Length) + budget) return null;
+        if (total > (eight ? Math.Max(candidates.Length, visible.Length) : candidates.Length)) return null;
         var tiles = new List<int>();
         var chords = new List<bool>();
         var chordTiles = new List<int>();
         // The group each placed lane belongs to: notes of one group sound together, so they never share a lane.
         var owners = new List<int>();
-        var spareUsed = 0;
-        var choices = budget > 0 ? candidates.Concat(extras).ToArray() : candidates;
+        var choices = candidates;
         bool Adjacent(int a, int b)
         {
             var ia = Array.IndexOf(visible, a);
@@ -1050,7 +1040,7 @@ internal static class SimultaneousNotePlanner
                 // A 1/2K block with a chord (single + chord, or a wider split group) occupies contiguous pattern lanes. While a recent
                 // chord's lanes are kept free the singles sit beside them instead of inside them, so those lanes count as well.
                 if (mode > 2 || !chords.Contains(true)) return true;
-                var positions = tiles.Concat(sectionUsed ?? []).Where(t => Array.IndexOf(extras, t) < 0)
+                var positions = tiles.Concat(sectionUsed ?? [])
                     .Select(t => Array.IndexOf(visible, t)).Distinct().ToArray();
                 return positions.Max() - positions.Min() + 1 == positions.Length;
             }
@@ -1241,13 +1231,9 @@ internal static class SimultaneousNotePlanner
                 if (single && sectionLanes is not null && Array.IndexOf(sectionLanes, tile) >= 0) continue;
                 if (noFollow && (fresh ? before.Contains(tile)
                     : single && tile == (tiles.Count > 0 ? tiles[^1] : previousLanes.LastOrDefault()))) continue;
-                var spare =Array.IndexOf(extras, tile) >= 0;
-                if (spare && spareUsed == budget) continue;
-                // A single keeps to the four-key lanes under the enhanced 4/8-key rules; a chord's leftover on a spare lane is
-                // still a chord note.
-                if (single && !spare && singleTiles is not null && Array.IndexOf(singleTiles, tile) < 0) continue;
-                if (spare && keepChords && (pairsWithPrevious || member + 1 < groups[groupIndex].Count)) continue;
-                var chord = pairsWithPrevious && !spare && Array.IndexOf(extras, tiles[^1]) < 0;
+                // A single keeps to the four-key lanes under the enhanced 4/8-key rules.
+                if (single && singleTiles is not null && Array.IndexOf(singleTiles, tile) < 0) continue;
+                var chord = pairsWithPrevious;
                 // A wide chord runs over lanes side by side in one direction. The center rule is the two-note chord's own
                 // (user rule): three notes on four lanes cannot keep off the center anyway.
                 if (chord && !(wide ? Array.IndexOf(visible, tile) == Array.IndexOf(visible, tiles[^1]) + 1 : Adjacent(tiles[^1], tile))) continue;
@@ -1255,9 +1241,7 @@ internal static class SimultaneousNotePlanner
                 tiles.Add(tile);
                 owners.Add(groupIndex);
                 chords.Add(false);
-                if (spare) spareUsed++;
                 if (Search(groupIndex, member + 1)) return true;
-                if (spare) spareUsed--;
                 chords.RemoveAt(chords.Count - 1);
                 owners.RemoveAt(owners.Count - 1);
                 tiles.RemoveAt(tiles.Count - 1);

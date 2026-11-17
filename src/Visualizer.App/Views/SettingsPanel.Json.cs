@@ -34,7 +34,7 @@ public partial class SettingsPanel
     private readonly TextBlock _jsonStatus = new() { TextWrapping = TextWrapping.Wrap, FontSize = 10, Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
 
     /// <summary>
-    /// Collapsed card: the experimental switch on top, then extra lanes, judgment line slowdown, tile preference,
+    /// Collapsed card: the experimental switch on top, then judgment line slowdown, tile preference,
     /// chord section lanes and the speed kept on load, then map folder (with the folder picker), data folder, process name,
     /// and the JSON buttons.
     /// </summary>
@@ -43,7 +43,6 @@ public partial class SettingsPanel
         AddSection("SectionAdvanced", expandedByDefault: false);
         // Reveals the experimental card below this one; every experiment stays without effect while this is off.
         AddField("Experimental features", _experimental, nameof(VisualizerSettings.ExperimentalFeatures), "ExperimentalHelp");
-        AddField("Extra lanes", _extraLanes, nameof(VisualizerSettings.ExtraLanes), "ExtraLanesHelp");
         AddField("Judgment slowdown", _judgmentSlowdown, nameof(VisualizerSettings.SlowNotesPastJudgmentLine), "JudgmentSlowdownHelp");
         AddField("Tile preference toggle", _tilePreference, nameof(VisualizerSettings.EnableTilePreference), "TilePreferenceToggleHelp");
         AddField("Chord section lanes", _chordLanes, nameof(VisualizerSettings.ChordSectionLanes), "ChordLanesHelp");

@@ -258,10 +258,10 @@ internal static class AdvancedFeatureTests
             model.LoadSelectedSong();
             model.Reset();
             model.Start();
-            // A lane other than the first note's, so its earliest note is past the one that will wait on the line.
-            var lane = model.Playback.Notes.First(note => note.Tile != model.Playback.Notes[0].Tile).Tile;
-            var marked = model.Presses.Press(model.Playback, lane, 1e9);
-            Assert(marked is > 0, $"A note on lane {lane} ahead of the first is marked: {marked}");
+            // A note past the one that will wait on the line is marked, as a key played ahead of the playhead marks it.
+            var marked = Enumerable.Range(0, model.Playback.Notes.Count).First(i => model.Playback.Notes[i].Tile != model.Playback.Notes[0].Tile);
+            model.Presses.PressTogether(model.Playback, marked);
+            Assert(marked > 0 && model.Presses.IsPressed(model.Playback.Notes, marked), $"Note {marked} ahead of the first is marked");
 
             Assert(model.PauseFromKey(), "Escape pauses");
             var line = model.Presses.FirstUnpressed(model.Playback) ?? model.Playback.Notes.Count;
@@ -562,7 +562,7 @@ internal static class AdvancedFeatureTests
                 && At("시작 대기 시간 (ms)") < At("판정 보정 노트 수") && At("배속 (%)") > 0, "Timing order");
             foreach (var row in new[] { "언어(Language)", "맵 폴더", "안내 버튼", "곡 정보 표시", "이전 체크포인트 키", "다음 체크포인트 키", "입력 효과", "놓친 타일 효과",
                          "단타 노트", "동타 노트", "판정선", "실패 효과", "레인 입력 효과", "최소 타일 수", "타일 순서 선호도", "1키 패턴 · 시작 타일",
-                         "여분 레인 배치", "순서 선호도 사용" })
+                         "판정선 높이 보정 (px)", "순서 선호도 사용" })
                 Assert(At(row) >= 0, "Missing row: " + row);
             Assert(!labels.Contains("시작 타일 (1~8)") && !labels.Contains("1키 패턴"), "The 1K pattern and initial tile are one field");
             Assert(!labels.Any(t => t.StartsWith("체크포인트 타일이 판정선에", StringComparison.Ordinal)), "Explanations are no longer paragraphs");

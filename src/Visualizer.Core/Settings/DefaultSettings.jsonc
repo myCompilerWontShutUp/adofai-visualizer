@@ -43,6 +43,9 @@
   "SettingsHotkey": null,
   "AdofaiProcessName": "A Dance of Fire and Ice",
   "MaximumTileCount": 4,
+  // The maximum tile count's auto: each song is laid out with the fewest tiles it needs (4, 6 or 8; it widens with the
+  // enhanced 4/8-key rules only). MaximumTileCount is 8 with it.
+  "AutoTileCount": false,
   "MinimumTileCount": 1,
   // Lanes on screen: 0 follows the maximum tile count, otherwise 1, 2, 4, 6 or 8 (never below the maximum).
   "DisplayLaneCount": 0,
@@ -85,7 +88,6 @@
   "SixKeyPattern": "2 3 4 5 6 7",
   "FourKeyPattern": "3 4 5 6",
   "TwoKeyPattern": "4 5",
-  "ExtraLanes": false,
   "SlowNotesPastJudgmentLine": false,
   // Opens the experimental card; this version has no experiments in it.
   "ExperimentalFeatures": false,
@@ -104,6 +106,8 @@
   "ShowJudgmentAverage": true,
   // The judgment bar at the game's fixed proportions with the counted window's time at its ends; off draws it to scale.
   "FixedJudgmentBar": true,
+  // Screen points above the judgment bar's default place (negative: below), -400 to 400.
+  "JudgmentBarOffset": 0,
   "EnableTilePreference": false,
   "TwoKeyOrder": "2 1",
   "FourKeyOrder": "4 3 2 1",

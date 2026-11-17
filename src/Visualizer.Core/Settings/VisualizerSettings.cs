@@ -168,10 +168,28 @@ public sealed record VisualizerSettings
     public string FourKeyPattern { get; init; } = Text(nameof(FourKeyPattern));
     public string TwoKeyPattern { get; init; } = Text(nameof(TwoKeyPattern));
     /// <summary>
-    /// Extra lane placement: a spare lane beside each side of a 2-, 4- or 6-lane view, used only by chord groups that cannot be
-    /// placed otherwise. The value is kept while it cannot apply (a maximum of 1 or 8 lanes, or no free tile beside the pattern).
+    /// The maximum tile count set to auto (user request; it took the place of extra lane placement): each song is laid out
+    /// with the fewest tiles it needs, four, or six or eight when a chord has more notes than that or the song cannot be
+    /// placed on fewer (<see cref="GetAutoTileCounts"/>, NoteGenerator), so a wide song takes its lanes and the next one
+    /// starts from four again. For now it widens with the enhanced 4/8-key rules only (user rule); without them auto stays
+    /// at four. <see cref="MaximumTileCount"/> is 8 with it, the most a song may take, so every key count's boundary applies.
     /// </summary>
-    public bool ExtraLanes { get; init; } = Flag(nameof(ExtraLanes));
+    public bool AutoTileCount { get; init; } = Flag(nameof(AutoTileCount));
+
+    /// <summary>
+    /// The tile counts auto may lay a song out with, fewest first: from four (or the minimum tile count) up to eight, and
+    /// only the first of them without the enhanced 4/8-key rules.
+    /// </summary>
+    public IReadOnlyList<int> GetAutoTileCounts()
+    {
+        var counts = AutoTileSteps().ToArray();
+        return UseEnhancedFourEightKeys ? counts : counts[..1];
+    }
+
+    private IEnumerable<int> AutoTileSteps() => Modes.Where(mode => mode >= Math.Max(4, MinimumTileCount));
+
+    /// <summary>These settings with a fixed tile count: what auto lays one song out with.</summary>
+    public VisualizerSettings WithTileCount(int count) => this with { MaximumTileCount = count, AutoTileCount = false, DisplayLaneCount = 0 };
     /// <summary>
     /// Visual only. When enabled, a note past the judgment line covers the distance to the bottom line in the press window instead
     /// of at travel speed. When disabled, unpressed notes vanish when their window ends.
@@ -318,6 +336,12 @@ public sealed record VisualizerSettings
     /// how long the counted window of the tile really is (early -91 ms, late +91 ms). Off, the zones are drawn to scale.
     /// </summary>
     public bool FixedJudgmentBar { get; init; } = Flag(nameof(FixedJudgmentBar));
+    /// <summary>
+    /// How far above its default place the judgment bar is drawn, in screen points (user request); negative is below it. The
+    /// bar never leaves the note field.
+    /// </summary>
+    public double JudgmentBarOffset { get; init; } = Number(nameof(JudgmentBarOffset));
+    public const double MaximumJudgmentBarOffset = 400;
 
     /// <summary>The bar's half window in milliseconds, from the difficulty (the game's counted floor).</summary>
     [JsonIgnore]
@@ -402,16 +426,13 @@ public sealed record VisualizerSettings
     public bool IsThresholdEnabled(int upperMode) => DynamicTiming && upperMode is 2 or 4 or 6 or 8
         && MaximumTileCount >= upperMode && MinimumTileCount < upperMode;
 
-    /// <summary>Whether extra lane placement can apply at this maximum (1 and 8 lanes never use it). Derived, so not part of the JSON.</summary>
-    [JsonIgnore]
-    public bool CanUseExtraLanes => MaximumTileCount is 2 or 4 or 6;
-
     /// <summary>True when the lane backgrounds follow the theme (the setting is empty).</summary>
     [JsonIgnore]
     public bool FollowsThemeLaneBackgrounds => string.IsNullOrWhiteSpace(LaneBackgroundColors);
 
     public bool HasSameNoteRulesAs(VisualizerSettings other) =>
-        MaximumTileCount == other.MaximumTileCount && MinimumTileCount == other.MinimumTileCount && DynamicTiming == other.DynamicTiming
+        MaximumTileCount == other.MaximumTileCount && AutoTileCount == other.AutoTileCount
+        && MinimumTileCount == other.MinimumTileCount && DynamicTiming == other.DynamicTiming
         && EightKeyBoundaryMs == other.EightKeyBoundaryMs && SixKeyBoundaryMs == other.SixKeyBoundaryMs
         && FourKeyBoundaryMs == other.FourKeyBoundaryMs && TwoKeyBoundaryMs == other.TwoKeyBoundaryMs && InitialTile == other.InitialTile
         && SimultaneousWindowMs == other.SimultaneousWindowMs && TrillWindowMs == other.TrillWindowMs
@@ -422,7 +443,6 @@ public sealed record VisualizerSettings
         && StartDelayMs == other.StartDelayMs && PlaybackSpeedPercent == other.PlaybackSpeedPercent
         && SortTiles(EightKeyPattern) == SortTiles(other.EightKeyPattern) && SortTiles(SixKeyPattern) == SortTiles(other.SixKeyPattern)
         && SortTiles(FourKeyPattern) == SortTiles(other.FourKeyPattern) && SortTiles(TwoKeyPattern) == SortTiles(other.TwoKeyPattern)
-        && (ExtraLanes && CanUseExtraLanes) == (other.ExtraLanes && other.CanUseExtraLanes)
         && UseChordSectionLanes == other.UseChordSectionLanes && ChordLanePreference.Trim() == other.ChordLanePreference.Trim()
         && UseMagicCircleTiles == other.UseMagicCircleTiles
         && (!UseMagicCircleTiles || (MagicCircleTiles == other.MagicCircleTiles
@@ -453,7 +473,9 @@ public sealed record VisualizerSettings
         LaneEffectColor = source.LaneEffectColor,
         NoteThickness = source.NoteThickness,
         NoteWidth = source.NoteWidth,
-        HoldNoteWidth = source.HoldNoteWidth
+        HoldNoteWidth = source.HoldNoteWidth,
+        FixedJudgmentBar = source.FixedJudgmentBar,
+        JudgmentBarOffset = source.JudgmentBarOffset
     };
 
     /// <summary>The mode's pattern tiles in cycle order. 1K is the initial tile; other modes order their tiles by the (default) preference.</summary>
@@ -500,20 +522,6 @@ public sealed record VisualizerSettings
     public IReadOnlyList<int> GetPatternFor(int mode, int tile) => GetPattern(mode, HandOf(tile));
 
     /// <summary>
-    /// Spare lanes when extra lane placement applies: the tile just left and just right of the visible tiles, or the two nearest
-    /// on the other side when the pattern already reaches tile 1 or 8. Empty when unused.
-    /// </summary>
-    public IReadOnlyList<int> GetExtraTiles()
-    {
-        if (!ExtraLanes || !CanUseExtraLanes) return [];
-        var visible = GetVisibleTiles();
-        int low = visible[0], high = visible[^1];
-        if (low > 1 && high < LaneKeyCount) return [low - 1, high + 1];
-        var side = low > 1 ? Enumerable.Range(1, low - 1).Reverse() : Enumerable.Range(high + 1, LaneKeyCount - high);
-        return side.Take(2).Order().ToArray();
-    }
-
-    /// <summary>
     /// How many lanes the screen shows: the display setting when it names one, otherwise the maximum tile count. It is
     /// never below the maximum, so every lane the rules use is on screen.
     /// </summary>
@@ -523,20 +531,47 @@ public sealed record VisualizerSettings
     /// <summary>The lanes the screen shows, ascending, whether the rules use them or not.</summary>
     public IReadOnlyList<int> GetShownTiles() => GetPattern(ShownLaneCount).Union(GetVisibleTiles()).Order().ToArray();
 
-    /// <summary>Every lane that may be on screen, ascending: the shown lanes plus any spare lanes.</summary>
-    public IReadOnlyList<int> GetDisplayTiles() => GetShownTiles().Concat(GetExtraTiles()).Distinct().Order().ToArray();
+    /// <summary>
+    /// Every lane that may be on screen, ascending: the shown lanes, or with the auto tile count all of them, since the
+    /// screen is then as wide as the loaded song (so a saved edit's lanes are never refused there).
+    /// </summary>
+    public IReadOnlyList<int> GetDisplayTiles() => AutoTileCount ? Enumerable.Range(1, LaneKeyCount).ToArray() : GetShownTiles();
 
     /// <summary>
-    /// The lanes to draw for a set of placed notes: the shown lanes, plus only the spare lanes a note really sits on.
-    /// Extra lane placement adds a lane when a chord needs one, so switching it on must not widen the screen by itself.
+    /// The lanes to draw for a set of placed notes: the shown lanes, or with the auto tile count the lanes of the tile count
+    /// this song was laid out with (user rule: a song takes only the lanes it needs, and the next one starts from four
+    /// again). A display lane count is the least the screen shows there.
     /// </summary>
     public IReadOnlyList<int> GetDisplayTiles(IEnumerable<int> usedTiles)
     {
         ArgumentNullException.ThrowIfNull(usedTiles);
-        var spare = GetExtraTiles();
-        if (spare.Count == 0) return GetShownTiles();
-        var used = usedTiles.ToHashSet();
-        return GetShownTiles().Concat(spare.Where(used.Contains)).Distinct().Order().ToArray();
+        if (!AutoTileCount) return GetShownTiles();
+        return AutoTiles(DisplayLaneCount > 0 ? usedTiles.Concat(GetPattern(DisplayLaneCount)) : usedTiles);
+    }
+
+    /// <summary>
+    /// The lanes the keys are played on: the maximum tile count's, or with the auto tile count those of the tile count the
+    /// loaded song was laid out with (the game's key limiter takes these).
+    /// </summary>
+    public IReadOnlyList<int> GetPlayedTiles(IEnumerable<int> usedTiles)
+    {
+        ArgumentNullException.ThrowIfNull(usedTiles);
+        return AutoTileCount ? AutoTiles(usedTiles) : GetVisibleTiles();
+    }
+
+    /// <summary>
+    /// The lanes of the smallest of auto's tile counts whose pattern holds every lane a note sits on. The notes do not say
+    /// which count laid them out, and a saved edit may sit on any lane, so the lanes themselves are asked.
+    /// </summary>
+    private IReadOnlyList<int> AutoTiles(IEnumerable<int> usedTiles)
+    {
+        var used = usedTiles.Where(tile => tile is >= 1 and <= LaneKeyCount).Distinct().ToArray();
+        foreach (var count in AutoTileSteps())
+        {
+            var lanes = GetPattern(count);
+            if (used.All(lanes.Contains)) return lanes.Order().ToArray();
+        }
+        return Enumerable.Range(1, LaneKeyCount).ToArray();
     }
 
     /// <summary>ARGB colors of screen lanes 1..8 (valid settings only); empty when the lanes follow the theme.</summary>
@@ -591,6 +626,11 @@ public sealed record VisualizerSettings
         if (!validMaximum) Add(L("Error.MaximumTiles"), nameof(MaximumTileCount));
         if (!IsMode(MinimumTileCount)) Add(L("Error.MinimumTiles"), nameof(MinimumTileCount));
         else if (validMaximum && MinimumTileCount > MaximumTileCount) Add(L("Error.MinimumAboveMaximum"), nameof(MinimumTileCount), nameof(MaximumTileCount));
+        // Auto may take up to eight tiles for a song, so the maximum is eight with it. Without the enhanced 4/8-key rules
+        // it stays at four (user rule: it widens with them only, for now), which is no reason to refuse the settings.
+        if (AutoTileCount && MaximumTileCount != LaneKeyCount) Add(L("Error.AutoTiles"), nameof(MaximumTileCount));
+        if (!double.IsFinite(JudgmentBarOffset) || Math.Abs(JudgmentBarOffset) > MaximumJudgmentBarOffset)
+            Add(L("Error.JudgmentBarOffset", MaximumJudgmentBarOffset.ToString("0", CultureInfo.InvariantCulture)), nameof(JudgmentBarOffset));
         if (InitialTile is < 1 or > 8) Add(L("Error.InitialTile"), nameof(InitialTile));
         if (!Positive(NoteTravelTimeMs)) Add(L("Error.TravelTime"), nameof(NoteTravelTimeMs));
         var scaleRange = L("Error.Scale", MinimumNoteScale.ToString("0.##", CultureInfo.InvariantCulture),
@@ -645,8 +685,9 @@ public sealed record VisualizerSettings
                 Add(L("Error.LaneColors"), nameof(LaneBackgroundColors));
         }
 
-        // The screen may show more lanes than the rules use, never fewer (user rule).
-        if (DisplayLaneCount != 0 && (!Modes.Contains(DisplayLaneCount) || DisplayLaneCount < MaximumTileCount))
+        // The screen may show more lanes than the rules use, never fewer (user rule). With the auto tile count it is as
+        // wide as the loaded song whatever this says, so there any lane count is only the least it shows.
+        if (DisplayLaneCount != 0 && (!Modes.Contains(DisplayLaneCount) || (DisplayLaneCount < MaximumTileCount && !AutoTileCount)))
             Add(L("Error.DisplayLanes"), nameof(DisplayLaneCount));
 
         var boundaries = new List<string>();
@@ -699,9 +740,13 @@ public sealed record VisualizerSettings
         }
         if (errors.Count == 0 && DynamicTiming)
         {
-            var visible = GetVisibleTiles();
-            var hidden = new[] { 1, 2, 4, 6 }.Where(mode => mode < MaximumTileCount && mode >= MinimumTileCount)
-                .Where(mode => GetPattern(mode).Except(visible).Any()).Select(PatternField).ToArray();
+            // Auto lays a song out with any of its tile counts, so the slower patterns have to sit on the lanes of each.
+            var hidden = (AutoTileCount ? GetAutoTileCounts() : [MaximumTileCount]).SelectMany(count =>
+            {
+                var visible = GetPattern(count);
+                return new[] { 1, 2, 4, 6 }.Where(mode => mode < count && mode >= MinimumTileCount)
+                    .Where(mode => GetPattern(mode).Except(visible).Any());
+            }).Distinct().Select(PatternField).ToArray();
             if (hidden.Length > 0) Add(L("Error.HiddenTiles"), hidden);
         }
         return errors.AsReadOnly();

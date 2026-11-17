@@ -168,8 +168,19 @@ internal static class RhythmVisualTests
             Equal(judge.Press(session, 5, 150), (int?)0);
             Assert(judge.IsPressed(session.Notes, 0), "Pressed note is marked");
             Equal(judge.Press(session, 5, 150), (int?)null); // Already pressed; the next tile-5 note is out of range.
-            clock.NowMs = 380; Equal(judge.Press(session, 4, 150), (int?)5);
+            // As the game takes a tile: a press earlier than the note's own counted window (65 ms here) does not take it,
+            // however wide the press window is. It is shown as too early and the note stays to be pressed (user report: one
+            // stray press took the next note of the lane, and then every press after it was a note ahead and early).
+            var marks = judge.RecentPresses.Count;
+            clock.NowMs = 380; Equal(judge.Press(session, 4, 150), (int?)null);
+            Assert(!judge.IsPressed(session.Notes, 5), "The note 120 ms ahead is not taken");
+            Equal(judge.RecentPresses.Count, marks + 1);
+            Equal(judge.RecentPresses[^1], new PressMark(380, -120, 5));
             clock.NowMs = 450; Equal(judge.Press(session, 5, 150), (int?)4);
+            clock.NowMs = 470; Equal(judge.Press(session, 4, 150), (int?)5);
+            Assert(judge.IsPressed(session.Notes, 5), "Inside its counted window the note is taken");
+            // Late presses keep the press window: only an early one can run ahead of the notes.
+            clock.NowMs = 440; Equal(judge.Press(session, 6, 150), (int?)3);
             session.SetMapDisplayOffset(100);
             clock.NowMs = 720; Equal(judge.Press(session, 3, 50), (int?)6); // Displayed at 700, so it matches 620 + 100.
             Assert(session.Timeline!.HitTimesMs.SequenceEqual(new[] { 0d, 100, 200, 300, 400, 500, 600, 700 }), "Presses never touch timing");
@@ -183,6 +194,46 @@ internal static class RhythmVisualTests
             var chordJudge = new NotePressJudge();
             Equal(chordJudge.Press(chord, chord.Notes[1].Tile, 150), (int?)1);
             Equal(chordJudge.Press(chord, chord.Notes[0].Tile, 150), (int?)0);
+        });
+
+        yield return ("One stray early press does not pull the lane's later presses a note ahead", () =>
+        {
+            // User report: once an early mark showed, about ten more followed. A stray press took the next note of its lane
+            // from 100 ms away, so the press meant for that note found it taken and took the one after, early again, for as
+            // long as the lane's notes came within the press window. The game does not take a tile before its counted
+            // window (scrPlanet.SwitchChosen), and neither does this estimate.
+            var clock = new Clock();
+            var session = new PlaybackSession(clock);
+            var judge = new NotePressJudge();
+            session.LoadTimeline(Enumerable.Range(0, 10).Select(i => i * 138d).ToArray(), new VisualizerSettings
+            {
+                MaximumTileCount = 1, MinimumTileCount = 1, DynamicTiming = false, SimultaneousWindowMs = 0, TrillWindowMs = 0
+            });
+            session.Toggle();
+            session.Start();
+            var lane = session.Notes[0].Tile;
+            Assert(session.Notes.All(note => note.Tile == lane), "One lane carries every note");
+            clock.NowMs = session.Notes[0].HitTimeMs;
+            Equal(judge.Press(session, lane, 150), (int?)0);
+            // The stray press, 100 ms before the second note.
+            clock.NowMs = session.Notes[1].HitTimeMs - 100;
+            Equal(judge.Press(session, lane, 150), (int?)null);
+            Assert(judge.RecentPresses[^1] is { Note: 1, DeviationMs: -100 }, "Shown as too early for the note ahead: " + judge.RecentPresses[^1]);
+            for (var i = 1; i < session.Notes.Count; i++)
+            {
+                clock.NowMs = session.Notes[i].HitTimeMs;
+                Equal(judge.Press(session, lane, 150), (int?)i);
+                Assert(judge.RecentPresses[^1] is { DeviationMs: 0 } mark && mark.Note == i, $"Press {i} is on its own note, on time: " + judge.RecentPresses[^1]);
+            }
+
+            // The closest note decides, as it always did: a press nearer the next note than the one before is that note's,
+            // and too early for it takes neither. The game has let the earlier one go by then, so it is not taken instead.
+            session.Reset(session.Settings);
+            session.Start();
+            clock.NowMs += session.Notes[1].HitTimeMs - 68 - (session.TimelineTimeMs - session.Offsets.TotalMs);
+            Equal(judge.Press(session, lane, 150), (int?)null);
+            Assert(!judge.IsPressed(session.Notes, 0) && !judge.IsPressed(session.Notes, 1), "Neither note is taken");
+            Assert(judge.RecentPresses[^1] is { Note: 1, DeviationMs: -68 }, "Too early for the second note: " + judge.RecentPresses[^1]);
         });
 
         yield return ("Missed notes are reported once per note after their press window passes", () =>

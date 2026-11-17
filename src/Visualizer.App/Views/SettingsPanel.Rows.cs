@@ -239,7 +239,6 @@ public partial class SettingsPanel
         [nameof(VisualizerSettings.MagicCircleChords)] = ("StateMagicChordsOn", "StateMagicChordsOff"),
         [nameof(VisualizerSettings.ShowInputEffect)] = ("StateEffectOn", "StateEffectOff"),
         [nameof(VisualizerSettings.ShowMissEffect)] = ("StateEffectOn", "StateEffectOff"),
-        [nameof(VisualizerSettings.ExtraLanes)] = ("StateExtraLanesOn", "StateExtraLanesOff"),
         [nameof(VisualizerSettings.SlowNotesPastJudgmentLine)] = ("StateSlowdownOn", "StateSlowdownOff"),
         [nameof(VisualizerSettings.ExperimentalFeatures)] = ("StateApplied", "StateNotApplied"),
         [nameof(VisualizerSettings.ChordSectionLanes)] = ("StateChordLanesOn", "StateChordLanesOff"),

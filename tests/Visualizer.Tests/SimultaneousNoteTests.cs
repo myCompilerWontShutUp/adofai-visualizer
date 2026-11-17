@@ -240,7 +240,6 @@ internal static class SimultaneousNoteTests
             var checkedSongs = 0;
             foreach (var lanes in new[] { 1, 2, 4, 6, 8 })
             foreach (var enhanced in new[] { false, true })
-            foreach (var extra in new[] { false, true })
             foreach (var center in VisualizerSettings.TrillCenterChoices)
             for (var seed = 1; seed <= 6; seed++)
             {
@@ -254,14 +253,14 @@ internal static class SimultaneousNoteTests
                 var settings = new VisualizerSettings
                 {
                     MaximumTileCount = lanes, MinimumTileCount = 1, SimultaneousWindowMs = 20, TrillWindowMs = 40, ExperimentalFeatures = enhanced,
-                    EnhancedChordRules = enhanced, ExtraLanes = extra, TrillCenterPair = center, MagicCircleFixedTiles = false
+                    EnhancedChordRules = enhanced, TrillCenterPair = center, MagicCircleFixedTiles = false
                 };
                 if (lanes == 1) settings = settings with { InitialTile = settings.GetPattern(1)[0] };
                 IReadOnlyList<VisualizerNote> each;
                 try { each = generator.Generate(times.ToArray(), settings with { TrillAsOneNote = false }); }
                 catch (NotePlacementException) { continue; }
                 var notes = generator.Generate(times.ToArray(), settings);
-                var what = $"{lanes} lanes, enhanced {enhanced}, extra {extra}, center {center}, seed {seed}";
+                var what = $"{lanes} lanes, enhanced {enhanced}, center {center}, seed {seed}";
                 Equal(notes.Count, times.Count);
                 // A trill's notes keep their own times, exactly as they do counted note by note.
                 Assert(notes.Select(note => note.HitTimeMs).SequenceEqual(each.Select(note => note.HitTimeMs)), "The same times: " + what);
@@ -798,12 +797,12 @@ internal static class SimultaneousNoteTests
         yield return ("Enhanced 4/8 keys: singles keep to the four-key lanes themselves (d f j k), whatever is around them", () =>
         {
             // User report (S3RL - play it loud, enhanced 4/8 keys on): singles showed on a s and l ; as well; only trills and
-            // chords may go past the four-key lanes. Settings as the user plays: eight lanes, wide chords only, spare lanes,
-            // a magic circle fixed at eight tiles.
+            // chords may go past the four-key lanes. Settings as the user plays: eight lanes, wide chords only, a magic
+            // circle fixed at eight tiles.
             var generator = new NoteGenerator();
             var rules = new VisualizerSettings { MaximumTileCount = 8, MinimumTileCount = 2, EightKeyBoundaryMs = 55, SixKeyBoundaryMs = 55,
                 FourKeyBoundaryMs = 100, TwoKeyBoundaryMs = 500, SimultaneousWindowMs = 25, TrillWindowMs = 40, ChordsOnlyAboveFourKeys = true,
-                ExtraLanes = true, ExperimentalFeatures = true, EnhancedFourEightKeys = true, MagicCircleJudgmentLine = true,
+                ExperimentalFeatures = true, EnhancedFourEightKeys = true, MagicCircleJudgmentLine = true,
                 MagicCircleFixedTiles = true, MagicCircleTileCount = 8, MagicCircleNoteCount = 16, EnhancedChordRules = true, ChordAvoidBeforeLanes = true };
             Assert(!rules.PlaysByHand, "Singles are not played by hand under these rules");
             Equal(string.Join(" ", rules.GetSingleTiles()!), "3 4 5 6");
@@ -1223,7 +1222,7 @@ internal static class SimultaneousNoteTests
         yield return ("A chord wider than its lanes is cut at them, and the rest is the next chord at its own time", () =>
         {
             // User rule, from Camellia - Hello (BPM) 2026 (28 notes in 25ms, more than any lanes): a group holds no more notes
-            // than it has lanes, the screen's and any spare ones; what is left starts the next group, as a long roll does.
+            // than it has lanes; what is left starts the next group, as a long roll does.
             var generator = new NoteGenerator();
             var seven = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6, 500 }, Settings);
             Equal(seven.Count, 8);
@@ -1231,10 +1230,6 @@ internal static class SimultaneousNoteTests
                 "The first four are one chord over the four lanes: " + string.Join(" ", seven.Select(note => $"{note.Tile}@{note.HitTimeMs}")));
             Assert(seven.Skip(4).Take(3).All(note => note.HitTimeMs == 4) && seven.Skip(4).Take(3).Select(note => note.Tile).Distinct().Count() == 3,
                 "The other three are the next chord at their own first time: " + string.Join(" ", seven.Select(note => $"{note.Tile}@{note.HitTimeMs}")));
-            // With spare lanes on, the group first fills them, as before.
-            var spare = Settings with { ExtraLanes = true };
-            var wide = generator.Generate(new[] { 0d, 1, 2, 3, 4, 5, 6, 500 }, spare);
-            Equal(wide.Count(note => note.HitTimeMs == 0), 6); Equal(wide.Count(note => note.HitTimeMs == 6), 1);
             // A dense stream of the kind the song has: every note is placed, and no lane carries two notes at one time.
             var stream = Enumerable.Range(0, 120).Select(i => 1000 + i * 0.9).ToArray();
             var streamed = generator.Generate(stream, Settings);

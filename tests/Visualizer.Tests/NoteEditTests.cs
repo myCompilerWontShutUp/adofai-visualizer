@@ -800,14 +800,13 @@ internal static class NoteEditTests
         {
             var timeline = new ParsedTimeline([0, 500, 1000, 1500, 2000]);
             MapCacheEntry Entry() => new("e", @"C:\store\maps\edited", @"1234\2\main.adofai", "Plum - R", MapParseStatus.Supported, timeline, [], "hash", "test");
-            var four = new VisualizerSettings { MaximumTileCount = 4, MinimumTileCount = 1, FourKeyPattern = "3 4 5 6", SixKeyPattern = "2 3 4 5 6 7", ExtraLanes = false };
-            // Five lanes, tiles 3..7: a 4-key screen shows 3..6, and a 6-key one shows every one of them. Spare lanes hold
-            // chord notes only, so an edit is never offered them (user rule): it is told what it was made for instead.
+            var four = new VisualizerSettings { MaximumTileCount = 4, MinimumTileCount = 1, FourKeyPattern = "3 4 5 6", SixKeyPattern = "2 3 4 5 6 7" };
+            // Five lanes, tiles 3..7: a 4-key screen shows 3..6, and a 6-key one shows every one of them. The edit is told
+            // what it was made for.
             var fiveLanes = new NoteEdit("hash", new Dictionary<int, int> { [0] = 3, [1] = 4, [2] = 5, [3] = 6, [4] = 7 }, []);
             var asked = new List<string>();
             var declined = new MainViewModel
             {
-                ConfirmExtraLanes = _ => throw new InvalidOperationException("An edit is never offered spare lanes"),
                 ConfirmWiderLanes = message => { asked.Add(message); return false; },
                 SongLayout = _ => fiveLanes
             };
@@ -820,23 +819,36 @@ internal static class NoteEditTests
 
             var sixKeys = new MainViewModel
             {
-                ConfirmExtraLanes = _ => throw new InvalidOperationException("An edit is never offered spare lanes"),
                 ConfirmWiderLanes = _ => true,
                 SongLayout = _ => fiveLanes
             };
             sixKeys.ApplySettings(four);
             sixKeys.SelectedMap = Entry();
             sixKeys.LoadSelectedSong();
-            Assert(sixKeys.Settings.MaximumTileCount == 6 && !sixKeys.Settings.ExtraLanes && sixKeys.Playback.Notes.Count == 5, "Six lanes placed it");
+            Assert(sixKeys.Settings.MaximumTileCount == 6 && sixKeys.Playback.Notes.Count == 5, "Six lanes placed it");
 
             // Tile 1 is on no 4- or 6-key screen: eight keys are offered, and the change can be rolled back.
             var fromOne = new NoteEdit("hash", new Dictionary<int, int> { [0] = 1, [1] = 2, [2] = 3, [3] = 4, [4] = 5 }, []);
-            var wider = new MainViewModel { ConfirmExtraLanes = _ => throw new InvalidOperationException("An edit is never offered spare lanes"), ConfirmWiderLanes = _ => true, SongLayout = _ => fromOne };
+            var wider = new MainViewModel { ConfirmWiderLanes = _ => true, SongLayout = _ => fromOne };
             wider.ApplySettings(four);
             wider.SelectedMap = Entry();
             wider.LoadSelectedSong();
             Assert(wider.Settings.MaximumTileCount == 8 && wider.Playback.Notes.Count == 5, "Eight keys placed it");
             Equal(wider.SettingsHistory[^1].After.MaximumTileCount, 8);
+
+            // With the maximum tile count on auto every lane may come on screen, so an edit is placed where it was made
+            // and nothing is asked: the screen is as wide as its lanes, and the settings stay.
+            var auto = four with { MaximumTileCount = 8, AutoTileCount = true, ExperimentalFeatures = true, EnhancedFourEightKeys = true };
+            foreach (var (edit, lanes) in new[] { (fiveLanes, new[] { 2, 3, 4, 5, 6, 7 }), (fromOne, new[] { 1, 2, 3, 4, 5, 6, 7, 8 }) })
+            {
+                var free = new MainViewModel { ConfirmWiderLanes = _ => throw new InvalidOperationException("Auto never asks"), SongLayout = _ => edit };
+                free.ApplySettings(auto);
+                free.SelectedMap = Entry();
+                free.LoadSelectedSong();
+                Equal(free.Playback.Notes.Count, 5);
+                Sequence(free.Settings.GetDisplayTiles(free.Playback.Notes.Select(note => note.Tile)), lanes);
+                Equal(free.Settings, auto);
+            }
         }),
 
         ("A saved edit decides the lanes and chords when the song is played", () =>
